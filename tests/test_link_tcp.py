@@ -3,6 +3,7 @@ import socketserver
 import threading
 import time
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -315,3 +316,59 @@ def test_open_tries_the_next_address_when_one_fails(
         assert link.query("*IDN?") == IDN
     finally:
         link.close()
+
+
+def _listener() -> socket.socket:
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(5)
+    return sock
+
+
+def test_a_connect_timeout_on_a_host_that_answers_elsewhere_is_a_held_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SCPI socket with its one client slot taken stops completing handshakes while the
+    instrument's other ports still answer."""
+    other = _listener()
+    try:
+        port = other.getsockname()[1]
+        address = TcpAddress("127.0.0.1", 1)
+        infos = socket.getaddrinfo("127.0.0.1", 1, type=socket.SOCK_STREAM)
+
+        monkeypatch.setattr(tcp, "_NEIGHBOR_PORTS", (port,))
+        error = tcp.held_failure(address, infos)
+        assert error.kind == "held"
+        assert str(error) == "127.0.0.1 is on the network, but port 1 is not accepting connections."
+
+        monkeypatch.setattr(tcp, "_VXI11_PORT", port)
+        error = tcp.held_failure(address, infos)
+        assert str(error) == (
+            "127.0.0.1 is on the network, but port 1 is not accepting connections; it answers "
+            "VXI-11 on port 111, which the VISA connection reaches as TCPIP::127.0.0.1::INSTR."
+        )
+
+        monkeypatch.setattr(tcp, "_NEIGHBOR_PORTS", (1,))
+        error = tcp.held_failure(address, infos)
+        assert error.kind == "timeout"
+        assert str(error) == "No answer from 127.0.0.1:1 within 2 s."
+    finally:
+        other.close()
+
+
+def test_open_tcp_classifies_a_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def never(self: socket.socket, target: Any) -> None:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(socket.socket, "connect", never)
+    consulted: list[TcpAddress] = []
+
+    def classify(address: TcpAddress, infos: list[Any]) -> LinkError:
+        consulted.append(address)
+        return LinkError("held", "held")
+
+    monkeypatch.setattr(tcp, "held_failure", classify)
+    with pytest.raises(LinkError) as caught:
+        open_tcp(TcpAddress("127.0.0.1", 1), FAST)
+    assert caught.value.kind == "held"
+    assert consulted == [TcpAddress("127.0.0.1", 1)]

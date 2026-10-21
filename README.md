@@ -12,6 +12,10 @@ Record bench instruments on the same timeline as the device under test, and set 
 
 ![The signal tree with Instruments, demo psu and ch1 open, beside live plots of the supply's voltage falling as the battery charges, its current held at 2 A, and its 14.4 V setpoint.](assets/readme/overview.png)
 
+![The signal tree with Instruments, scope and poll open, beside live plots from a Siglent SDS824X HD: its channel 1 peak-to-peak measurement around 3.58 V, 0.5 V per division, and 500 MSa/s.](assets/readme/scope.png)
+
+The second capture is a Siglent SDS824X HD on the office switch, read over VXI-11 with the generic profile and four Extra readings; the demo bench supplies the others.
+
 ## What it records
 
 | | |
@@ -91,7 +95,7 @@ The config holds a list of `instruments` and one `advanced` group. Each instrume
 | `lan` (LAN) | A raw SCPI socket | **Host** (from the list, or typed), **Port** (empty uses the profile's default, 5025 for most instruments) |
 | `usb` (USB) | A USB-TMC instrument | **Device** (from the list, or a VISA resource string) |
 | `serial` (Serial port) | RS-232 or a USB-serial bridge | **Port** (from the list, or a path), **Baud** (empty uses the profile's default) |
-| `visa` (VISA resource) | Anything VISA names: `TCPIP0::host::inst0::INSTR`, `TCPIP0::host::hislip0::INSTR`, `GPIB0::5::INSTR` | **Resource**, **VISA library** |
+| `visa` (VISA resource) | Anything VISA names: `TCPIP0::host::inst0::INSTR`, `TCPIP0::host::hislip0::INSTR`, `GPIB0::5::INSTR` | **Resource** (from the list of what answers VXI-11 or HiSLIP, or typed), **VISA library** |
 | `demo` (Demo bench) | A simulated instrument | **Instrument**: supply, load, meter or AC source |
 
 Every entry has a **Profile** (Automatic, a shipped profile, or the path to your own file), a **Name**, and **Readings per second**. Advanced holds **Limits** (the most the extension will ever set, whatever the instrument allows), **Keep the front panel usable**, **Channels**, the reply timeout, the delay between commands, the line ending, and **Extra readings**: any query whose reply is a number, recorded as its own signal.
@@ -195,14 +199,14 @@ When an instrument stops answering or the link fails, the extension closes it an
 | Health | Also know |
 |---|---|
 | `Connecting to <where>.` | The first open has not finished. |
-| `Cannot open <where>: <reason>. <advice> Retrying.` | The reason comes from the link; the advice names the usual fix: the host and port, the device being plugged in, another program holding it, or a permission. |
+| `Cannot open <where>: <reason>. <advice> Retrying.` | The reason comes from the link; the advice names the usual fix: the host and port, the device being plugged in, another program holding it, or a permission. A host that is up but whose SCPI port no longer accepts connections is named as such: most instruments serve one client on that port, and a client that vanished without closing can hold it until the instrument is power-cycled. When the instrument also answers VXI-11, the message gives the VISA resource that reaches it. |
 | `Lost <where>: <reason>. Reconnecting.` | Three queries in a row got no reply, or the link broke. |
-| `Connected to <maker> <model>. Reading <n> signals on <c> channels at <x> Hz (target <y> Hz).` | With a note when the instrument answers slower than the target, and the last instrument error. |
+| `Connected to <maker> <model>. Reading <n> signals and <m> extra readings on <c> channels at <x> Hz (target <y> Hz).` | With a note when the instrument answers slower than the target, and the last instrument error. |
 | `Released <where>; run Acquire to take it back.` | Release closed it on purpose. |
 
 ## Limits
 
-- Oscilloscopes and waveform generators are not supported: their data are waveforms, not readings.
+- Oscilloscopes and waveform generators have no profiles: their data are waveforms, not readings. Their scalar readings (a measurement, the vertical scale, the sample rate) can still be recorded through the generic `ieee488` profile with Extra readings, which is how the scope in the second capture is read.
 - Instruments that speak a reverse-engineered protocol instead of SCPI (Korad and Tenma supplies, among others) have no profile.
 - A profile marked `manual` was written from the manual and has not been run against a unit. If yours answers differently, Get State shows the last commands and replies, and a transcript recorded with `just record` makes the fix a test.
 - USB-TMC through the built-in library has open issues with some Rigol and Siglent units; use LAN where the instrument has it, or a vendor VISA.

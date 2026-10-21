@@ -363,7 +363,7 @@ def test_three_timeouts_in_a_row_reconnect_and_log_the_gap(dp800: Profile, dp832
     try:
         assert wait_until(lambda: worker.state == "open")
         dp832.silent = True
-        assert wait_until(lambda: worker.state == "connecting", timeout_s=5)
+        assert wait_until(lambda: worker.state != "open", timeout_s=5)
         assert links[0].closed
         assert any("3 queries in a row got no reply" in m for m in emitter.messages())
         assert emitter.statuses[-1]["connected"] is False
@@ -382,7 +382,7 @@ def test_a_refused_open_sets_health_with_advice_and_keeps_trying(dp800: Profile)
     def opener(address: Any, settings: Any) -> ScriptedLink:
         nonlocal attempts
         attempts += 1
-        raise LinkError("connection refused", "refused")
+        raise LinkError("connection refused.", "refused")
 
     cfg = instrument_config(rate_hz=50)
     worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener)
@@ -390,8 +390,9 @@ def test_a_refused_open_sets_health_with_advice_and_keeps_trying(dp800: Profile)
     try:
         assert wait_until(lambda: attempts >= 2, timeout_s=5)
         assert worker.state == "failed"
-        assert worker.health.startswith(
-            "Cannot open 127.0.0.1:5555: connection refused. Nothing answers"
+        assert worker.health == (
+            "Cannot open 127.0.0.1:5555: connection refused. Nothing answers on that port; "
+            "check the host and port, and that the instrument's LAN socket is on. Retrying."
         )
         assert ask(worker, "read", channel=1) == {"error": worker.health}
     finally:
@@ -759,6 +760,112 @@ def test_load_file_profile_path_in_config(dp832: Dp832, tmp_path: Any) -> None:
     try:
         assert wait_until(lambda: worker.state == "open")
         assert worker.profile is not None and worker.profile.id == "mine"
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_reply_out_of_step_is_detected_and_the_link_resynchronized(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    """A command the instrument answers leaves every later reply one behind, as a scope did
+    when a query carried a parameter after its `?`."""
+    original = dp832.__call__
+
+    def chatty(command: str) -> str | None:
+        if command == "ECHO":
+            return "ECHOED"
+        return original(command)
+
+    emitter = RecordingEmitter()
+    link = ScriptedLink(chatty)
+    cfg = instrument_config(rate_hz=50)
+    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener_for(link))
+    worker.start()
+    try:
+        assert wait_until(lambda: worker.state == "open")
+        assert ask(worker, "scpi", command="ECHO") == {"ok": True}
+        assert any("replies were out of step" in m for m in emitter.messages())
+        assert ask(worker, "scpi", command="*IDN?")["reply"].startswith("RIGOL")
+        assert ask(worker, "read", channel=1)["voltage"] == 5.0
+        assert ask(worker, "state")["counters"]["instrument_errors"] == 0
+        assert ask(worker, "scpi", command=":SOUR1:VOLT? MAX")["reply"] == "5.000"
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+@pytest.mark.parametrize("profile", ["rigol-dp800", "auto"])
+def test_a_connection_the_instrument_accepts_but_never_answers_is_a_failed_open(
+    dp800: Profile, profile: str
+) -> None:
+    """A SCPI socket held by another client accepts the connection and says nothing."""
+    emitter = RecordingEmitter()
+    links: list[ScriptedLink] = []
+
+    def opener(address: Any, settings: Any) -> ScriptedLink:
+        link = ScriptedLink(lambda command: (_ for _ in ()).throw(LinkTimeout("no reply")))
+        links.append(link)
+        return link
+
+    cfg = instrument_config(rate_hz=50, profile=profile)
+    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener)
+    worker.start()
+    try:
+        assert wait_until(lambda: len(links) >= 2, timeout_s=5)
+        assert worker.state == "failed"
+        dialect = (
+            "; an instrument that speaks a dialect without it needs its profile picked"
+            if profile == "auto"
+            else ""
+        )
+        assert worker.health == (
+            "Cannot open 127.0.0.1:5555: accepted the connection but did not answer "
+            f"*IDN?{dialect}. "
+            "Instruments serve one client on their SCPI socket: close the other program that "
+            "uses it, or power-cycle the instrument. Retrying."
+        )
+        assert links[0].closed
+        assert not any(m.startswith("connected to") for m in emitter.messages())
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_per_channel_poll_rows_get_a_field_per_channel_and_join_read(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    emitter = RecordingEmitter()
+    original = dp832.__call__
+
+    def with_temp(command: str) -> str | None:
+        if command.startswith("SYST:TEMP? CH"):
+            return f"4{command[-1]}.5"
+        return original(command)
+
+    link = ScriptedLink(with_temp)
+    cfg = instrument_config(
+        rate_hz=50,
+        advanced={
+            "poll": [{"name": "temp", "query": "SYST:TEMP? CH{ch}", "unit": "degC", "every_s": 0.1}]
+        },
+    )
+    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener_for(link))
+    worker.start()
+    try:
+        assert wait_until(lambda: len(emitter.polls) >= 3, timeout_s=5)
+        assert {(p[1], p[2]) for p in emitter.polls[:3]} == {
+            ("temp_ch1", 41.5),
+            ("temp_ch2", 42.5),
+            ("temp_ch3", 43.5),
+        }
+        reading = ask(worker, "read", channel=2)
+        assert reading["temp_ch2"] == 42.5
+        assert "temp_ch1" not in reading
+        assert worker.health.startswith(
+            "Connected to RIGOL TECHNOLOGIES DP832A. Reading 8 signals and 1 extra readings on "
+            "3 channels"
+        )
     finally:
         worker.stop()
         worker.join(2)

@@ -9,7 +9,7 @@ from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
 from test_link_tcp import IDN, FakeInstrument, closed_port, instrument  # noqa: F401
 
-from zelos_extension_instruments.link import LinkError, LinkTimeout, Settings, VisaAddress, visa
+from zelos_extension_instruments.link import LinkError, LinkTimeout, Settings, VisaAddress
 from zelos_extension_instruments.link.visa import open_visa
 
 FAST = Settings(timeout_s=0.3)
@@ -83,7 +83,6 @@ class FakeVisa:
         self.managers: dict[str, FakeManager] = {}
         self.open_error: Exception | None = None
         monkeypatch.setattr(pyvisa, "ResourceManager", self)
-        monkeypatch.setattr(visa, "_managers", {})
 
     def __call__(self, library: str = "") -> FakeManager:
         if library == "@ivi" and not self.system_visa:
@@ -151,11 +150,13 @@ def test_explicit_system_visa_without_one_installed_is_a_config_error(
     assert "VISA library" in str(caught.value)
 
 
-def test_one_manager_per_backend_is_reused(fake_visa: FakeVisa) -> None:
+def test_every_open_asks_pyvisa_for_the_backends_manager(fake_visa: FakeVisa) -> None:
+    """pyvisa keeps one open manager per library and replaces a closed one, so nothing is
+    cached here: a cached manager closed elsewhere failed every open after it."""
     open_visa(VisaAddress("TCPIP::10.0.0.5::5025::SOCKET"), FAST)
     open_visa(VisaAddress("TCPIP::10.0.0.6::5025::SOCKET"), FAST)
     open_visa(VisaAddress("USB0::1::2::SN::INSTR", "py"), FAST)
-    assert fake_visa.created == ["@py"]
+    assert fake_visa.created == ["@py", "@py", "@py"]
 
 
 def test_open_applies_terminators_and_timeout(fake_visa: FakeVisa) -> None:

@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import libusb_package
 import psutil
@@ -24,6 +24,7 @@ import zeroconf
 
 from . import naming
 from .link import (
+    CONNECT_TIMEOUT_S,
     Address,
     Link,
     LinkError,
@@ -178,17 +179,10 @@ def _browse(budget_s: float) -> dict[str, Found]:
             log.debug("Closing mDNS failed: %s", e)
 
 
-def _close_manager(rm: Any) -> None:
-    try:
-        rm.close()
-    except Exception as e:
-        log.debug("Closing the VISA manager failed: %s", e)
-
-
 def _vxi11() -> dict[str, Found]:
     found: dict[str, Found] = {}
-    rm = None
     try:
+        # pyvisa shares one manager per library with every open link, so it is never closed here.
         rm = pyvisa.ResourceManager("@py")
         for resource in rm.list_resources("TCPIP?*INSTR"):
             parts = resource.split("::")
@@ -196,14 +190,11 @@ def _vxi11() -> dict[str, Found]:
                 found.setdefault(parts[1], _candidate(VisaAddress(resource), "vxi11", resource))
     except Exception as e:
         log.warning("VXI-11 broadcast failed: %s", e)
-    finally:
-        if rm is not None:
-            _close_manager(rm)
     return found
 
 
 # Raw-socket ports the shipped profiles use, probed on every local subnet.
-SCAN_PORTS = (5025, 5555, 5024, 2268, 3490)
+SCAN_PORTS = (5025, 5555, 2268, 3490)
 # The largest subnet the scan covers; a /22 at 0.3 s per host, 512 at a time, takes about 3 s.
 SCAN_MAX_HOSTS = 1024
 _SCAN_TIMEOUT_S = 0.3
@@ -274,7 +265,13 @@ def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Foun
             for ip, candidate in broadcast.result().items():
                 found.setdefault(ip, candidate)
             for candidate in scan.result():
-                found.setdefault(candidate.address.where.rsplit(":", 1)[0], candidate)
+                ip = candidate.address.where.rsplit(":", 1)[0]
+                # A host found by VXI-11 keeps that address beside the raw socket: `discover`
+                # picks the one that identifies.
+                if ip not in found:
+                    found[ip] = candidate
+                elif found[ip].source == "vxi11":
+                    found[f"{ip} socket"] = candidate
         if tried is not None:
             tried.append(f"mDNS for {budget_s:g} s")
             tried.append("VXI-11 broadcast")
@@ -335,7 +332,6 @@ def _libusb_devices() -> list[Found]:
 
 
 def _system_visa_devices() -> list[Found]:
-    rm = None
     try:
         rm = pyvisa.ResourceManager("@ivi")
         return [
@@ -345,9 +341,6 @@ def _system_visa_devices() -> list[Found]:
     except Exception as e:
         log.debug("No system VISA for USB: %s", e)
         return []
-    finally:
-        if rm is not None:
-            _close_manager(rm)
 
 
 def list_usb() -> list[Found]:
@@ -416,7 +409,11 @@ class _Attempt:
     def run(self) -> str:
         threading.Thread(target=self._run, name="identify", daemon=True).start()
         timeout_s = self._settings.timeout_s
-        if not self._done.wait(timeout_s * DEADLINE_FACTOR):
+        # A VISA open does its own connect and handshake before the query can start.
+        budget_s = timeout_s * DEADLINE_FACTOR
+        if isinstance(self._address, VisaAddress):
+            budget_s += CONNECT_TIMEOUT_S
+        if not self._done.wait(budget_s):
             with self._lock:
                 self._abandoned = True
                 link = self._link
@@ -483,10 +480,13 @@ def discover(
     identify_timeout_s: float = 2.0,
     skip: set[str] | None = None,
     tried: list[str] | None = None,
+    prefer: Literal["socket", "visa"] = "socket",
 ) -> list[Found]:
-    """Every candidate the chosen listings find, identified, sorted by source then detail.
+    """Every instrument the chosen listings find, identified, one per host, sorted by source
+    then detail.
 
-    Addresses in `skip` are listed but not opened: a running worker holds them. `tried`
+    A host reached two ways keeps the address that identified, and among those the `prefer`
+    kind. Addresses in `skip` are listed but not opened: a running worker holds them. `tried`
     collects one line per search that ran, for a message that says what was looked at.
     """
     listings: list[Callable[[], list[Found]]] = []
@@ -517,7 +517,37 @@ def discover(
         identified = list(
             pool.map(lambda f: _identify_safely(f, profiles, identify_timeout_s), free)
         )
-    return sorted(identified + held, key=lambda f: (f.source, f.detail))
+    return sorted(_one_per_host(identified + held, prefer), key=lambda f: (f.source, f.detail))
+
+
+def host_of(address: Address) -> str:
+    """What two addresses of one instrument share: the host of a LAN address, else the whole."""
+    if isinstance(address, TcpAddress):
+        return address.host
+    if isinstance(address, VisaAddress):
+        parts = address.resource.split("::")
+        if len(parts) > 1 and parts[0].upper().startswith("TCPIP"):
+            return parts[1]
+    return address.where
+
+
+def _one_per_host(found: list[Found], prefer: str) -> list[Found]:
+    """A host reached by raw socket and by VXI-11 is one instrument; two sockets are two."""
+
+    def rank(f: Found) -> tuple[bool, bool, str]:
+        wanted = isinstance(f.address, TcpAddress) == (prefer == "socket")
+        return (f.idn is None, not wanted, f.source)
+
+    chosen: list[Found] = []
+    for f in sorted(found, key=rank):
+        if any(
+            host_of(f.address) == host_of(c.address)
+            and not (isinstance(f.address, TcpAddress) and isinstance(c.address, TcpAddress))
+            for c in chosen
+        ):
+            continue
+        chosen.append(f)
+    return chosen
 
 
 def default_name(found: Found) -> str:

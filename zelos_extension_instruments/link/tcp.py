@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 from contextlib import suppress
+from typing import Any
 
 from . import (
     CONNECT_TIMEOUT_S,
@@ -89,6 +90,46 @@ def _open_failure(address: TcpAddress, exc: OSError) -> LinkError:
     return LinkError(f"Cannot connect to {address.where}: {exc.strerror or exc}.", "other")
 
 
+# Ports an instrument that is up answers on even while its SCPI socket is held: the VXI-11
+# portmapper, the LXI web page and the telnet console.
+_VXI11_PORT = 111
+_NEIGHBOR_PORTS = (_VXI11_PORT, 80, 5024)
+_NEIGHBOR_TIMEOUT_S = 0.5
+
+
+def held_failure(address: TcpAddress, infos: list[Any]) -> LinkError:
+    """The error for a connect that timed out: a held socket when the host answers on another
+    port, else the plain timeout."""
+    answered: list[int] = []
+    for port in _NEIGHBOR_PORTS:
+        for family, kind, proto, _, target in infos:
+            try:
+                sock = socket.socket(family, kind, proto)
+            except OSError:
+                continue
+            try:
+                sock.settimeout(_NEIGHBOR_TIMEOUT_S)
+                sock.connect((target[0], port, *target[2:]))
+                answered.append(port)
+                break
+            except OSError:
+                continue
+            finally:
+                sock.close()
+    if not answered:
+        return LinkError(
+            f"No answer from {address.where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout"
+        )
+    host = f"[{address.host}]" if ":" in address.host else address.host
+    text = f"{host} is on the network, but port {address.port} is not accepting connections"
+    if _VXI11_PORT in answered:
+        text += (
+            f"; it answers VXI-11 on port 111, which the VISA connection reaches as "
+            f"TCPIP::{address.host}::INSTR"
+        )
+    return LinkError(text + ".", "held")
+
+
 def open_tcp(address: TcpAddress, settings: Settings) -> Link:
     """Connect to a host and port; raises LinkError."""
     deadline = time.monotonic() + CONNECT_TIMEOUT_S
@@ -108,9 +149,9 @@ def open_tcp(address: TcpAddress, settings: Settings) -> Link:
             failure = _open_failure(address, exc)
             continue
         return TcpLink(sock, address.where, settings)
-    raise failure or LinkError(
-        f"No answer from {address.where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout"
-    )
+    if failure is None or failure.kind == "timeout":
+        failure = held_failure(address, infos)
+    raise failure
 
 
 class TcpLink:

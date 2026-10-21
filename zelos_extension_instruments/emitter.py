@@ -8,7 +8,7 @@ from typing import Any
 import zelos_sdk
 from zelos_sdk import schemas
 
-from .config import PollRow
+from .config import PollRow, poll_key
 from .naming import MAX_BYTES, Namer
 from .profile import BOOL_FIELDS, ENUM_FIELDS, Profile
 
@@ -76,14 +76,19 @@ class Emitter:
         if poll:
             # `time_ns` is the row's time argument and can never be a field.
             namer = Namer(("time_ns",), MAX_BYTES - len(f"{name}/poll".encode()))
-            poll_fields = {row.name: namer.name(row.name) for row in poll}
+            keys = [
+                (poll_key(row.name, ch), row.unit)
+                for row in poll
+                for ch in (range(1, channels + 1) if "{ch}" in row.query else (None,))
+            ]
+            poll_fields = {key: namer.name(key) for key, _ in keys}
             poll_event = self._source.add_event(
                 f"{name}/poll",
                 [
                     zelos_sdk.TraceEventFieldMetadata(
-                        poll_fields[row.name], zelos_sdk.DataType.Float64, row.unit
+                        poll_fields[key], zelos_sdk.DataType.Float64, unit
                     )
-                    for row in poll
+                    for key, unit in keys
                 ],
             )
         self._instruments[name] = _Instrument(

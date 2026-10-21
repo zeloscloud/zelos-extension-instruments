@@ -320,3 +320,8 @@ def _wording(error: ValidationError, schema: dict[str, Any]) -> str:
         unknown = sorted(set(instance) - set(schema.get("properties", {})))
         return f"unknown setting {', '.join(unknown)}."
     return f"{error.message}."
+
+
+def poll_key(row_name: str, ch: int | None) -> str:
+    """The field name of an extra reading: the row's name, per channel when its query has {ch}."""
+    return row_name if ch is None else f"{row_name}_ch{ch}"
