@@ -27,6 +27,8 @@ Record bench instruments on the same timeline as the device under test, and set 
 2. **Start** Instruments. The signals appear under `Instruments/<name>/ch1`, and the log shows what connected.
 3. **Set** something: open the Action panel, pick **Set**, choose the instrument and channel, type a voltage. The readback comes back in the result and the log says what changed.
 
+The first time the instrument list or Auto-configure runs after an install, the agent can take more than 10 s to start it, and the app's list gives up after 10 s. Open the list again; Auto-configure waits up to 30 s.
+
 No hardware? Press Auto-configure with nothing connected and it adds the demo bench: a supply charging a battery, a load discharging it, a meter on the shunt and an AC source feeding the charger, all running on their own.
 
 ![The Configure Instruments form: an Auto-configure button, then one entry with Connection set to Demo bench, Instrument to Power supply, Profile to auto with a Choose list, a Name and Readings per second at 10.](assets/readme/configure.png)
@@ -181,7 +183,7 @@ zelos actions execute Instruments/read --params '{"instrument": "psu"}'
 
 ## What the extension never does
 
-- It never sends `*RST` or any command that resets an instrument.
+- It never sends `*RST` or any command that resets an instrument on its own. The SCPI action sends what you type.
 - It never changes an output when it connects, reconnects, stops or crashes, and never re-applies a setpoint after a reconnect.
 - It never sets a value outside the profile's range or above a limit in the config, and it fails a set whose readback disagrees.
 - It never runs a write without asking when Zelos AI drives it: only List, Read and Get State are read-only.

@@ -171,7 +171,7 @@ def test_list_instruments_turns_found_units_into_choices(monkeypatch: pytest.Mon
     result = run("list_instruments", connection="lan")
     assert result["choices"] == [
         {
-            "value": "192.168.1.40",
+            "value": "192.168.1.40:5555",
             "label": "RIGOL TECHNOLOGIES DP832A (192.168.1.40:5555)",
             "detail": "profile rigol-dp800",
         },
@@ -185,11 +185,9 @@ def test_list_instruments_turns_found_units_into_choices(monkeypatch: pytest.Mon
 
 def test_list_instruments_with_nothing_found_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: [])
-    assert run("list_instruments", connection="usb") == {
-        "status": "success",
-        "choices": [],
-        "message": "No instruments found on USB. Type the address.",
-    }
+    result = run("list_instruments", connection="usb")
+    assert result["choices"] == []
+    assert result["message"].startswith("No instruments found. Searched: ")
 
 
 def test_list_instruments_serial_lists_every_port(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -254,11 +252,31 @@ def test_auto_config_with_nothing_found_adds_the_demo_bench(
         "dmm",
         "acsource",
     ]
-    assert result["message"] == "No instruments found; added the demo bench."
+    assert result["message"].endswith(" Added the demo bench.")
 
 
 def test_auto_config_with_nothing_new_keeps_the_form(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: [])
     form = {"instruments": [{"connection": "demo", "category": "psu"}]}
     result = run("auto_config", config=form)
-    assert result["config"] == form and result["message"] == "No new instruments found."
+    assert result["config"] == form
+    assert result["message"].startswith("No new instruments found. No instruments found.")
+
+
+def test_list_instruments_keeps_a_port_the_instrument_needs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = [
+        _found(
+            TcpAddress("192.168.1.40", 5555), "RIGOL TECHNOLOGIES,DP832A,X,1", "rigol-dp800", "mdns"
+        ),
+        _found(
+            TcpAddress("192.168.1.41", 5025),
+            "Keysight Technologies,E36313A,Y,1",
+            "keysight-e36300",
+            "mdns",
+        ),
+    ]
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: found)
+    values = [c["value"] for c in run("list_instruments", connection="lan")["choices"]]
+    assert values == ["192.168.1.40:5555", "192.168.1.41"]

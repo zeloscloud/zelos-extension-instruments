@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -177,12 +178,13 @@ def _instrument(item: dict[str, Any]) -> InstrumentConfig:
         for row in adv.get("poll", []) or []
     )
     line_ending = adv.get("line_ending")
+    host, port = _host_port(item) if connection == "lan" else (None, None)
     return InstrumentConfig(
         # The trace refuses a name that starts with a space.
         name=item.get("name", "").strip(" "),
         connection=connection,
-        host=item.get("host"),
-        port=int(item["port"]) if connection == "lan" and item.get("port") is not None else None,
+        host=host,
+        port=port,
         resource=item.get("resource"),
         backend=item.get("backend", "auto"),
         serial_port=item.get("port") if connection == "serial" else None,
@@ -203,6 +205,22 @@ def _instrument(item: dict[str, Any]) -> InstrumentConfig:
         line_ending=_LINE_ENDINGS[line_ending] if line_ending else None,
         poll=rows,
     )
+
+
+_HOST_PORT = re.compile(r"^(?:\[(?P<v6>[^\]]+)\]|(?P<host>[^:\s]+)):(?P<port>\d{1,5})$")
+
+
+def _host_port(item: dict[str, Any]) -> tuple[str | None, int | None]:
+    """The Host field, with a `host:port` or `[v6]:port` suffix split off; the Port field wins."""
+    host = item.get("host")
+    port = None if item.get("port") is None else int(item["port"])
+    if isinstance(host, str):
+        found = _HOST_PORT.match(host.strip())
+        if found is not None:
+            host = found.group("v6") or found.group("host")
+            if port is None:
+                port = int(found.group("port"))
+    return host, port
 
 
 def _poll_default(key: str) -> Any:

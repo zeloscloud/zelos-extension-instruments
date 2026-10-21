@@ -521,7 +521,7 @@ def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
     monkeypatch.setattr(
         discovery,
         "list_lan",
-        lambda budget_s: [
+        lambda budget_s, tried=None: [
             Found(live, None, None, None, "mdns", "b", None),
             Found(held, None, None, None, "mdns", "a", None),
         ],

@@ -221,7 +221,11 @@ class FakeInstrument:
                 for flag in reader.flags:
                     queries.setdefault(flag.query, []).append(partial(self._flag_parts, flag))
                 if reader.query is not None:
-                    entry = partial(self._reader_parts, reader)
+                    entry = (
+                        partial(self._all_channels, reader)
+                        if len(reader.mask) > 1
+                        else partial(self._reader_parts, reader)
+                    )
                     queries.setdefault(reader.query, []).append(entry)
         if profile.dmm is not None and profile.dmm.function_query is not None:
             queries.setdefault(profile.dmm.function_query, []).append(self._function_parts)
@@ -316,6 +320,10 @@ class FakeInstrument:
 
     def _clear_errors(self, _: re.Match[str]) -> None:
         self._errors.clear()
+
+    def _all_channels(self, reader: Reader, _ch: int) -> list[Part]:
+        """One status word that packs every channel, for a reader with a mask per channel."""
+        return [p for ch in range(1, self.channels + 1) for p in self._reader_parts(reader, ch)]
 
     def _reader_parts(self, reader: Reader, ch: int) -> list[Part]:
         if reader.parse == "floats":

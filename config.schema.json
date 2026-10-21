@@ -21,7 +21,7 @@
             "oneOf": [
               { "properties": {
                   "connection": { "enum": ["lan"] },
-                  "host": { "type": "string", "title": "Host", "minLength": 1, "description": "An instrument from the list, or a host name or address.", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_instruments", "params": { "connection": "lan" } } },
+                  "host": { "type": "string", "title": "Host", "minLength": 1, "description": "An instrument from the list, or a host name or address, with :port when the instrument does not use the profile's port.", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_instruments", "params": { "connection": "lan" } } },
                   "port": { "type": "integer", "title": "Port", "description": "The raw socket port. Empty uses the profile's default, 5025 for most instruments.", "minimum": 1, "maximum": 65535 },
                   "advanced": { "$ref": "#/definitions/advanced" } },
                 "required": ["host"] },

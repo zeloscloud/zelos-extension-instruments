@@ -6,7 +6,9 @@ with libusb-package (USB-TMC) and serialx (serial ports).
 """
 
 import dataclasses
+import ipaddress
 import logging
+import socket
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import libusb_package
+import psutil
 import pyvisa
 import serialx
 import usb.core
@@ -199,14 +202,87 @@ def _vxi11() -> dict[str, Found]:
     return found
 
 
-def list_lan(budget_s: float = 2.0) -> list[Found]:
-    """Instruments on the LAN, one per host: mDNS for `budget_s`, plus a VXI-11 broadcast."""
+# Raw-socket ports the shipped profiles use, probed on every local subnet.
+SCAN_PORTS = (5025, 5555, 5024, 2268, 3490)
+# The largest subnet the scan covers; a /22 at 0.3 s per host, 512 at a time, takes about 3 s.
+SCAN_MAX_HOSTS = 1024
+_SCAN_TIMEOUT_S = 0.3
+
+
+def local_subnets() -> list[ipaddress.IPv4Network]:
+    """The IPv4 subnets this machine sits on, loopback and link-local left out."""
+    subnets: list[ipaddress.IPv4Network] = []
     try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
+        for addresses in psutil.net_if_addrs().values():
+            for entry in addresses:
+                if entry.family != socket.AF_INET or not entry.netmask:
+                    continue
+                network = ipaddress.ip_network(f"{entry.address}/{entry.netmask}", strict=False)
+                if not isinstance(network, ipaddress.IPv4Network):
+                    continue
+                if network.is_loopback or network.is_link_local or network.prefixlen >= 32:
+                    continue
+                if network not in subnets:
+                    subnets.append(network)
+    except Exception as e:
+        log.warning("cannot list the network interfaces: %s", e)
+    return subnets
+
+
+def _port_open(ip: str, port: int) -> tuple[str, int] | None:
+    sock = socket.socket()
+    sock.settimeout(_SCAN_TIMEOUT_S)
+    try:
+        sock.connect((ip, port))
+        return ip, port
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def scan_lan(subnets: list[ipaddress.IPv4Network] | None = None) -> list[Found]:
+    """Hosts on the local subnets that accept a connection on a SCPI port, one per host."""
+    subnets = local_subnets() if subnets is None else subnets
+    targets = [
+        (str(host), port)
+        for network in subnets
+        if network.num_addresses <= SCAN_MAX_HOSTS
+        for host in network.hosts()
+        for port in SCAN_PORTS
+    ]
+    found: dict[str, Found] = {}
+    if not targets:
+        return []
+    with ThreadPoolExecutor(max_workers=512) as pool:
+        for hit in pool.map(lambda t: _port_open(*t), targets):
+            if hit is not None and hit[0] not in found:
+                ip, port = hit
+                found[ip] = _candidate(TcpAddress(ip, port), "scan", f"{ip}:{port}")
+    return list(found.values())
+
+
+def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Found]:
+    """Instruments on the LAN, one per host: mDNS for `budget_s`, a VXI-11 broadcast, and a
+    connection probe of every local subnet's SCPI ports. `tried` collects what ran."""
+    try:
+        subnets = local_subnets()
+        with ThreadPoolExecutor(max_workers=2) as pool:
             broadcast = pool.submit(_vxi11)
+            scan = pool.submit(scan_lan, subnets)
             found = _browse(budget_s)
             for ip, candidate in broadcast.result().items():
                 found.setdefault(ip, candidate)
+            for candidate in scan.result():
+                found.setdefault(candidate.address.where.rsplit(":", 1)[0], candidate)
+        if tried is not None:
+            tried.append(f"mDNS for {budget_s:g} s")
+            tried.append("VXI-11 broadcast")
+            scanned = [str(n) for n in subnets if n.num_addresses <= SCAN_MAX_HOSTS]
+            ports = ", ".join(str(p) for p in SCAN_PORTS)
+            tried.append(
+                f"ports {ports} on {', '.join(scanned)}" if scanned else "no local subnet to scan"
+            )
         return list(found.values())
     except Exception as e:
         log.warning("LAN listing failed: %s", e)
@@ -406,23 +482,35 @@ def discover(
     budget_s: float = 2.0,
     identify_timeout_s: float = 2.0,
     skip: set[str] | None = None,
+    tried: list[str] | None = None,
 ) -> list[Found]:
     """Every candidate the chosen listings find, identified, sorted by source then detail.
 
-    Addresses in `skip` are listed but not opened: a running worker holds them.
+    Addresses in `skip` are listed but not opened: a running worker holds them. `tried`
+    collects one line per search that ran, for a message that says what was looked at.
     """
     listings: list[Callable[[], list[Found]]] = []
     if lan:
-        listings.append(lambda: list_lan(budget_s))
-    if usb:
-        listings.append(list_usb)
+        listings.append(lambda: list_lan(budget_s, tried))
     if serial:
         listings.append(list_serial_candidates)
-    if not listings:
+        if tried is not None:
+            tried.append("serial ports of known instrument vendors")
+    if not listings and not usb:
         return []
     skip = skip or set()
-    with ThreadPoolExecutor(max_workers=len(listings)) as pool:
-        candidates = [f for batch in pool.map(lambda listing: listing(), listings) for f in batch]
+    candidates: list[Found] = []
+    if listings:
+        with ThreadPoolExecutor(max_workers=len(listings)) as pool:
+            candidates = [
+                f for batch in pool.map(lambda listing: listing(), listings) for f in batch
+            ]
+    if usb:
+        # After the LAN listing, never beside it: pyvisa-py's broadcast and pyusb both open libusb,
+        # and two device lists freed from two threads crashed libusb on Windows.
+        candidates += list_usb()
+        if tried is not None:
+            tried.append("USB-TMC devices")
     free = [f for f in candidates if f.address.where not in skip]
     held = [dataclasses.replace(f, error=IN_USE) for f in candidates if f.address.where in skip]
     with ThreadPoolExecutor(max_workers=8) as pool:
