@@ -12,6 +12,7 @@ import logging
 import socket
 import sys
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -521,6 +522,68 @@ def _identify_safely(found: Found, profiles: list[Profile], timeout_s: float) ->
         return dataclasses.replace(found, error=str(e) or type(e).__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class _Search:
+    """What one discovery looks at."""
+
+    listings: frozenset[str]
+    budget_s: float
+    identify_timeout_s: float
+    skip: frozenset[str]
+
+    def covers(self, other: "_Search") -> bool:
+        return (
+            self.listings >= other.listings
+            and self.budget_s >= other.budget_s
+            and self.identify_timeout_s >= other.identify_timeout_s
+            and self.skip == other.skip
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _Searched:
+    search: _Search
+    finished: float
+    # (listing, found) and (listing, line), so a narrower search takes only its own.
+    found: list[tuple[str, Found]]
+    tried: list[tuple[str, str]]
+
+    def answer(self, asked: _Search) -> tuple[list[Found], list[str]]:
+        found = [f for listing, f in self.found if listing in asked.listings]
+        return found, [line for listing, line in self.tried if listing in asked.listings]
+
+
+class _OneAtATime:
+    """Discovery runs one at a time; a caller that waited through a search covering its own
+    takes that result.
+
+    Two at once scanned every subnet twice, opened a single-client socket from two threads,
+    and walked libusb from two threads, which crashes it on Windows.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last: _Searched | None = None
+
+    def run(
+        self,
+        asked: _Search,
+        search: Callable[[list[tuple[str, str]]], list[tuple[str, Found]]],
+    ) -> tuple[list[Found], list[str]]:
+        arrived = time.perf_counter()
+        with self._lock:
+            last = self._last
+            if last is not None and last.finished > arrived and last.search.covers(asked):
+                return last.answer(asked)
+            tried: list[tuple[str, str]] = []
+            found = search(tried)
+            self._last = _Searched(asked, time.perf_counter(), found, tried)
+            return self._last.answer(asked)
+
+
+_searches = _OneAtATime()
+
+
 def discover(
     profiles: list[Profile],
     *,
@@ -540,44 +603,63 @@ def discover(
     kind. Addresses in `skip` are listed but not opened: a running worker holds them. `tried`
     collects one line per search that ran, for a message that says what was looked at.
     """
-    listings: list[Callable[[], list[Found]]] = []
-    if lan:
-        listings.append(lambda: list_lan(budget_s, tried))
-    if serial:
-        listings.append(list_serial_candidates)
-        if tried is not None:
-            tried.append("serial ports of known instrument vendors")
-    if not listings and not usb:
+    chosen = {name for name, on in (("lan", lan), ("usb", usb), ("serial", serial)) if on}
+    if not chosen:
         return []
-    skip = skip or set()
-    candidates: list[Found] = []
+    asked = _Search(frozenset(chosen), budget_s, identify_timeout_s, frozenset(skip or ()))
+    found, lines = _searches.run(asked, lambda t: _search(profiles, asked, t))
+    if tried is not None:
+        tried.extend(lines)
+    return sorted(_one_per_host(found, prefer), key=lambda f: (f.source, f.detail))
+
+
+def _search(
+    profiles: list[Profile], asked: _Search, tried: list[tuple[str, str]]
+) -> list[tuple[str, Found]]:
+    """Every candidate the asked listings find, with its listing, identified unless held."""
+    lan_lines: list[str] = []
+    listings: dict[str, Callable[[], list[Found]]] = {}
+    if "lan" in asked.listings:
+        listings["lan"] = lambda: list_lan(asked.budget_s, lan_lines)
+    if "serial" in asked.listings:
+        listings["serial"] = list_serial_candidates
+        tried.append(("serial", "serial ports of known instrument vendors"))
+    candidates: list[tuple[str, Found]] = []
     if listings:
         with ThreadPoolExecutor(max_workers=len(listings)) as pool:
-            candidates = [
-                f for batch in pool.map(lambda listing: listing(), listings) for f in batch
-            ]
-    if usb:
+            batches = list(pool.map(lambda listing: listing(), listings.values()))
+        candidates = [
+            (name, f) for name, batch in zip(listings, batches, strict=True) for f in batch
+        ]
+    tried.extend(("lan", line) for line in lan_lines)
+    if "usb" in asked.listings:
         # After the LAN listing, never beside it: pyvisa-py's broadcast and pyusb both open libusb,
         # and two device lists freed from two threads crashed libusb on Windows.
-        candidates += list_usb()
-        if tried is not None:
-            tried.append("USB-TMC devices")
+        candidates += [("usb", f) for f in list_usb()]
+        tried.append(("usb", "USB-TMC devices"))
     # A worker holds an instrument, not an address: its other address is held too.
-    held_hosts = {_host_of_where(where) for where in skip}
-    is_held = [f.address.where in skip or host_of(f.address) in held_hosts for f in candidates]
-    free = [f for f, h in zip(candidates, is_held, strict=True) if not h and f.error is None]
-    held = [
-        dataclasses.replace(f, error=IN_USE) for f, h in zip(candidates, is_held, strict=True) if h
+    held_hosts = {host_of_where(where) for where in asked.skip}
+
+    def is_held(f: Found) -> bool:
+        return f.address.where in asked.skip or host_of(f.address) in held_hosts
+
+    free = [(n, f) for n, f in candidates if not is_held(f) and f.error is None]
+    rest = [
+        (n, dataclasses.replace(f, error=IN_USE) if is_held(f) else f)
+        for n, f in candidates
+        if is_held(f) or f.error is not None
     ]
-    held += [f for f, h in zip(candidates, is_held, strict=True) if not h and f.error is not None]
     with ThreadPoolExecutor(max_workers=8) as pool:
         identified = list(
-            pool.map(lambda f: _identify_safely(f, profiles, identify_timeout_s), free)
+            pool.map(
+                lambda f: _identify_safely(f, profiles, asked.identify_timeout_s),
+                (f for _, f in free),
+            )
         )
-    return sorted(_one_per_host(identified + held, prefer), key=lambda f: (f.source, f.detail))
+    return [(n, f) for (n, _), f in zip(free, identified, strict=True)] + rest
 
 
-def _host_of_where(where: str) -> str:
+def host_of_where(where: str) -> str:
     """The host of a worker's `where`: `host:port`, `[v6]:port`, or a TCPIP VISA resource."""
     if "::" in where:
         parts = where.split("::")

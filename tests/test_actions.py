@@ -2,6 +2,7 @@
 links."""
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -268,7 +269,7 @@ def test_auto_config_with_nothing_new_keeps_the_form(monkeypatch: pytest.MonkeyP
     form = {"instruments": [{"connection": "demo", "category": "psu"}]}
     result = run("auto_config", config=form)
     assert result["config"] == form
-    assert result["message"].startswith("No new instruments found. No instruments found.")
+    assert result["message"].startswith("No instruments found. Searched: ")
 
 
 def test_list_instruments_keeps_a_port_the_instrument_needs(
@@ -336,12 +337,66 @@ def test_list_instruments_names_an_instrument_a_worker_holds(
     assert choice["detail"] == "in use by this extension"
 
 
-def test_auto_config_reports_an_instrument_already_running(
+def _holder(name: str, entry: dict[str, Any], where: str, idn: str) -> Any:
+    """A running worker as the actions see it."""
+    return SimpleNamespace(
+        cfg=SimpleNamespace(name=name, entry=entry), where=where, idn=parse_idn(idn)
+    )
+
+
+_SCOPE = {"connection": "visa", "resource": "TCPIP::10.0.0.5::INSTR", "name": "scope"}
+_SCOPE_IDN = "Siglent Technologies,SDS824X HD,SN1,3.8"
+
+
+def test_auto_config_hands_back_a_running_instrument_the_form_lacks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    held = _found(TcpAddress("10.0.0.5", 5025), None, None, "scan", discovery.IN_USE)
+    """An empty form while the scope records got the demo bench, and saving it dropped the scope."""
+    held = _found(TcpAddress("10.0.0.5", 5025), None, None, "mdns", discovery.IN_USE)
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: [held])
-    result = run("auto_config", config={"instruments": [{"connection": "demo", "category": "psu"}]})
-    assert result["config"]["instruments"] == [{"connection": "demo", "category": "psu"}]
-    assert result["message"].startswith("No new instruments found.")
-    assert result["message"].endswith(" Already running in this extension: 10.0.0.5:5025.")
+    monkeypatch.setitem(
+        actions.workers, "scope", _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN)
+    )
+    result = run("auto_config", config={})
+    assert result["config"]["instruments"] == [_SCOPE]
+    assert result["message"] == "Already recording: scope (TCPIP::10.0.0.5::INSTR)."
+
+
+def test_auto_config_keeps_a_running_instrument_the_form_has(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held = [
+        _found(TcpAddress("10.0.0.5", 5025), None, None, "mdns", discovery.IN_USE),
+        _found(TcpAddress("10.0.0.5", 5555), None, None, "scan", discovery.IN_USE),
+    ]
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: held)
+    monkeypatch.setitem(
+        actions.workers, "scope", _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN)
+    )
+    form = {"instruments": [dict(_SCOPE, name="bench scope")]}
+    result = run("auto_config", config=form)
+    assert result["config"] == form
+    assert result["message"] == "Already recording: scope (TCPIP::10.0.0.5::INSTR)."
+
+
+def test_auto_config_knows_an_instrument_the_form_names_another_way(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = _found(TcpAddress("10.0.0.5", 5025), _SCOPE_IDN, "siglent-sds", "mdns")
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: [found])
+    form = {"instruments": [_SCOPE]}
+    result = run("auto_config", config=form)
+    assert result["config"] == form
+    assert result["message"] == "Already in the form: 10.0.0.5:5025."
+
+
+def test_list_instruments_names_an_instrument_held_under_its_other_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held = _found(TcpAddress("10.0.0.5", 5025), None, None, "mdns", discovery.IN_USE)
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: [held])
+    monkeypatch.setitem(
+        actions.workers, "scope", _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN)
+    )
+    choice = run("list_instruments", connection="lan")["choices"][0]
+    assert choice["label"] == "Siglent Technologies SDS824X HD (10.0.0.5:5025)"

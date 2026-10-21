@@ -8,7 +8,6 @@ from zelos_sdk.actions import SelectField, action, register_field_type
 from . import profile as profiles_module
 from .link import Address, TcpAddress
 from .naming import NAME_BYTES, unique_name
-from .profile import Idn
 from .profile_scope import (
     COUPLING_LABELS,
     MEASUREMENT_FIELDS,
@@ -115,7 +114,8 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
             value = _lan_value(f.address)
         else:
             value = f.address.where
-        idn = f.idn or _held_identity(f.address.where)
+        holder = _holder(f.address)
+        idn = f.idn or (holder.idn if holder else None)
         who = f"{idn.manufacturer} {idn.model}".strip() if idn else ""
         label = f"{who} ({f.address.where})" if who else f.address.where
         detail = f.error or (f.profile_id and f"profile {f.profile_id}") or None
@@ -163,11 +163,8 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     instruments: list[Any] = list((config or {}).get("instruments") or [])
     known: set[str] = set()
     for item in instruments:
-        if not isinstance(item, dict):
-            continue
-        for key in ("host", "resource", "port"):
-            if isinstance(item.get(key), str):
-                known.add(item[key])
+        if isinstance(item, dict):
+            known |= _hosts(item)
     names = {
         i["name"] for i in instruments if isinstance(i, dict) and isinstance(i.get("name"), str)
     }
@@ -183,35 +180,51 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
         tried=tried,
     )
     added: list[str] = []
+    in_form: list[str] = []
+    running: list[str] = []
     unidentified: list[str] = []
-    in_use: list[str] = []
     for f in found:
         if f.error == discovery.IN_USE:
-            in_use.append(f.address.where)
+            holder = _holder(f.address)
+            if holder is None:
+                running.append(f.address.where)
+                continue
+            entry = holder.cfg.entry
+            if holder.cfg.name not in names and not _hosts(entry) & known:
+                instruments.append(entry)
+                names.add(holder.cfg.name)
+            label = f"{holder.cfg.name} ({holder.where})"
+            if label not in running:
+                running.append(label)
             continue
         if f.error and f.idn is None:
             unidentified.append(f"{f.address.where}: {f.error}")
             continue
-        entry = discovery.config_entry(f)
-        if any(entry.get(k) in known for k in ("host", "resource", "port")):
+        if discovery.host_of(f.address) in known:
+            in_form.append(f.address.where)
             continue
+        entry = discovery.config_entry(f)
         name = unique_name(discovery.default_name(f), names, max_bytes=NAME_BYTES)
         entry["name"] = name
         instruments.append(entry)
         added.append(f"{name} ({f.address.where})")
+    parts: list[str] = []
     if added:
-        message = f"Added {len(added)}: {', '.join(added)}."
-    elif instruments:
-        message = f"No new instruments found. {_nothing_found(tried)}"
-    else:
-        instruments = [
-            {"connection": "demo", "category": c} for c in ("psu", "load", "dmm", "acsource")
-        ]
-        message = f"{_nothing_found(tried)} Added the demo bench."
-    if in_use:
-        message += " Already running in this extension: " + ", ".join(in_use) + "."
+        parts.append(f"Added {len(added)}: {', '.join(added)}.")
+    if running:
+        parts.append(f"Already recording: {', '.join(running)}.")
+    if in_form and not added:
+        parts.append(f"Already in the form: {', '.join(in_form)}.")
+    if not (added or running or in_form):
+        parts.append(_nothing_found(tried))
+        if not instruments:
+            instruments = [
+                {"connection": "demo", "category": c} for c in ("psu", "load", "dmm", "acsource")
+            ]
+            parts.append("Added the demo bench.")
     if unidentified:
-        message += " Not identified: " + "; ".join(unidentified[:5]) + "."
+        parts.append("Not identified: " + "; ".join(unidentified[:5]) + ".")
+    message = " ".join(parts)
     return {"status": "success", "config": {"instruments": instruments}, "message": message}
 
 
@@ -486,9 +499,30 @@ def _nothing_found(tried: list[str]) -> str:
     )
 
 
-def _held_identity(where: str) -> Idn | None:
-    """What the worker that holds an address learned about it."""
-    return next((w.idn for w in workers.values() if w.where == where), None)
+def _holder(address: Address) -> InstrumentWorker | None:
+    """The worker that holds this instrument, under this address or its other one."""
+    from . import discovery
+
+    host = discovery.host_of(address)
+    return next(
+        (
+            w
+            for w in workers.values()
+            if w.where == address.where or discovery.host_of_where(w.where) == host
+        ),
+        None,
+    )
+
+
+def _hosts(item: dict[str, Any]) -> set[str]:
+    """The instruments a config entry addresses, by host as discovery tells them apart."""
+    from . import discovery
+
+    return {
+        discovery.host_of_where(item[k])
+        for k in ("host", "resource", "port")
+        if isinstance(item.get(k), str)
+    }
 
 
 def _visa_value(address: Address) -> str:
