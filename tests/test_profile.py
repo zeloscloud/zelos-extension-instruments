@@ -928,3 +928,17 @@ def test_a_scope_profiles_fields_include_every_measurement_its_slots_can_show() 
         assert name in fields, name
     assert fields["pkpk"] == "V" and fields["frequency"] == "Hz" and fields["scale"] == "V"
     assert "timebase" not in fields and scope.instrument_fields["timebase"] == "s"
+
+
+def test_every_profiles_own_identity_matches_exactly_one_profile(profiles: list[Profile]) -> None:
+    """A loose match in one family must not claim another family's instruments."""
+    from zelos_extension_instruments.profile import find
+    from zelos_extension_instruments.sim import FakeInstrument
+
+    for profile in profiles:
+        if profile.generic:
+            continue
+        idn = parse_idn(FakeInstrument(profile).idn)
+        matching = [p.id for p in profiles if p.matches(idn)]
+        assert matching == [profile.id], f"{idn.text} matches {matching}"
+        assert find(profiles, idn) is profile
