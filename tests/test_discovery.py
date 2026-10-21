@@ -158,8 +158,10 @@ def test_list_lan_picks_the_best_address_per_host_and_dedupes_by_ip(
     assert found["[2001:db8::5]:5025"].address == TcpAddress("2001:db8::5", 5025)
     assert found["TCPIP0::10.0.0.9::inst0::INSTR"].source == "vxi11"
     assert not any("2001:db8::6" in where for where in found)
-    assert not any("10.0.0.5" in where and where != "10.0.0.5:5555" for where in found)
-    assert len(found) == 6
+    # The host mDNS names by raw socket keeps its VXI-11 address too: a held socket must not
+    # hide the instrument.
+    assert found["TCPIP0::10.0.0.5::inst0::INSTR"].source == "vxi11"
+    assert len(found) == 7
     assert vxi.queries == ["TCPIP?*INSTR"]
     assert not vxi.closed
 

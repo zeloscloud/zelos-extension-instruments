@@ -298,7 +298,12 @@ def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Foun
             scan = pool.submit(scan_lan, subnets)
             found = _browse(budget_s)
             for ip, candidate in broadcast.result().items():
-                found.setdefault(ip, candidate)
+                # A host mDNS named by its raw socket keeps its VXI-11 address beside it too:
+                # `discover` keeps whichever identifies, and a held socket does not.
+                if ip in found and not isinstance(found[ip].address, VisaAddress):
+                    found[f"{ip} vxi11"] = candidate
+                else:
+                    found.setdefault(ip, candidate)
             try:
                 hits = scan.result()
             except Exception as e:
