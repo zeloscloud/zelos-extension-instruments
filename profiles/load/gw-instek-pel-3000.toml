@@ -1,0 +1,110 @@
+schema = 1
+id = "gw-instek-pel-3000"
+name = "GW Instek PEL-3000 series"
+category = "load"
+notes = """\
+Transcribed from the programming manual, not tried on a unit. The manual covers the PEL-3000 series and the profile matches the PEL-3021, PEL-3041 and PEL-3111. \
+The PEL-3031 is not in this manual, and the H and E variants have other ratings, so none of them is matched. \
+The manual has no resistance measurement query, so resistance is not read. Static setpoints use the A value (:CURRent:VA and so on), and each current range keeps its own A value. Replies carry a unit letter, for example 1.0A, which the reader accepts. \
+Remote interfaces are USB (virtual serial port), RS-232 and GPIB. RS-232 offers 2400, 4800, 9600, 19200 or 38400 baud, 1 or 2 stop bits and no, odd or even parity, set on the front panel with Shift + Help, and the manual names no default. The RS-232 cable is a null modem. \
+The manual needs no remote command. The optional :UTILity:REMote:MODE FAST deactivates the panel. \
+The :MODE query also returns CCCV, CRCV and CPCV for the combined modes, which read as unknown. \
+The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 8 overpower and 16 overtemperature."""
+
+[evidence]
+badge = "manual"
+source = "GW Instek DC Electronic Load PEL-3000 Programming Manual, version 1.40, and the PEL-3000 Quick Start Guide for ratings"
+url = "https://netes.com.tr/dosya/gw-instek-pel-3000-serisi-programlama-kilavuzu222222222"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(gw|good)'
+model = '^PEL-3(021|041|111)$'
+
+[link]
+baud = 9600
+
+[errors]
+query = ":SYST:ERR?"
+
+[ranges]
+voltage = { min = 1.5, max = 150, digits = 3 }
+current = { min = 0, max = 35, digits = 3 }
+power = { min = 0, max = 175, digits = 3 }
+resistance = { min = 0.042857, max = 250000, digits = 3 }
+
+[[ranges.models]]
+model = '^PEL-3041'
+current = { min = 0, max = 70, digits = 3 }
+power = { min = 0, max = 350, digits = 3 }
+resistance = { min = 0.021428, max = 125000, digits = 3 }
+
+[[ranges.models]]
+model = '^PEL-3111'
+current = { min = 0, max = 210, digits = 3 }
+power = { min = 0, max = 1050, digits = 3 }
+resistance = { min = 0.0071427, max = 41666.7, digits = 3 }
+
+[signals.voltage]
+query = ":MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = ":MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = ":MEAS:POW?"
+parse = "float"
+
+[state.current_set]
+query = ":CURR:VA?"
+parse = "float"
+
+[state.voltage_set]
+query = ":VOLT:VA?"
+parse = "float"
+
+[state.power_set]
+query = ":POW:VA?"
+parse = "float"
+
+[state.resistance_set]
+query = ":RES:VA?"
+parse = "float"
+
+[state.output]
+query = ":INP?"
+parse = "bool"
+
+[state.mode]
+query = ":MODE?"
+parse = "map"
+map = { CC = "cc", CV = "cv", CP = "cp", CR = "cr" }
+
+[state.protection]
+flags = [
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 2, shift = 1, value = "ocp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 16, shift = 4, value = "otp" },
+]
+
+[setters.current]
+command = ":CURR:VA {value}"
+
+[setters.voltage]
+command = ":VOLT:VA {value}"
+
+[setters.power]
+command = ":POW:VA {value}"
+
+[setters.resistance]
+command = ":RES:VA {value}"
+
+[setters.function]
+command = ":MODE {function}"
+map = { cc = "CC", cv = "CV", cp = "CP", cr = "CR" }
+
+[setters.output]
+command = ":INP {on}"

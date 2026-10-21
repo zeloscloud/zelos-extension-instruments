@@ -1,0 +1,61 @@
+schema = 1
+id = "generic-psu"
+name = "Generic SCPI power supply"
+category = "psu"
+generic = true
+notes = """Used when no profile matches the instrument. It probes the SCPI-99 forms MEAS:VOLT?, MEAS:CURR?, MEAS:POW?, VOLT?, CURR? and OUTP?, and drops each one the instrument rejects at start, with one log line. Setpoint ranges come from VOLT? MAX, VOLT? MIN, CURR? MAX and CURR? MIN; a setter stays refused until the instrument answers them or the config names a limit. For a multi-channel supply that follows the SCPI-99 INSTrument subsystem, set channels in the config to the channel count: the extension sends INST:NSEL <n> before each channel's commands. Instruments that put the channel in the command (SOUR2:VOLT, CH2) need their own profile."""
+
+[evidence]
+badge = "manual"
+source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
+url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
+date = "2026-10-20"
+
+[link]
+select = "INST:NSEL {ch}"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { max_query = "VOLT? MAX", min_query = "VOLT? MIN", digits = 3 }
+current = { max_query = "CURR? MAX", min_query = "CURR? MIN", digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+optional = true
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+optional = true
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+optional = true
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+optional = true
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+optional = true
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+optional = true
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.output]
+command = "OUTP {on}"

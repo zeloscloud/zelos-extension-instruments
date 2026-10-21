@@ -1,0 +1,88 @@
+schema = 1
+id = "keysight-e36200"
+name = "Keysight E36200 series"
+category = "psu"
+notes = "The E36231A and E36232A have one output, and the E36233A and E36234A have two. The limits are the maximum programmable values from the guide, about 3 percent above the nominal ratings, per output in single mode. Auto-series and parallel pairing on the dual models raise the limits on channel 1 and are not modeled. CV and CC come from STAT:QUES:INST:ISUM<n>:COND?: 1 is CC, 2 is CV, 0 is off or unregulated, and the table calls 3 a hardware failure while the register text calls it neither regulated, so this profile reads 3 as unregulated. The register text also says bit 2 (value 4) is constant power, so that reads as cp. The guide documents no power measurement, so power is left out. The overcurrent level (CURR:PROT) works only in persona mode, so there is no OCP setpoint. Overvoltage protection trips only after the supply is in CV mode longer than the OVP delay, and VOLT:PROT:STAT must be on. The trip queries take no channel list, so the profile selects the channel with INST:NSEL first. After SYST:PERS:MAN on a single-output model, the identity reads Agilent, which is still matched."
+
+[evidence]
+badge = "manual"
+source = "Keysight E36200 Series Autoranging DC Power Supplies Programming Guide, E36200-90008, Edition 1, September 2021"
+url = "https://res.cloudinary.com/iwh/image/upload/q_auto,g_center/assets/1/26/E36200_Series_Programming_Guide.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent)'
+model = '^E3623[1-4]A$'
+channels = 1
+
+[[match.models]]
+model = '^E3623[34]A$'
+channels = 2
+
+[link]
+local = "SYST:LOC"
+select = "INST:NSEL {ch}"
+
+[errors]
+query = "SYST:ERR?"
+
+# Programming Guide p. 15, Programming Ranges and Output Identifiers
+[ranges]
+voltage = { min = 0, max = 30.9, digits = 3 }
+current = { min = 0, max = 20.6, digits = 3 }
+
+[[ranges.models]]
+model = '^E3623[24]A$'
+voltage = { min = 0, max = 61.8, digits = 3 }
+current = { min = 0, max = 10.3, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT? (@{ch})"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR? (@{ch})"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT? (@{ch})"
+parse = "float"
+
+[state.current_set]
+query = "CURR? (@{ch})"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT? (@{ch})"
+parse = "float"
+
+[state.output]
+query = "OUTP? (@{ch})"
+parse = "bool"
+
+[state.mode]
+query = "STAT:QUES:INST:ISUM{ch}:COND?"
+parse = "bits"
+mask = 7
+map = { "0" = "off", "1" = "cc", "2" = "cv", "3" = "unregulated", "4" = "cp" }
+
+[state.protection]
+flags = [
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+  { query = "CURR:PROT:TRIP?", parse = "bool", value = "ocp" },
+]
+
+[setters.voltage]
+command = "VOLT {value},(@{ch})"
+
+[setters.current]
+command = "CURR {value},(@{ch})"
+
+[setters.ovp]
+command = "VOLT:PROT {value},(@{ch})"
+
+[setters.output]
+command = "OUTP {on},(@{ch})"
+
+[setters.clear]
+command = "OUTP:PROT:CLE (@{ch})"

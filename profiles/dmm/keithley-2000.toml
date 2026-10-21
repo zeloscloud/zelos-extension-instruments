@@ -1,0 +1,51 @@
+schema = 1
+id = "keithley-2000"
+name = "Keithley Model 2000"
+category = "dmm"
+notes = """Transcribed from the Model 2000 User's Manual; never run on a unit. Only the 2000 is covered: the manual used does not describe the 2001 or 2010, so they need their own profile. The meter must be in its SCPI language; RS-232 works in SCPI only; the 196/199 and 8840A languages use other commands. The GPIB primary address is 16 at the factory. RS-232 is fixed at 8 data bits, no parity and 1 stop bit, the factory baud rate is 4800, and the meter has no hardware handshake; set the baud rate on both ends. Set the TX TERM on the front panel to LF, because the meter ends each reply with the terminator chosen there. READ? aborts, initiates and fetches one reading per poll. It fails with error -225 when the sample count is above 1 and readings sit in the buffer, so leave the sample count at 1. With continuous initiation on, each READ? queues error -213 (init ignored) and still returns the reading. The function setter sends SENS:FUNC rather than CONFigure, because CONFigure resets the function's settings, disables math and buffer operation, and turns continuous initiation off. SYST:LOC, SYST:REM and SYST:RWLock work over RS-232 only, and the meter stays in local during RS-232 use with front-panel keys active, so this profile sends none of them."""
+
+[evidence]
+badge = "manual"
+source = "Keithley Model 2000 Multimeter User's Manual, 2000-900-01 Rev. J, August 2010"
+url = "https://static.rapidonline.com/pdf/1164897_an_en_01.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '(?i)^(model\s*)?2000$'
+
+[link]
+baud = 4800
+
+[errors]
+query = ":SYST:ERR?"
+
+[signals.value]
+query = ":READ?"
+parse = "float"
+
+[state.function]
+query = ":SENS:FUNC?"
+parse = "map"
+map = { "VOLT:DC" = "dc_voltage", "VOLT" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR:DC" = "dc_current", "CURR" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = ":SENS:FUNC?"
+function_map = { "VOLT:DC" = "dc_voltage", "VOLT" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR:DC" = "dc_current", "CURR" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+temperature = "degC"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = ':SENS:FUNC "{function}"'
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", diode = "DIOD", continuity = "CONT" }

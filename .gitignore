@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+
+# Build output and packages
+dist/
+*.tar.gz
+
+# Editors and OS
+.DS_Store
+.idea/
+*.swp
+
+# Local environment
+.env
+.envrc
+
+# Zelos
+.last_config
+config.json
+
+# Standalone action inventory: regenerated from the code on every package run.
+actions.json

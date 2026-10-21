@@ -1,0 +1,92 @@
+schema = 1
+id = "rigol-dp700"
+name = "Rigol DP700 series"
+category = "psu"
+notes = "The DP700 has one output and an RS232 port only, with no USB or LAN: 9600 baud, 8 data bits, no parity, 1 stop bit by default, and commands end with a newline. Data bits and stop bits cannot be changed, and the baud rate can be 7200 to 115200. The command set is the DP800 style, with an optional channel name (CH1) and a single :SOUR1 source. The guide gives the OCP and OVP tests as YES or NO. Voltage and current take 2 decimal places, which suits the standard unit, and a unit with the high-resolution option (HIRES-DP700) accepts 3. The limits here are the ratings, and the instrument accepts current up to 5.3 A on the DP711 and 3.2 A on the DP712. OVP and OCP are off by default, so enable them on the front panel or with :OUTP:OVP:STAT and :OUTP:OCP:STAT before relying on the trip flags. SYST:REMOTE locks all front-panel keys except On/Off, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR."
+
+[evidence]
+badge = "manual"
+source = "RIGOL DP700 Series Programmable Linear DC Power Supply Programming Guide, PGH05101-1110, Jun. 2016, software version 00.01.02"
+url = "https://www.batronix.com/files/Rigol/Labornetzteile/DP700/DP700_ProgrammingGuide_EN.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^rigol'
+model = '^DP71[12]$'
+channels = 1
+
+[link]
+baud = 9600
+data_bits = 8
+parity = "none"
+stop_bits = 1
+remote = "SYST:REMOTE"
+local = "SYST:LOCAL"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+# Programming Guide pp. 2-22 and 2-25, :SOURce commands
+[ranges]
+voltage = { min = 0, max = 30, digits = 2 }
+current = { min = 0, max = 5, digits = 2 }
+
+[[ranges.models]]
+model = '^DP712$'
+voltage = { min = 0, max = 50, digits = 2 }
+current = { min = 0, max = 3, digits = 2 }
+
+[signals.measure]
+query = ":MEAS:ALL? CH{ch}"
+parse = "floats"
+fields = ["voltage", "current", "power"]
+
+[state.voltage_set]
+query = ":SOUR{ch}:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR{ch}:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = ":OUTP:OVP:VAL? CH{ch}"
+parse = "float"
+
+[state.ocp_set]
+query = ":OUTP:OCP:VAL? CH{ch}"
+parse = "float"
+
+[state.output]
+query = ":OUTP? CH{ch}"
+parse = "bool"
+
+[state.mode]
+query = ":OUTP:MODE? CH{ch}"
+parse = "map"
+map = { CV = "cv", CC = "cc", UR = "unregulated" }
+
+[state.protection]
+flags = [
+  { query = ":OUTP:OVP:QUES? CH{ch}", parse = "bool", value = "ovp" },
+  { query = ":OUTP:OCP:QUES? CH{ch}", parse = "bool", value = "ocp" },
+]
+
+[setters.voltage]
+command = ":SOUR{ch}:VOLT {value}"
+
+[setters.current]
+command = ":SOUR{ch}:CURR {value}"
+
+[setters.ovp]
+command = ":OUTP:OVP:VAL CH{ch},{value}"
+
+[setters.ocp]
+command = ":OUTP:OCP:VAL CH{ch},{value}"
+
+[setters.output]
+command = ":OUTP CH{ch},{on}"
+
+[setters.clear]
+command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]

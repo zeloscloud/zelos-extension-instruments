@@ -1,0 +1,66 @@
+schema = 1
+id = "generic-load"
+name = "Generic SCPI electronic load"
+category = "load"
+generic = true
+notes = """Used when no profile matches the instrument. It probes MEAS:VOLT?, MEAS:CURR?, MEAS:POW?, SOUR:FUNC? and INP?, and drops each one the instrument rejects at start. Setpoint ranges come from the CURR?, VOLT?, POW? and RES? MAX queries. Function names differ between vendors: a SOUR:FUNC? reply other than CURR, VOLT, POW or RES reads as unknown, and the function setter sends CURR, VOLT, POW or RES. Loads that use other forms, such as CURR:LEV or FUNC:MODE, need their own profile. This profile has no channel select."""
+
+[evidence]
+badge = "manual"
+source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
+url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
+date = "2026-10-20"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { max_query = "VOLT? MAX", digits = 3 }
+current = { max_query = "CURR? MAX", digits = 3 }
+power = { max_query = "POW? MAX", digits = 3 }
+resistance = { max_query = "RES? MAX", digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+optional = true
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+optional = true
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+optional = true
+
+[state.mode]
+query = "SOUR:FUNC?"
+parse = "map"
+map = { CURR = "cc", VOLT = "cv", POW = "cp", RES = "cr" }
+optional = true
+
+[state.output]
+query = "INP?"
+parse = "bool"
+optional = true
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.power]
+command = "POW {value}"
+
+[setters.resistance]
+command = "RES {value}"
+
+[setters.function]
+command = "FUNC {function}"
+map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
+
+[setters.output]
+command = "INP {on}"

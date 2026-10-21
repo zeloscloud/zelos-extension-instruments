@@ -1,0 +1,153 @@
+schema = 1
+id = "chroma-62000p"
+name = "Chroma 62000P series"
+category = "psu"
+notes = """Covers the 62006P, 62012P, 62024P and 62050P models. \
+CONF:REM ON enables remote control (the manual says it is valid for RS-232 only) and the panel then ignores every key except REMOTE, which returns to local mode; the Local action sends CONF:REM OFF. \
+The output setter is CONF:OUTP ON or OFF, and CONF:OUTP? reads it back. \
+The LAN socket port is 2101 (TCP, on units with the Ethernet option); RS-232 defaults to 9600 baud with no parity; the response terminator on RS-232 is a line feed. \
+FETC:STAT? returns three fields: a warning bit mask (bit 0 OVP, bit 1 OCP, bit 2 OPP, bit 4 OTP), the output state and CV or CC. Mode and protection are read from it. \
+The OVP and OCP levels can exceed the output rating (the manual's example reads 88 V on an 80 V model), but the extension bounds them by the output ranges. \
+Clear is not wired: the manual lists no protection clear command in the sections read."""
+
+[evidence]
+badge = "manual"
+source = "Chroma 62000P Series Programmable DC Power Supply Operating & Programming Manual, Version 1.8, September 2014"
+url = "https://valuetronics.com/cdn/shop/files/Chroma_62000P_Series_Operating_and_Programming_Manual-2014.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^chroma'
+model = '(?i)^620\d\dP-\d+-\d+$'
+channels = 1
+
+[link]
+lan_port = 2101
+baud = 9600
+remote = "CONF:REM ON"
+local = "CONF:REM OFF"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "SOUR:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "SOUR:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "SOUR:VOLT:PROT:HIGH?"
+parse = "float"
+
+[state.ocp_set]
+query = "SOUR:CURR:PROT:HIGH?"
+parse = "float"
+
+[state.output]
+query = "CONF:OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "FETC:STAT?"
+parse = "map"
+index = 2
+map = { CV = "cv", CC = "cc" }
+
+[state.protection]
+flags = [
+  { query = "FETC:STAT?", parse = "bits", index = 0, mask = 1, value = "ovp" },
+  { query = "FETC:STAT?", parse = "bits", index = 0, mask = 2, value = "ocp" },
+  { query = "FETC:STAT?", parse = "bits", index = 0, mask = 4, value = "opp" },
+  { query = "FETC:STAT?", parse = "bits", index = 0, mask = 16, value = "otp" },
+]
+
+[setters.voltage]
+command = "SOUR:VOLT {value}"
+
+[setters.current]
+command = "SOUR:CURR {value}"
+
+[setters.ovp]
+command = "SOUR:VOLT:PROT:HIGH {value}"
+
+[setters.ocp]
+command = "SOUR:CURR:PROT:HIGH {value}"
+
+[setters.output]
+command = "CONF:OUTP {on}"
+
+[[ranges.models]]
+model = '(?i)62006P-30-80$'
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 80, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62006P-100-25$'
+voltage = { min = 0, max = 100, digits = 3 }
+current = { min = 0, max = 25, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62006P-300-8$'
+voltage = { min = 0, max = 300, digits = 3 }
+current = { min = 0, max = 8, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62012P-40-120$'
+voltage = { min = 0, max = 40, digits = 3 }
+current = { min = 0, max = 120, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62012P-80-60$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 60, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62012P-100-50$'
+voltage = { min = 0, max = 100, digits = 3 }
+current = { min = 0, max = 50, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62012P-600-8$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 8, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62024P-40-120$'
+voltage = { min = 0, max = 40, digits = 3 }
+current = { min = 0, max = 120, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62024P-80-60$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 60, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62024P-100-50$'
+voltage = { min = 0, max = 100, digits = 3 }
+current = { min = 0, max = 50, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62024P-600-8$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 8, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)62050P-100-100$'
+voltage = { min = 0, max = 100, digits = 3 }
+current = { min = 0, max = 100, digits = 3 }

@@ -1,0 +1,96 @@
+schema = 1
+id = "magna-power-xr-ts"
+name = "Magna-Power XR and TS series"
+category = "psu"
+notes = """Covers the XR Series IV and TS series programmable DC supplies. \
+The manual starts and stops the output with two commands, OUTP:START and OUTP:STOP, and has no single on/off command, so the profile has no output setter: switch the output with the front panel, the digital inputs or a script. OUTP? reads the output state (1 while the power circuit is processing power). \
+The supply takes its setpoints from the interface chosen with CONF:SETPT, and the SCPI commands need CONF:SETPT 3 (REMOTE). The profile sends it once after connecting, so the supply then follows the computer's setpoints instead of the knob; the Local action sends CONF:SETPT 0 (ROTARY). \
+The manual lists no power measurement, so power is not read. \
+Ranges are read from the instrument after connecting (VOLT? MAX and CURR? MAX). \
+Mode reads constant voltage and constant current from the operation condition register; zero shows as off. \
+Protection reads OV, OC and OT from the questionable condition register, and the phase balance, program line, fuse, alarm and interlock bits as other. \
+Clear resets the alarm latches once the cause is gone. \
+RS-232 runs at 19200 baud; the Ethernet socket port defaults to 50505 and the GPIB option accepts the same commands. \
+The IDN reply is Magna-Power Electronics Inc., XR16-375, S/N: <serial>, F/W:<firmware>."""
+
+[evidence]
+badge = "manual"
+source = "MagnaDC TS Series Documentation, Release 1, January 2022 (SCPI Command Set); XR Series IV User Manual 1.3"
+url = "https://magna-power.com/assets/files/manuals/ts_49297.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^magna-?power'
+model = '(?i)^(XRC?|TSD?)\d'
+channels = 1
+
+[link]
+lan_port = 50505
+baud = 19200
+remote = "CONF:SETPT 3"
+local = "CONF:SETPT 0"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max_query = "VOLT? MAX", digits = 3 }
+current = { min = 0, max_query = "CURR? MAX", digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.ocp_set]
+query = "CURR:PROT?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND?"
+parse = "bits"
+mask = 1280
+shift = 8
+map = { "0" = "off", "1" = "cv", "4" = "cc" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, value = "otp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 428, value = "other" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.ocp]
+command = "CURR:PROT {value}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

@@ -1,0 +1,49 @@
+schema = 1
+id = "siglent-sdm3000"
+name = "Siglent SDM3045X, SDM3055, SDM3065X"
+category = "dmm"
+notes = """Transcribed from the SDM3055 and SDM3065X remote manuals; never run on a unit. The SDM3045X manual could not be downloaded, so that model follows the same family and its own manual is unchecked. The remote manuals document neither *IDN? nor an error-queue query, so this profile has no error query and sets are verified by readback only. The match assumes a manufacturer field starting with Siglent. LAN uses the raw socket on port 5025 and Telnet on 5024, from Siglent's instrument port table; the remote manuals give no port. The manual says FUNC? returns the short form in quotes, such as "VOLT" or "CURR:AC". The manual's READ? wording is unclear: it says READ? reads and erases stored readings, and also lists it among the commands that clear reading memory. Leave the trigger source on IMM and the sample count at 1. The manual lists CONF:CAP and CONF:TEMP; a model without that function rejects it. CONF resets the function's range and resolution to the defaults."""
+
+[evidence]
+badge = "manual"
+source = "Siglent SDM3065X Remote Manual, RC06036-E01A, 2017; SDM3055/SDM3055A Remote Manual, RC06035-E01A, 2014; Siglent Instrument Socket and Telnet Port Information"
+url = "https://www.int.siglent.com/upload_file/user/SDM3065X/SDM3065X_Remote_Manual_RC06036-E01A.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^siglent'
+model = '(?i)^SDM30(45X|55|65X)'
+
+[link]
+lan_port = 5025
+
+[signals.value]
+query = "READ?"
+parse = "float"
+
+[state.function]
+query = "FUNC?"
+parse = "map"
+map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = "FUNC?"
+function_map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+temperature = "degC"
+capacitance = "F"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = "CONF:{function}"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }

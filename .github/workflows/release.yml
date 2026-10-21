@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# One workflow for every combination of parts. The uv setup runs when pyproject.toml exists,
+# the Node setup when web/package.json exists, and each just recipe acts on what exists.
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        if: hashFiles('pyproject.toml') != ''
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v7
+        if: hashFiles('web/package.json') != ''
+        with:
+          node-version-file: web/.nvmrc
+
+      - uses: extractions/setup-just@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify version matches manifest files
+        env:
+          TAG_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          check() {
+            if [ "$2" != "$TAG_VERSION" ]; then
+              echo "Error: $1 version ($2) does not match tag ($TAG_VERSION)"
+              exit 1
+            fi
+            echo "✓ $1 version matches: $2"
+          }
+          check extension.toml "$(python3 -c "import tomllib; print(tomllib.load(open('extension.toml','rb'))['version'])")"
+          if [ -f pyproject.toml ]; then
+            check pyproject.toml "$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          fi
+          if [ -f web/package.json ]; then
+            check web/package.json "$(python3 -c "import json; print(json.load(open('web/package.json'))['version'])")"
+          fi
+
+      - name: Install Zelos CLI
+        run: |
+          curl -fsSL https://release.zeloscloud.io/cli/install.sh | bash
+          echo "$HOME/.zelos/bin" >> "$GITHUB_PATH"
+        env:
+          INSTALLER_NO_MODIFY_PATH: 1
+
+      - name: Install dependencies
+        run: just ci-install
+
+      - name: Check formatting, lint and type-check
+        run: just check
+
+      - name: Run tests
+        run: just test
+
+      - name: Build and package extension
+        run: just package
+
+      - name: Verify package was created
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: ls ./*-"$VERSION".tar.gz
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3.0.3
+        with:
+          files: "*-${{ steps.version.outputs.VERSION }}.tar.gz"
+          generate_release_notes: true
+          fail_on_unmatched_files: true

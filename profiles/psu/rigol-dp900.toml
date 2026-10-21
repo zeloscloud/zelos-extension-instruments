@@ -1,0 +1,99 @@
+schema = 1
+id = "rigol-dp900"
+name = "Rigol DP900 series"
+category = "psu"
+notes = "The command set matches the DP800 profile, with OVP and OCP levels added (:OUTP:OVP:VAL, :OUTP:OCP:VAL). The DP932A and DP932U have two 32 V/3 A outputs and a 6 V/3 A output, and the DP932E has two 30 V/3 A outputs and a 6 V/3 A output. The limits here are the rated values, and the instrument accepts settings 5 percent above them. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. The programming guide does not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The DP900 has USB and LAN only."
+
+[evidence]
+badge = "manual"
+source = "RIGOL DP900 Series Programmable Linear DC Power Supply Programming Guide, PGH08101-1110, software version 00.01.02"
+url = "https://download.rigol.com/en/Manual/DC%20Power&Loads/DP900/DP900_ProgrammingGuide_en.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^rigol'
+model = '^DP932[AEU]$'
+channels = 3
+
+[link]
+lan_port = 5555
+remote = "SYST:REMOTE"
+local = "SYST:LOCAL"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+# Programming Guide Table 4.9, rated channel ranges
+[ranges]
+voltage = { min = 0, max = 32, digits = 3 }
+current = { min = 0, max = 3, digits = 3 }
+
+[[ranges.models]]
+model = '^DP932E$'
+channel = 1
+voltage = { min = 0, max = 30, digits = 3 }
+
+[[ranges.models]]
+model = '^DP932E$'
+channel = 2
+voltage = { min = 0, max = 30, digits = 3 }
+
+[[ranges.models]]
+model = '^DP932'
+channel = 3
+voltage = { min = 0, max = 6, digits = 3 }
+
+[signals.measure]
+query = ":MEAS:ALL? CH{ch}"
+parse = "floats"
+fields = ["voltage", "current", "power"]
+
+[state.voltage_set]
+query = ":SOUR{ch}:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR{ch}:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = ":OUTP:OVP:VAL? CH{ch}"
+parse = "float"
+
+[state.ocp_set]
+query = ":OUTP:OCP:VAL? CH{ch}"
+parse = "float"
+
+[state.output]
+query = ":OUTP? CH{ch}"
+parse = "bool"
+
+[state.mode]
+query = ":OUTP:MODE? CH{ch}"
+parse = "map"
+map = { CV = "cv", CC = "cc", UR = "unregulated" }
+
+[state.protection]
+flags = [
+  { query = ":OUTP:OVP:QUES? CH{ch}", parse = "bool", value = "ovp" },
+  { query = ":OUTP:OCP:QUES? CH{ch}", parse = "bool", value = "ocp" },
+]
+
+[setters.voltage]
+command = ":SOUR{ch}:VOLT {value}"
+
+[setters.current]
+command = ":SOUR{ch}:CURR {value}"
+
+[setters.ovp]
+command = ":OUTP:OVP:VAL CH{ch},{value}"
+
+[setters.ocp]
+command = ":OUTP:OCP:VAL CH{ch},{value}"
+
+[setters.output]
+command = ":OUTP CH{ch},{on}"
+
+[setters.clear]
+command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]

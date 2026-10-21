@@ -1,0 +1,48 @@
+schema = 1
+id = "generic-dmm"
+name = "Generic SCPI multimeter"
+category = "dmm"
+generic = true
+notes = """Used when no profile matches the instrument. It reads READ? and FUNC?, and drops either one the instrument rejects at start. READ? triggers a new measurement on each poll, so a long integration time slows the poll. Quoted replies such as "VOLT", "VOLT:DC" and "CURR:AC" map to the function labels; any other reply reads as unknown. The function setter sends CONF:<word> with the SCPI-99 words, and CONF resets that function's range and resolution to their defaults. Not every multimeter has every function; the instrument rejects the ones it lacks."""
+
+[evidence]
+badge = "manual"
+source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
+url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
+date = "2026-10-20"
+
+[errors]
+query = "SYST:ERR?"
+
+[signals.value]
+query = "READ?"
+parse = "float"
+optional = true
+
+[state.function]
+query = "FUNC?"
+parse = "map"
+optional = true
+map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = "FUNC?"
+function_map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+temperature = "degC"
+capacitance = "F"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = "CONF:{function}"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }

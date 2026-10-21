@@ -1,0 +1,52 @@
+schema = 1
+id = "keithley-2110"
+name = "Keithley Model 2110"
+category = "dmm"
+notes = """Transcribed from the Model 2110 Reference Manual; never run on a unit. Only the 2110 is covered: the manual used does not describe the 2100, which needs its own profile. The 2110 has USB (TMC-compliant) and an optional GPIB interface, no LAN and no RS-232. The meter must be in its DEFAULT language; in COMPATIBLE language mode, SYST:IDNS can change the *IDN? reply, and this profile then no longer matches. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC". Ratio (VOLT:RAT) and the secondary display function have no label and read as unknown. The meter has a primary and a secondary display; this profile reads and sets the primary function only. READ? puts the trigger system in wait-for-trigger and returns the reading without storing it, so with an external or bus trigger source it times out. CONF takes an optional range and resolution, and this profile sends neither. Frequency and period on the current input read correctly but the setter selects the voltage input."""
+
+[evidence]
+badge = "manual"
+source = "Keithley Model 2110 5½ Digit Multimeter Reference Manual, 2110-901-01 Rev. B, July 2012"
+url = "http://instrumentationlab.berkeley.edu/sites/default/files/BSC01/Keithley-DMM_2110.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '(?i)^(model\s*)?2110$'
+
+[link]
+local = "SYST:LOC"
+
+[errors]
+query = "SYST:ERR?"
+
+[signals.value]
+query = "READ?"
+parse = "float"
+
+[state.function]
+query = "FUNC?"
+parse = "map"
+map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "FREQ:VOLT" = "frequency", "FREQ:CURR" = "frequency", "PER" = "period", "PER:VOLT" = "period", "PER:CURR" = "period", "TEMP" = "temperature", "TCO" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = "FUNC?"
+function_map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "FREQ:VOLT" = "frequency", "FREQ:CURR" = "frequency", "PER" = "period", "PER:VOLT" = "period", "PER:CURR" = "period", "TEMP" = "temperature", "TCO" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+temperature = "degC"
+capacitance = "F"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = "CONF:{function}"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }

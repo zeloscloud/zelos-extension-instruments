@@ -1,0 +1,106 @@
+schema = 1
+id = "rigol-dl3000"
+name = "Rigol DL3000 series"
+category = "load"
+notes = """\
+Transcribed from the programming guide, not tried on a unit. The guide does not name the LAN socket port; 5555 is Rigol's raw socket port and has not been confirmed on a DL3000. \
+The guide has no remote or local command. LAN is standard on the DL3021A and DL3031A and a licensed option on the DL3021 and DL3031. \
+The current and resistance ranges each have a low and a high span (4 A or 6 A and 40 A or 60 A, 15 and 15000 ohms), and a setpoint above the active span is rejected with an error. \
+The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 12 overvoltage and bit 13 protection shutdown, which covers overcurrent, overpower and overtemperature. \
+The load starts to sink only above its start voltage (Von), and the input turns off when a protection trips."""
+
+[evidence]
+badge = "manual"
+source = "Rigol DL3000 Series Programmable DC Electronic Load Programming Guide, PGJ01103-1110, Feb. 2017"
+url = "https://docs.ampnuts.ru/my_docs/Rigol/DL3021/doc/DL3000_ProgrammingGuide.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^rigol'
+model = '^DL30[23]1A?$'
+
+[link]
+lan_port = 5555
+baud = 9600
+
+[errors]
+query = ":SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 40, digits = 3 }
+power = { min = 0, max = 200, digits = 3 }
+resistance = { min = 0, max = 15000, digits = 3 }
+
+[[ranges.models]]
+model = '^DL3031'
+current = { min = 0, max = 60, digits = 3 }
+power = { min = 0, max = 350, digits = 3 }
+
+[signals.voltage]
+query = ":MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = ":MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = ":MEAS:POW?"
+parse = "float"
+
+[signals.resistance]
+query = ":MEAS:RES?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR:CURR:LEV:IMM?"
+parse = "float"
+
+[state.voltage_set]
+query = ":SOUR:VOLT:LEV:IMM?"
+parse = "float"
+
+[state.power_set]
+query = ":SOUR:POW:LEV:IMM?"
+parse = "float"
+
+[state.resistance_set]
+query = ":SOUR:RES:LEV:IMM?"
+parse = "float"
+
+[state.output]
+query = ":SOUR:INP:STAT?"
+parse = "bool"
+
+[state.mode]
+query = ":SOUR:FUNC?"
+parse = "map"
+map = { CC = "cc", CV = "cv", CP = "cp", CR = "cr" }
+
+[state.protection]
+flags = [
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 4096, shift = 12, value = "ovp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 2, shift = 1, value = "ocp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 8192, shift = 13, value = "other" },
+]
+
+[setters.current]
+command = ":SOUR:CURR:LEV:IMM {value}"
+
+[setters.voltage]
+command = ":SOUR:VOLT:LEV:IMM {value}"
+
+[setters.power]
+command = ":SOUR:POW:LEV:IMM {value}"
+
+[setters.resistance]
+command = ":SOUR:RES:LEV:IMM {value}"
+
+[setters.function]
+command = ":SOUR:FUNC {function}"
+map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
+
+[setters.output]
+command = ":SOUR:INP:STAT {on}"

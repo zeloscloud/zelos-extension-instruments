@@ -1,0 +1,106 @@
+schema = 1
+id = "bk-9130b"
+name = "B&K Precision 9130B series"
+category = "psu"
+notes = """Covers the 9130B, 9131B and 9132B triple-output supplies. \
+Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
+SYST:REM puts the instrument in remote mode and its keys stay locked until the Local action (SYST:LOC) runs. \
+The output setter is CHAN:OUTP, which switches the selected channel; OUTP (all channels) is not used. \
+Ratings come from the 9130B series data sheet: channels 1 and 2 are 30 V at 3 A (9130B), 30 V at 6 A (9131B) and 60 V at 3 A (9132B); channel 3 is 5 V at 3 A. \
+Constant-voltage and constant-current mode come from the questionable condition register (bit 0 is CV, bit 1 is CC); the manual does not say the register follows the selected channel, so treat the mode as unconfirmed. \
+VOLT:PROT is the overvoltage level; the manual does not give the reply format of VOLT:PROT:TRIP?. \
+Power comes from MEAS:POW?. \
+The manual lists RS-232 baud rates of 4800 to 115200 but no default, so serial settings stay at the profile defaults. \
+Clear resets the OVP trip only."""
+
+[evidence]
+badge = "manual"
+source = "9130B Series Programming Manual V051415; 9130B Series data sheet v110221 (ratings); 9130B Series user manual (RS-232 options)"
+url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9130B_Series_programming_manual.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^b&?k\s*precision'
+model = '(?i)^913[012]B$'
+channels = 3
+
+[link]
+select = "INST:NSEL {ch}"
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 3, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^913[012]B$'
+channel = 3
+voltage = { min = 0, max = 5, digits = 3 }
+current = { min = 0, max = 3, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^9131B$'
+current = { min = 0, max = 6, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^9132B$'
+voltage = { min = 0, max = 60, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.output]
+query = "CHAN:OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:QUES:COND?"
+parse = "bits"
+mask = 3
+map = { "0" = "off", "1" = "cv", "2" = "cc" }
+
+[state.protection]
+flags = [
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.output]
+command = "CHAN:OUTP {bit}"
+
+[setters.clear]
+command = "VOLT:PROT:CLE"

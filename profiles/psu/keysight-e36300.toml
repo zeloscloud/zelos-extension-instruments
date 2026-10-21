@@ -1,0 +1,115 @@
+schema = 1
+id = "keysight-e36300"
+name = "Keysight E36300 series"
+category = "psu"
+notes = "Channel 3 differs by model: the E36311A has a negative 25 V output (0 to -25.75 V, 1 A), while the E36312A and E36313A have a positive 25 V output unless SYST:PERS:MOD E3631A is set. The E36311A has USB only; LAN is on the E36312A and E36313A. CV and CC come from STAT:QUES:INST:ISUM<n>:COND?, where value 1 (bit 0) is constant current, 2 (bit 1) is constant voltage and 0 is off or unregulated. The guide's value table calls 3 a hardware failure, while its register text calls it neither regulated, so this profile reads 3 as unregulated. The guide documents no power measurement and no overcurrent level (OCP is an on/off state with a delay), so those fields are left out and the Clear action clears the output protection latch. Trip flags (VOLT:PROT:TRIP?, CURR:PROT:TRIP?) take no channel list in the guide, so the profile selects the channel with INST:NSEL first. OVP is bounded by the voltage range here, which is slightly below the guide's OVP maximum. In E3631A persona mode, all outputs switch together. Auto-series or parallel pairing on the E36312A and E36313A changes the channels and ranges. With output sequencing on, OUTP? reports the configured state, not the actual one. A device that reports Agilent instead of Keysight after SYST:PERS:MAN is still matched."
+
+[evidence]
+badge = "manual"
+source = "Keysight E36300 Series Programming Guide, E36311-90008; User's Guide E36311-90001 (sockets, port 5025)"
+url = "https://xdevs.com/doc/HP_Agilent_Keysight/E36300A/E36311-90008_programming_guide.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent)'
+model = '^E36311A$|^E36312A$|^E36313A$'
+channels = 3
+
+[link]
+lan_port = 5025
+local = "SYST:LOC"
+select = "INST:NSEL {ch}"
+
+[errors]
+query = "SYST:ERR?"
+
+# Programming Guide p. 16, Programming Ranges and Output Identifiers
+[ranges]
+voltage = { min = 0, max = 6.18, digits = 3 }
+current = { min = 0, max = 5.15, digits = 3 }
+
+[[ranges.models]]
+model = '^E36311A$'
+channel = 3
+voltage = { min = -25.75, max = 0, digits = 3 }
+current = { min = 0, max = 1.03, digits = 3 }
+
+[[ranges.models]]
+model = '^E36313A$'
+channel = 1
+current = { min = 0, max = 10.3, digits = 3 }
+
+[[ranges.models]]
+model = '^E36313A$'
+channel = 2
+voltage = { min = 0, max = 25.75, digits = 3 }
+current = { min = 0, max = 2.06, digits = 3 }
+
+[[ranges.models]]
+model = '^E36313A$'
+channel = 3
+voltage = { min = 0, max = 25.75, digits = 3 }
+current = { min = 0, max = 2.06, digits = 3 }
+
+[[ranges.models]]
+model = '^E3631[12]A$'
+channel = 2
+voltage = { min = 0, max = 25.75, digits = 3 }
+current = { min = 0, max = 1.03, digits = 3 }
+
+[[ranges.models]]
+model = '^E36312A$'
+channel = 3
+voltage = { min = 0, max = 25.75, digits = 3 }
+current = { min = 0, max = 1.03, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT? (@{ch})"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR? (@{ch})"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT? (@{ch})"
+parse = "float"
+
+[state.current_set]
+query = "CURR? (@{ch})"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT? (@{ch})"
+parse = "float"
+
+[state.output]
+query = "OUTP? (@{ch})"
+parse = "bool"
+
+[state.mode]
+query = "STAT:QUES:INST:ISUM{ch}:COND?"
+parse = "bits"
+mask = 3
+map = { "0" = "off", "1" = "cc", "2" = "cv", "3" = "unregulated" }
+
+[state.protection]
+flags = [
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+  { query = "CURR:PROT:TRIP?", parse = "bool", value = "ocp" },
+]
+
+[setters.voltage]
+command = "VOLT {value},(@{ch})"
+
+[setters.current]
+command = "CURR {value},(@{ch})"
+
+[setters.ovp]
+command = "VOLT:PROT {value},(@{ch})"
+
+[setters.output]
+command = "OUTP {on},(@{ch})"
+
+[setters.clear]
+command = "OUTP:PROT:CLE (@{ch})"

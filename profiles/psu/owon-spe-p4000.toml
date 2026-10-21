@@ -1,0 +1,90 @@
+schema = 1
+id = "owon-spe-p4000"
+name = "OWON SPE and P4000 series"
+category = "psu"
+notes = """Covers the SPE3103, SPE6103, P4305 and P4603 single-output supplies. \
+Ratings come from the OWON data sheets: SPE3103 30 V at 10 A, SPE6103 60 V at 10 A, P4305 30 V at 5 A, P4603 60 V at 3 A. \
+The programming manual covers the SP, SPE and SPS series and gives its IDN example for a P4305: OWON,P4305,1715040,FV:V1.0.2. \
+The manual does not say that remote mode must be set first, so no remote command is sent; the Local action sends SYST:LOC. \
+VOLT:LIM and CURR:LIM are the overvoltage and overcurrent protection values, not setpoint limits. \
+MEAS:ALL:INFO? reports the operating mode and the OVP, OCP and OTP faults, but separates its values with spaces, which the profile format cannot split, so mode and protection are not read. \
+The manual documents no error query, so sets are verified by readback only, and no protection clear command. \
+Serial and LAN settings are not in the programming manual and stay at the profile defaults."""
+
+[evidence]
+badge = "manual"
+source = "OWON Single Channel DC Power Supply Programming Manual (SP, SPE and SPS series); OWON P4000 and SPE series data sheets (ratings)"
+url = "https://tm-co.co.jp/wp/wp-content/uploads/2025/07/SP_and_SPE_SPS_programming_manual.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^owon'
+model = '(?i)^(SPE3103|SPE6103|P4305|P4603)$'
+channels = 1
+
+[link]
+local = "SYST:LOC"
+
+[ranges]
+voltage = { min = 0, max = 30, digits = 2 }
+current = { min = 0, max = 10, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^SPE6103$'
+voltage = { min = 0, max = 60, digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^P4305$'
+current = { min = 0, max = 5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^P4603$'
+voltage = { min = 0, max = 60, digits = 2 }
+current = { min = 0, max = 3, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:LIM?"
+parse = "float"
+
+[state.ocp_set]
+query = "CURR:LIM?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:LIM {value}"
+
+[setters.ocp]
+command = "CURR:LIM {value}"
+
+[setters.output]
+command = "OUTP {bit}"

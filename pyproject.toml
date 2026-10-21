@@ -1,0 +1,79 @@
+[project]
+name = "zelos-extension-instruments"
+version = "0.1.0"
+description = "Record bench instruments (power supplies, electronic loads, multimeters, AC sources) over SCPI and set them from the app or a notebook."
+authors = [{ name = "Zeloscloud", email = "info@zeloscloud.io" }]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["zelos", "extension", "scpi", "visa", "instruments"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "zelos-sdk>=0.0.12,<0.1",
+    "pyvisa>=1.14",
+    # Exact: USB-TMC behaviour changes between releases, and every bump is re-tested on the bench.
+    "pyvisa-py==0.8.1",
+    "pyusb>=1.2",
+    "libusb-package>=1.0.26",
+    "serialx>=1.11",
+    "zeroconf>=0.130",
+    "psutil>=5.9",
+    "jsonschema>=4",
+]
+
+[project.urls]
+Homepage = "https://github.com/zeloscloud/zelos-extension-instruments"
+Repository = "https://github.com/zeloscloud/zelos-extension-instruments"
+Issues = "https://github.com/zeloscloud/zelos-extension-instruments/issues"
+Documentation = "https://docs.zeloscloud.io/latest/sdk/how-to/develop-extensions/"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "hypothesis>=6",
+    "ruff>=0.16.10",
+    "pyright>=1.1.400",
+    "pyarrow>=14",
+    "pre-commit>=4.6.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+required-version = ">=0.9.5"
+
+[tool.hatch.build.targets.wheel]
+packages = ["zelos_extension_instruments"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--log-cli-level=INFO -m 'not perf and not hardware'"
+markers = [
+    "perf: cadence and soak gates; run with -m perf",
+    "hardware: needs real instruments; run with -m hardware on the bench",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "PTH"]
+ignore = [
+    "B008",   # function call in defaults (common in decorators)
+]
+
+[tool.pyright]
+include = ["main.py", "zelos_extension_instruments", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"

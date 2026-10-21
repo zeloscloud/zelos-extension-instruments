@@ -1,0 +1,100 @@
+schema = 1
+id = "keysight-e36100"
+name = "Keysight E36100A/B series"
+category = "psu"
+notes = "The grammar is transcribed from the E36100B guide, and the older E36102A to E36106A are matched on the assumption that they take the same commands: the A models have only a data sheet, so confirm one before relying on it. CV and CC come from the Operation condition register (STAT:OPER:COND?, bit 8 is CV and bit 10 is CC), and a reading of 0 is shown as off. Protection comes from the Questionable condition register (STAT:QUES:COND?, bit 0 OV, bit 1 OC, bit 4 OT). The same register has bit 10 for unregulated, which this profile does not read. Overvoltage and overcurrent protection each have an on/off state (VOLT:PROT:STAT, CURR:PROT:STAT) that the guide does not say is on by default, and overcurrent has no level, so there is no OCP setpoint. The guide gives no power measurement, so power is left out. The ranges are the nominal ratings, though the instrument accepts settings up to 3 percent above them. A remote command puts the supply in remote mode by itself, and any front-panel key or SYST:LOC returns it to local."
+
+[evidence]
+badge = "manual"
+source = "Keysight E36100B Series Operating and Service Guide, 9018-04660, Edition 4, April 2021; E36100 Series Data Sheet for the A models"
+url = "https://valuetronics.com/cdn/shop/files/Keysight_E36100B_Series_Operating_and_Service_Guide.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent)'
+model = '^E3610[2-6][AB]$'
+channels = 1
+
+[link]
+lan_port = 5025
+local = "SYST:LOC"
+
+[errors]
+query = "SYST:ERR?"
+
+# Operating and Service Guide p. 20, Programming Ranges
+[ranges]
+voltage = { min = 0, max = 6, digits = 3 }
+current = { min = 0, max = 5, digits = 3 }
+
+[[ranges.models]]
+model = '^E36103'
+voltage = { min = 0, max = 20, digits = 3 }
+current = { min = 0, max = 2, digits = 3 }
+
+[[ranges.models]]
+model = '^E36104'
+voltage = { min = 0, max = 35, digits = 3 }
+current = { min = 0, max = 1, digits = 3 }
+
+[[ranges.models]]
+model = '^E36105'
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 0.6, digits = 3 }
+
+[[ranges.models]]
+model = '^E36106'
+voltage = { min = 0, max = 100, digits = 3 }
+current = { min = 0, max = 0.4, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND?"
+parse = "bits"
+mask = 1280
+map = { "0" = "off", "256" = "cv", "1024" = "cc" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, value = "otp" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.output]
+command = "OUTP {on}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

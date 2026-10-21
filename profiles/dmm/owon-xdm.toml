@@ -1,0 +1,50 @@
+schema = 1
+id = "owon-xdm"
+name = "OWON XDM2041"
+category = "dmm"
+notes = """Transcribed from the XDM2041 Digital Multimeter Programming Manual; never run on a unit. Only the XDM2041 is covered. The XDM1041 and XDM1241 programming manual could not be downloaded, so they need their own profile. The manual says the SCPI protocol runs over USB or LAN and gives no LAN port, baud rate or serial settings, so this profile sets none: set them in the config. The manual documents no error-queue query, so this profile has no error query and sets are verified by readback only. The manual says SYST:REM enters SCPI mode and SYST:LOC exits it, so the profile sends SYST:REM after connect. MEAS1? returns the main display value; MEAS? returns two comma-separated values when the secondary display is on, so this profile uses MEAS1?. The manual says FUNC? returns the abbreviated function in quotes and lists the strings in a table as VOLT AC, VOLT, CURR AC, CURR, FREQ, PER, CAP, CONT, DIOD, FRES, RES and TEMP. This profile maps those with a space, a colon or no separator. Temperature reads in the unit set by TEMP:RTD:UNIT. CONF restores the function's measurement and trigger parameters to defaults, and the function setter selects 2-wire RTD temperature."""
+
+[evidence]
+badge = "manual"
+source = "OWON XDM2041 Digital Multimeter Programming Manual"
+url = "https://files.owon.com.cn/probook/XDM2041_Digital_Multimeter_Programming_Manual.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^owon'
+model = '^XDM2041$'
+
+[link]
+remote = "SYST:REM"
+local = "SYST:LOC"
+
+[signals.value]
+query = "MEAS1?"
+parse = "float"
+
+[state.function]
+query = "FUNC?"
+parse = "map"
+map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "VOLTAC" = "ac_voltage", "VOLT AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "CURRAC" = "ac_current", "CURR AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = "FUNC?"
+function_map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "VOLTAC" = "ac_voltage", "VOLT AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "CURRAC" = "ac_current", "CURR AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+temperature = "degC"
+capacitance = "F"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = "CONF:{function}"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP:RTD", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }

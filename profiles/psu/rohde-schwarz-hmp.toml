@@ -1,0 +1,105 @@
+schema = 1
+id = "rohde-schwarz-hmp"
+name = "Rohde & Schwarz (HAMEG) HMP series"
+category = "psu"
+notes = """Covers the HMP2020, HMP2030, HMP4030 and HMP4040. \
+Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
+SYST:REM locks the front panel; the Remote key or the Local action (SYST:LOC) unlocks it. \
+OUTP switches the selected channel on and turns the output on; the manual documents no query for the output state, so the output state is not read and the output setter is not verified. \
+Constant-current and constant-voltage mode come from the questionable status register of the channel; a reading of zero is shown as off, which the manual does not state. \
+The manual lists no power measurement, so power is not read. \
+The current ranges come from the R&S HMP series data sheet (HMP2020 channel 1 10 A and channel 2 5 A, HMP2030 5 A per channel, HMP4030 and HMP4040 10 A per channel); the manual only says the range depends on the model. \
+The OVP level reaches 32.5 V, but the extension bounds it by the voltage range. \
+Clear resets the OVP trip only. \
+RS-232 needs the HO720 interface option; the manual's example uses 9600 baud, 1 stop bit, no parity and handshake on. \
+The LAN socket port is 5025."""
+
+[evidence]
+badge = "manual"
+source = "R&S HMP Series Power Supplies User Manual, 1178.6833.02, Version 05, firmware V2.7x and later"
+url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1178_6833_01/HMPSeries_UserManual_en_05.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(hameg|rohde\s*&\s*schwarz)'
+model = '(?i)^HMP(2020|2030|4030|4040)$'
+channels = 3
+
+[[match.models]]
+model = '(?i)^HMP2020$'
+channels = 2
+
+[[match.models]]
+model = '(?i)^HMP4040$'
+channels = 4
+
+[link]
+baud = 9600
+select = "INST:NSEL {ch}"
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 32.05, digits = 3 }
+current = { min = 0, max = 10, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^HMP2020$'
+channel = 2
+current = { min = 0, max = 5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^HMP2030$'
+current = { min = 0, max = 5, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT:LEV?"
+parse = "float"
+
+[state.mode]
+query = "STAT:QUES:INST:ISUM{ch}:COND?"
+parse = "bits"
+mask = 3
+map = { "0" = "off", "1" = "cc", "2" = "cv" }
+
+[state.protection]
+flags = [
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+  { query = "FUSE:TRIP?", parse = "bool", value = "ocp" },
+  { query = "STAT:QUES:INST:ISUM{ch}:COND?", parse = "bits", mask = 16, value = "otp" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT:LEV {value}"
+
+[setters.output]
+command = "OUTP {bit}"
+
+[setters.clear]
+command = "VOLT:PROT:CLE"

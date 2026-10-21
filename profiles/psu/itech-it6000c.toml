@@ -1,0 +1,102 @@
+schema = 1
+id = "itech-it6000c"
+name = "ITECH IT6000C series bidirectional power supplies"
+category = "psu"
+notes = """Covers the IT6006C, IT6012C and IT6018C, which source and sink power. \
+Voltage and current are set for constant-voltage priority: VOLT sets the voltage and CURR:LIM sets the positive current limit. CURR sets the current in constant-current priority and FUNC VOLT or FUNC CURR switches the priority; neither is wired. \
+The sink side (CURR:LIM:NEG, negative power limits and the CC- and CP- states) is not wired; a sinking supply reads its mode as unknown. \
+The programming guide gives no per-model ratings, so each range is read from the instrument after connecting (VOLT? MAX and CURR:LIM? MAX). \
+SYST:REM sets remote control mode and locks every key except Local; SYST:LOC restores the front panel. \
+RS-232 defaults to 9600 baud. The programming guide gives no LAN socket port, so the profile keeps 5025. \
+Mode reads off, constant current (positive), constant voltage and constant power (positive) from the operation condition register. \
+Protection reads OV, OC, OP and OT from the questionable condition register. \
+Clear resets the tripped protections."""
+
+[evidence]
+badge = "manual"
+source = "IT6000C Series Programming Guide, V1.0/01, 2019"
+url = "https://www.tehencom.com/Companies/ITECH/IT6000C/ITECH_IT6000C_Programming_Manual.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^itech'
+model = '(?i)^IT60(06|12|18)C'
+channels = 1
+
+[link]
+baud = 9600
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max_query = "VOLT? MAX", digits = 3 }
+current = { min = 0, max_query = "CURR:LIM? MAX", digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR:LIM?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.ocp_set]
+query = "CURR:PROT?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND?"
+parse = "bits"
+mask = 960
+shift = 6
+map = { "1" = "off", "2" = "cc", "4" = "cv", "8" = "cp" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 6, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 24, value = "opp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 64, value = "otp" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR:LIM {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.ocp]
+command = "CURR:PROT {value}"
+
+[setters.output]
+command = "OUTP {bit}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

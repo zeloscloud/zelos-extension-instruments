@@ -1,0 +1,90 @@
+schema = 1
+id = "rigol-dp2000"
+name = "Rigol DP2000 series"
+category = "psu"
+notes = "The command set matches the DP900 and DP800 profiles. The DP2031 has two 32 V/3 A outputs and a 6 V/5 A output. The optional DP2000-10A mode makes channel 3 a 6 V/10 A output and limits channels 1 and 2 to 2 A, so raise or lower the limits in the config if the option is installed. The limits here are the rated values, and the instrument accepts settings above them. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. The programming guide and user guide do not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The RS232 settings (baud rate 9600 to 115200, data bits, stop bits and parity) are set from the front panel, and this profile assumes 9600 baud, 8 data bits, no parity and 1 stop bit, because the guides do not state the factory defaults."
+
+[evidence]
+badge = "manual"
+source = "RIGOL DP2000 Series Programmable Linear DC Power Supply Programming Guide, PGH09102-1110, software version 00.00.01"
+url = "https://download.rigol.com/en/Manual/DC%20Power&Loads/DP2000/DP2000_ProgrammingGuide_en.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^rigol'
+model = '^DP2031$'
+channels = 3
+
+[link]
+lan_port = 5555
+remote = "SYST:REMOTE"
+local = "SYST:LOCAL"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+# Programming Guide Table 4.9, rated channel ranges
+[ranges]
+voltage = { min = 0, max = 32, digits = 3 }
+current = { min = 0, max = 3, digits = 3 }
+
+[[ranges.models]]
+model = '^DP2031$'
+channel = 3
+voltage = { min = 0, max = 6, digits = 3 }
+current = { min = 0, max = 5, digits = 3 }
+
+[signals.measure]
+query = ":MEAS:ALL? CH{ch}"
+parse = "floats"
+fields = ["voltage", "current", "power"]
+
+[state.voltage_set]
+query = ":SOUR{ch}:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR{ch}:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = ":OUTP:OVP:VAL? CH{ch}"
+parse = "float"
+
+[state.ocp_set]
+query = ":OUTP:OCP:VAL? CH{ch}"
+parse = "float"
+
+[state.output]
+query = ":OUTP? CH{ch}"
+parse = "bool"
+
+[state.mode]
+query = ":OUTP:MODE? CH{ch}"
+parse = "map"
+map = { CV = "cv", CC = "cc", UR = "unregulated" }
+
+[state.protection]
+flags = [
+  { query = ":OUTP:OVP:QUES? CH{ch}", parse = "bool", value = "ovp" },
+  { query = ":OUTP:OCP:QUES? CH{ch}", parse = "bool", value = "ocp" },
+]
+
+[setters.voltage]
+command = ":SOUR{ch}:VOLT {value}"
+
+[setters.current]
+command = ":SOUR{ch}:CURR {value}"
+
+[setters.ovp]
+command = ":OUTP:OVP:VAL CH{ch},{value}"
+
+[setters.ocp]
+command = ":OUTP:OCP:VAL CH{ch},{value}"
+
+[setters.output]
+command = ":OUTP CH{ch},{on}"
+
+[setters.clear]
+command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]

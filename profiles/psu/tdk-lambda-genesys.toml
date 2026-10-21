@@ -1,0 +1,205 @@
+schema = 1
+id = "tdk-lambda-genesys"
+name = "TDK-Lambda Genesys GEN series"
+category = "psu"
+notes = """Covers the Genesys 750 W and 1500 W GEN models through the RS-232 and RS-485 serial protocol: commands end with a carriage return, and every command is answered with OK, or Enn or Cnn when it fails. \
+The serial port is 8 data bits, no parity, 1 stop bit, 9600 baud by default (1200 to 19200 are selectable). \
+Every supply on a daisy chain must be addressed first with ADR n, and the supply accepts no other command until ADR answers OK. The profile sends ADR 6 once after connecting, the factory default address, so a supply set to another address or a chain of several supplies is not supported. \
+The identity query is IDN? and the reply has two fields: LAMBDA,GEN60-12.5. \
+RMT 1 puts the supply in remote mode; RMT 0 returns it to local mode, and RMT 2 (local lockout) is not used. \
+The supply has no error queue; a failed command answers with an error code and the extension reads that as an error. \
+Mode comes from MODE?, which answers CV or CC with the output on and OFF otherwise. \
+Protection reads the fault condition register (FLT?, two hex digits): OVP, OTP, and AC fail or foldback as other. \
+Clear is not wired. \
+The manual lists the current ranges per model; the voltage range is the model's rated voltage and the supply accepts values 5 percent above the rating. \
+The OVP level reaches 110 percent of the rating, but the extension bounds it by the voltage range, and the supply refuses an OVP level below about 105 percent of the output voltage. \
+The GENH and Z+ series and the GEN models above 1500 W were not checked against their manuals."""
+
+[evidence]
+badge = "manual"
+source = "TDK-Lambda Genesys 750W/1500W Programmable DC Power Supplies Technical Manual, 83-507-013 Rev. A (RS-232/RS-485 protocol)"
+url = "https://www.eol.ucar.edu/isf/facilities/isff/tram/doc/genesys.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^lambda'
+model = '(?i)^GEN\s?\d'
+idn = "IDN?"
+channels = 1
+
+[link]
+write_terminator = "\r"
+read_terminator = "\r"
+ack = "OK"
+baud = 9600
+init = ["ADR 6"]
+remote = "RMT 1"
+local = "RMT 0"
+
+[signals.voltage]
+query = "MV?"
+parse = "float"
+
+[signals.current]
+query = "MC?"
+parse = "float"
+
+[state.voltage_set]
+query = "PV?"
+parse = "float"
+
+[state.current_set]
+query = "PC?"
+parse = "float"
+
+[state.ovp_set]
+query = "OVP?"
+parse = "float"
+
+[state.output]
+query = "OUT?"
+parse = "bool"
+
+[state.mode]
+query = "MODE?"
+parse = "map"
+map = { OFF = "off", CV = "cv", CC = "cc" }
+
+[state.protection]
+flags = [
+  { query = "FLT?", parse = "bits", format = "hex", mask = 16, value = "ovp" },
+  { query = "FLT?", parse = "bits", format = "hex", mask = 4, value = "otp" },
+  { query = "FLT?", parse = "bits", format = "hex", mask = 10, value = "other" },
+]
+
+[setters.voltage]
+command = "PV {value}"
+
+[setters.current]
+command = "PC {value}"
+
+[setters.ovp]
+command = "OVP {value}"
+
+[setters.output]
+command = "OUT {bit}"
+
+[[ranges.models]]
+model = '(?i)^GEN6-100$'
+voltage = { min = 0, max = 6, digits = 3 }
+current = { min = 0, max = 100, digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^GEN8-90$'
+voltage = { min = 0, max = 8, digits = 3 }
+current = { min = 0, max = 90, digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^GEN12\.5-60$'
+voltage = { min = 0, max = 12.5, digits = 3 }
+current = { min = 0, max = 60, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN20-38$'
+voltage = { min = 0, max = 20, digits = 3 }
+current = { min = 0, max = 38, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN30-25$'
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 25, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN40-19$'
+voltage = { min = 0, max = 40, digits = 3 }
+current = { min = 0, max = 19, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN60-12\.5$'
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 12.5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN80-9\.5$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 9.5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN100-7\.5$'
+voltage = { min = 0, max = 100, digits = 3 }
+current = { min = 0, max = 7.5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN150-5$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN300-2\.5$'
+voltage = { min = 0, max = 300, digits = 3 }
+current = { min = 0, max = 2.5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN600-1\.3$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 1.3, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN6-200$'
+voltage = { min = 0, max = 6, digits = 3 }
+current = { min = 0, max = 200, digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^GEN8-180$'
+voltage = { min = 0, max = 8, digits = 3 }
+current = { min = 0, max = 180, digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^GEN12\.5-120$'
+voltage = { min = 0, max = 12.5, digits = 3 }
+current = { min = 0, max = 120, digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^GEN20-76$'
+voltage = { min = 0, max = 20, digits = 3 }
+current = { min = 0, max = 76, digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^GEN30-50$'
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 50, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN40-38$'
+voltage = { min = 0, max = 40, digits = 3 }
+current = { min = 0, max = 38, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN60-25$'
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 25, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN80-19$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 19, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN100-15$'
+voltage = { min = 0, max = 100, digits = 3 }
+current = { min = 0, max = 15, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN150-10$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 10, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN300-5$'
+voltage = { min = 0, max = 300, digits = 3 }
+current = { min = 0, max = 5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GEN600-2\.6$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 2.6, digits = 3 }

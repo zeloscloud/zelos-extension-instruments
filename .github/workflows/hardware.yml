@@ -1,0 +1,58 @@
+name: Hardware
+
+# Nightly, on the self-hosted runner that has the bench instruments attached over USB and LAN.
+# The job records a transcript from every instrument it finds, runs the hardware tests, and
+# leaves every output off. It never runs on a pull request from a fork.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One job at a time per rig: two runs would fight over the same instruments.
+  group: bench
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    name: Bench
+    runs-on: [self-hosted, bench]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - uses: extractions/setup-just@v4
+
+      - name: Install dependencies
+        run: just ci-install
+
+      - name: Hardware tests
+        env:
+          # A JSON list of {"profile": ..., "address": ...} the runner's bench provides.
+          BENCH: ${{ vars.BENCH }}
+        run: uv run pytest -m hardware -q
+
+      - name: Record transcripts
+        if: always()
+        env:
+          BENCH: ${{ vars.BENCH }}
+        run: uv run python tests/hardware/record_bench.py
+
+      - name: Leave every output off
+        if: always()
+        env:
+          BENCH: ${{ vars.BENCH }}
+        run: uv run python tests/hardware/outputs_off.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: transcripts
+          path: tests/transcripts/

@@ -1,0 +1,87 @@
+schema = 1
+id = "keysight-n6700"
+name = "Keysight N6700 and N6705 modular power system"
+category = "psu"
+notes = "The mainframe holds up to four modules, so each module is one channel and the count is read from SYST:CHAN:COUN? at connect, with 4 as the fallback. Voltage and current limits come from the modules, so the profile asks each channel for its maximum with VOLT? MAX and CURR? MAX, which are 102 percent of the module rating. Channel numbers follow the slots. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 2 off), and the load modules' CR and CP bits are not mapped. Protection comes from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 3 positive power limit, bit 4 OT, bit 6 negative OV). The guide gives overcurrent protection only as an on/off state with a delay, so there is no OCP setpoint. OVP trips at 120 percent of the module rating after *RST. A command does not lock the front panel: SYST:COMM:RLST REM and LOC both leave it usable, and only RWL locks it. The load modules (N679x) have a fixed OVP level, so setting OVP on them fails, and VOLT:PROT does not apply to N678xA SMU modules. Output on takes 35 to 50 ms."
+
+[evidence]
+badge = "manual"
+source = "Keysight N6700C Low-Profile Modular Power System Operating and Service Guide, N6700C-90901, Edition 2, February 2019 (SCPI Programming Reference)"
+url = "https://static.chipdip.ru/lib/238/DOC047238738.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent)'
+model = '^N67(00|01|02|05)[ABC]$'
+channels = 4
+channels_query = "SYST:CHAN:COUN?"
+
+[link]
+lan_port = 5025
+local = "SYST:COMM:RLST LOC"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { max_query = "VOLT? MAX,(@{ch})", digits = 3 }
+current = { max_query = "CURR? MAX,(@{ch})", digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT? (@{ch})"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR? (@{ch})"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW? (@{ch})"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT? (@{ch})"
+parse = "float"
+
+[state.current_set]
+query = "CURR? (@{ch})"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT? (@{ch})"
+parse = "float"
+
+[state.output]
+query = "OUTP? (@{ch})"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND? (@{ch})"
+parse = "bits"
+mask = 7
+map = { "1" = "cv", "2" = "cc", "4" = "off" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 2, value = "ocp" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 4, value = "other" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 8, value = "opp" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 16, value = "otp" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 64, value = "ovp" },
+]
+
+[setters.voltage]
+command = "VOLT {value},(@{ch})"
+
+[setters.current]
+command = "CURR {value},(@{ch})"
+
+[setters.ovp]
+command = "VOLT:PROT {value},(@{ch})"
+
+[setters.output]
+command = "OUTP {on},(@{ch})"
+
+[setters.clear]
+command = "OUTP:PROT:CLE (@{ch})"

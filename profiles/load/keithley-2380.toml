@@ -1,0 +1,116 @@
+schema = 1
+id = "keithley-2380"
+name = "Keithley 2380 series"
+category = "load"
+notes = """\
+Transcribed from the user's manuals, not tried on a unit. The manuals have no resistance measurement query, so resistance is not read. \
+Power reads the last measured value. The interfaces are RS-232, USB (USBTMC) and GPIB, with no LAN port, so this extension reaches the load over RS-232 only. The manual offers 4800, 9600, 19200, 38400, 57600 and 115200 baud, with 8 data bits and no parity or 7 bits with even or odd parity, and does not name a default; match the front-panel setting (Shift + System). The cable must be straight through, not a null modem. \
+SYST:REM puts the load in remote mode and disables the front-panel keys except Info and Local. \
+The function query reply form is not stated; the profile accepts the short and the long word. \
+A protection trip latches the input off until PROT:CLE, which the Clear setter sends once the fault is removed. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage. \
+Each model has a low and a high current range, and a setting is accepted inside the active range only. The 2380J models share the commands."""
+
+[evidence]
+badge = "manual"
+source = "Keithley Models 2380-500 and 2380-120 Programmable DC Electronic Load Instruments User's Manual, 2380-120-60-900-01 Rev. A, November 2015, and the 2380-500-30 User's Manual, 2380-500-30-900-01 Rev. A"
+url = "https://download.tek.com/manual/2380-120-60-900-01_A_Nov_2015.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '^2380J?-(120-60|500-15|500-30)$'
+
+[link]
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 120, digits = 3 }
+current = { min = 0, max = 60, digits = 4 }
+power = { min = 0, max = 250, digits = 2 }
+resistance = { min = 0.05, max = 7500, digits = 3 }
+
+[[ranges.models]]
+model = '^2380J?-500-15$'
+voltage = { min = 0, max = 500, digits = 3 }
+current = { min = 0, max = 15, digits = 4 }
+power = { min = 0, max = 200, digits = 2 }
+resistance = { min = 0.3, max = 7500, digits = 3 }
+
+[[ranges.models]]
+model = '^2380J?-500-30$'
+voltage = { min = 0, max = 500, digits = 3 }
+current = { min = 0, max = 30, digits = 4 }
+power = { min = 0, max = 750, digits = 2 }
+resistance = { min = 0.15, max = 7500, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.current_set]
+query = "SOUR:CURR:LEV:IMM?"
+parse = "float"
+
+[state.voltage_set]
+query = "SOUR:VOLT:LEV:IMM?"
+parse = "float"
+
+[state.power_set]
+query = "SOUR:POW:LEV:IMM?"
+parse = "float"
+
+[state.resistance_set]
+query = "SOUR:RES:LEV:IMM?"
+parse = "float"
+
+[state.output]
+query = "SOUR:INP:STAT?"
+parse = "bool"
+
+[state.mode]
+query = "SOUR:FUNC?"
+parse = "map"
+map = { CURR = "cc", CURRENT = "cc", VOLT = "cv", VOLTAGE = "cv", POW = "cp", POWER = "cp", RES = "cr", RESISTANCE = "cr" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 4096, shift = 12, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, shift = 1, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, shift = 4, value = "otp" },
+]
+
+[setters.current]
+command = "SOUR:CURR:LEV:IMM {value}"
+
+[setters.voltage]
+command = "SOUR:VOLT:LEV:IMM {value}"
+
+[setters.power]
+command = "SOUR:POW:LEV:IMM {value}"
+
+[setters.resistance]
+command = "SOUR:RES:LEV:IMM {value}"
+
+[setters.function]
+command = "SOUR:FUNC {function}"
+map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
+
+[setters.output]
+command = "SOUR:INP:STAT {on}"
+
+[setters.clear]
+command = "SOUR:PROT:CLE"

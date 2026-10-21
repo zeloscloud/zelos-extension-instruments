@@ -1,0 +1,86 @@
+schema = 1
+id = "keysight-n8900"
+name = "Keysight N8900 series"
+category = "psu"
+notes = "These are single-output 5 kW, 10 kW and 15 kW autoranging supplies, so no channel is addressed and the commands carry no channel list. The limits come from the unit: the profile asks for VOLT? MAX and CURR? MAX, which are 102 percent of the rating. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 2 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 3 power limit, bit 4 OT, bit 5 master/slave protection). The guide gives overcurrent protection only as an on/off state with a delay, so there is no OCP setpoint. OVP resets to 120 percent of the rating at *RST. SYST:COMM:RLST REM and LOC both leave the front panel usable, and only RWL locks it. After a protection trip, remove the fault before Clear, which sends OUTP:PROT:CLE. Models above 60 V can produce lethal voltage, up to 1500 V on the 15 kW units."
+
+[evidence]
+badge = "manual"
+source = "Keysight N8900 Series Autoranging System DC Power Supply Operating and Service Guide, N8900-90901, Version 3, August 2014"
+url = "https://xdevs.com/doc/HP_Agilent_Keysight/N8900%20Series%20Autoranging%20System%20DC%20Power%20Supply%20-%20Operating%20and%20Service%20Guide%20%28PDF%20format%29%20N8900-90901%20c20140813%20%5B21%5D.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent)'
+model = '^N89(2[0-9]|3[0-7]|4[0-9]|5[0-7])A$'
+channels = 1
+
+[link]
+lan_port = 5025
+local = "SYST:COMM:RLST LOC"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { max_query = "VOLT? MAX", digits = 3 }
+current = { max_query = "CURR? MAX", digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND?"
+parse = "bits"
+mask = 7
+map = { "1" = "cv", "2" = "cc", "4" = "off" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 4, value = "other" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 8, value = "opp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, value = "otp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 32, value = "other" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.output]
+command = "OUTP {on}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"
