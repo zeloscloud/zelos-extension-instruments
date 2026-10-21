@@ -84,6 +84,7 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
             }
         return {"status": "success", "choices": choices}
     held = {w.where for w in workers.values()}
+    tried: list[str] = []
     found = discovery.discover(
         profiles_module.shipped(),
         lan=connection == "lan",
@@ -92,21 +93,17 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
         budget_s=1.0,
         identify_timeout_s=2.0,
         skip=held,
+        tried=tried,
     )
     choices = []
     for f in found:
-        value = f.address.host if isinstance(f.address, TcpAddress) else f.address.where
+        value = _lan_value(f.address) if isinstance(f.address, TcpAddress) else f.address.where
         who = f"{f.idn.manufacturer} {f.idn.model}".strip() if f.idn else ""
         label = f"{who} ({f.address.where})" if who else f.address.where
         detail = f.error or (f.profile_id and f"profile {f.profile_id}") or None
         choices.append({"value": value, "label": label, "detail": detail})
     if not choices:
-        where = "on the network" if connection == "lan" else "on USB"
-        return {
-            "status": "success",
-            "choices": [],
-            "message": f"No instruments found {where}. Type the address.",
-        }
+        return {"status": "success", "choices": [], "message": _nothing_found(tried)}
     return {"status": "success", "choices": choices}
 
 
@@ -157,8 +154,15 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
         i["name"] for i in instruments if isinstance(i, dict) and isinstance(i.get("name"), str)
     }
     held = {w.where for w in workers.values()}
+    tried: list[str] = []
     found = discovery.discover(
-        profiles_module.shipped(), lan=True, usb=True, serial=True, budget_s=2.0, skip=held
+        profiles_module.shipped(),
+        lan=True,
+        usb=True,
+        serial=True,
+        budget_s=2.0,
+        skip=held,
+        tried=tried,
     )
     added: list[str] = []
     unidentified: list[str] = []
@@ -176,12 +180,12 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     if added:
         message = f"Added {len(added)}: {', '.join(added)}."
     elif instruments:
-        message = "No new instruments found."
+        message = f"No new instruments found. {_nothing_found(tried)}"
     else:
         instruments = [
             {"connection": "demo", "category": c} for c in ("psu", "load", "dmm", "acsource")
         ]
-        message = "No instruments found; added the demo bench."
+        message = f"{_nothing_found(tried)} Added the demo bench."
     if unidentified:
         message += " Not identified: " + "; ".join(unidentified[:5]) + "."
     return {"status": "success", "config": {"instruments": instruments}, "message": message}
@@ -311,6 +315,20 @@ def release(instrument: str | None = None) -> dict[str, Any]:
 @_instrument
 def acquire(instrument: str | None = None) -> dict[str, Any]:
     return _ask(instrument, "acquire", _ACQUIRE_TIMEOUT_S)
+
+
+def _nothing_found(tried: list[str]) -> str:
+    """What was searched, so an instrument on another subnet is a known gap, not a mystery."""
+    searched = "; ".join(tried) if tried else "nothing"
+    return (
+        f"No instruments found. Searched: {searched}. An instrument on another subnet does not "
+        "answer these searches: type its address."
+    )
+
+
+def _lan_value(address: TcpAddress) -> str:
+    """What the Host field stores: the host alone on the usual port, else with the port."""
+    return address.host if address.port == 5025 else address.where
 
 
 def _ask(

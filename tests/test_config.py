@@ -388,3 +388,21 @@ def test_load_validates_what_it_reads(tmp_path: Path, monkeypatch: pytest.Monkey
     with pytest.raises(ConfigError) as caught:
         load()
     assert caught.value.problems == ["Instrument 1 (lan), Host: missing."]
+
+
+@pytest.mark.parametrize(
+    ("host", "port", "expected"),
+    [
+        ("192.168.1.40", None, ("192.168.1.40", None)),
+        ("192.168.1.40:5555", None, ("192.168.1.40", 5555)),
+        ("192.168.1.40:5555", 5024, ("192.168.1.40", 5024)),
+        ("[fe80::1]:5025", None, ("fe80::1", 5025)),
+        ("bench.local", None, ("bench.local", None)),
+    ],
+)
+def test_a_port_in_the_host_field_is_split_off(host, port, expected) -> None:
+    item = {"connection": "lan", "host": host}
+    if port is not None:
+        item["port"] = port
+    cfg = config.from_dict({"instruments": [item]}).instruments[0]
+    assert (cfg.host, cfg.port) == expected
