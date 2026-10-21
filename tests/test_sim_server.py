@@ -121,6 +121,9 @@ def test_two_clients_share_one_instrument(instrument, connect):
     with FakeServer(instrument) as server:
         first, second = connect(server.port), connect(server.port)
         first.write(":SOUR2:VOLT 7.500")
+        # A round trip on the first client proves the server has taken its set before the
+        # second client reads; the two sockets are served in whatever order they arrive.
+        assert first.query("*OPC?") == "1"
         assert float(second.query(":SOUR2:VOLT?")) == 7.5
         assert first.query("*IDN?") == second.query("*IDN?") == instrument.idn
 
