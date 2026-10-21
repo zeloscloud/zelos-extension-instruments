@@ -4,18 +4,19 @@ name = "Keithley 2260B and GW Instek / TEXIO PSW series"
 category = "psu"
 notes = """The Keithley 2260B and the GW Instek PSW (sold by TEXIO) share one command set; the PSW Programming Manual confirms every command used here. \
 The instrument has one output and needs no remote command; the front panel stays live. \
-The LAN socket server listens on port 2268 only and must be enabled from the front-panel function menu (firmware V1.12 or newer). \
+The LAN socket server listens on port 2268 only; it needs firmware V1.12 or newer and is enabled by function F-57, which defaults to enabled. \
 Setpoints accept 0 to 105 % of the rating, so the ranges below carry 105 % of the rated voltage and current. \
-The OVP and OCP levels reach 110 % of the rating, but the extension bounds them by the same ranges. \
-Mode reads CV or CC from the Operation Status condition register; it reads off when neither bit is set. \
+The OVP level accepts 0 to 110 % of the rated voltage and the OCP level 10 to 110 % of the rated current; the OVP and OCP ranges are read from the unit with the MIN and MAX queries. \
+:CURR:PROT:STAT switches OCP on and off; the manual has no OVP switch. \
+Mode reads CV or CC from the Operation Status condition register; it reads off when neither bit is set, which the manual does not say means the output is off. \
 Protection reads the Questionable Status condition register: OV, OC and OT. Clear a trip with the Clear action. \
 Serial settings are not given in the manuals and are left at the defaults."""
 
 [evidence]
 badge = "manual"
-source = "Series 2260B Programmable DC Power Supplies Programming, 077104703, October 2024; GW Instek PSW Series Programming Manual"
+source = "Series 2260B Programmable DC Power Supplies Programming, 077104703, October 2024; GW Instek PSW Series Programming Manual, no revision printed (transcat.com copy)"
 url = "https://download.tek.com/manual/077104703_Oct2024_2260B_Programming.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^(keithley|gw[- ]?instek|texio)'
@@ -56,6 +57,10 @@ parse = "float"
 query = ":SOUR:CURR:PROT?"
 parse = "float"
 
+[state.ocp_on]
+query = ":SOUR:CURR:PROT:STAT?"
+parse = "bool"
+
 [state.output]
 query = ":OUTP?"
 parse = "bool"
@@ -86,11 +91,18 @@ command = ":SOUR:VOLT:PROT {value}"
 [setters.ocp]
 command = ":SOUR:CURR:PROT {value}"
 
+[setters.ocp_on]
+command = ":SOUR:CURR:PROT:STAT {on}"
+
 [setters.output]
 command = ":OUTP {bit}"
 
 [setters.clear]
 command = ":OUTP:PROT:CLE"
+
+[ranges]
+ovp = { min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-30-36$'

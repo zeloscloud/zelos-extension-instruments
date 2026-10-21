@@ -2,12 +2,12 @@ schema = 1
 id = "siglent-sdm3000"
 name = "Siglent SDM3045X, SDM3055, SDM3065X"
 category = "dmm"
-notes = """Transcribed from the SDM3055 and SDM3065X remote manuals; never run on a unit. The SDM3045X manual could not be downloaded, so that model follows the same family and its own manual is unchecked. The remote manuals document neither *IDN? nor an error-queue query, so this profile has no error query and sets are verified by readback only. The match assumes a manufacturer field starting with Siglent. LAN uses the raw socket on port 5025 and Telnet on 5024, from Siglent's instrument port table; the remote manuals give no port. The manual says FUNC? returns the short form in quotes, such as "VOLT" or "CURR:AC". The manual's READ? wording is unclear: it says READ? reads and erases stored readings, and also lists it among the commands that clear reading memory. Leave the trigger source on IMM and the sample count at 1. The manual lists CONF:CAP and CONF:TEMP; a model without that function rejects it. CONF resets the function's range and resolution to the defaults."""
+notes = """Transcribed from the SDM Series Programming Guide, EN02A, which covers the SDM3045X, SDM3055 and SDM3065X, and from the SDM3065X Remote Manual; never run on a unit. The guide names *IDN? but shows no reply format, and it documents no error-queue query, so this profile has no error query and sets are verified by readback only. The match assumes a manufacturer field starting with Siglent, and the model pattern is not anchored, so scan-card variants match too. LAN uses the raw socket on port 5025, which the guide's socket example uses, and Telnet on 5024, from Siglent's instrument port table; an application note comment also lists 5024 for these models. The manual says FUNC? returns the short form in quotes, such as "CONT", "CURR:AC", "CURR" or "DIOD"; it does not list the other functions. The manual's READ? wording is unclear: it says READ? reads and erases stored readings, and also lists it among the commands that clear reading memory. READ? also waits for the trigger and returns every reading the trigger count and sample count ask for, so leave the trigger source on IMM and both counts at 1. The manual lists CONF:CAP and CONF:TEMP for all three models. UNIT:TEMPerature selects C, F or K, and the profile labels temperature as degC whatever the unit is. CONF sets all measurement and trigger parameters to their defaults, which includes range AUTO."""
 
 [evidence]
 badge = "manual"
-source = "Siglent SDM3065X Remote Manual, RC06036-E01A, 2017; SDM3055/SDM3055A Remote Manual, RC06035-E01A, 2014; Siglent Instrument Socket and Telnet Port Information"
-url = "https://www.int.siglent.com/upload_file/user/SDM3065X/SDM3065X_Remote_Manual_RC06036-E01A.pdf"
+source = "Siglent SDM Series Digital Multimeter Programming Guide, EN02A (158 pages); SDM3065X Remote Manual, RC06036-E01A, 2017; Siglent Instrument Socket and Telnet Port Information"
+url = "https://siglentna.com/download/2563/"
 date = "2026-10-20"
 
 [match]

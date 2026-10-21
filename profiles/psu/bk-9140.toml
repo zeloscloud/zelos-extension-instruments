@@ -3,28 +3,29 @@ id = "bk-9140"
 name = "B&K Precision 9140 series"
 category = "psu"
 notes = """Covers the 9140 (32 V at 8 A per channel) and the 9141 (60 V at 4 A per channel), three channels each. \
-Only channel 1 is controlled. The manual selects a channel with INST 0, INST 1 or INST 2 (channel 1 is 0), and the profile's select command counts channels from 1, so channels 2 and 3 cannot be addressed. \
-The profile sends INST 0 once after connecting so that channel 1 is the programmed channel. \
-Ratings come from the 9140 series data sheet. \
+The manual selects a channel with INST 0, INST 1 or INST 2 (channel 1 is 0), so the profile selects with INST {ch0}, the channel numbered from 0, before each channel's commands. \nRatings come from the 9140 series data sheet. Each channel is limited to 100 W, so a voltage and current pair inside both ranges can be refused. \
 All commands work in local and remote state, so no remote command is sent and the front panel stays live. \
 Constant-voltage and constant-current mode are not read: the manual says STAT:QUES:ISUM:COND? returns 1 for constant current and 2 for constant voltage, while its bit table gives bit 0 as constant voltage and bit 1 as constant current. \
-Protection reads the OVP, OCP and OTP bits of the questionable condition register for the selected channel. \
+Protection reads OVP from VOLT:PROT:TRIP? and OCP from CURR:PROT:TRIP?. The over-temperature flag reads bit 4 of STAT:QUES:ISUM:COND?, a query the manual documents as a mode query without a channel number, so treat it as unconfirmed. \
+The OCP level only acts while the OCP state (CURR:PROT:STAT) is on, which the OCP on switch sets; the manual documents no OVP state command. \
+The OUTP:PAIR? reply gives the series or parallel mode; the manual's tracking mode has no label here and reads as unknown. \
+The manual's VOLT:SENS query reply (0 when sense is enabled) contradicts its command (1 enables), so remote sense is not read. \
 Clear resets all triggered protections. \
 The manual gives no LAN socket port; the profile keeps 5025. USB defaults to the virtual COM port."""
 
 [evidence]
 badge = "manual"
-source = "9140 Series Programming Manual; 9140 Series data sheet (ratings); 9140 Series user manual (interfaces)"
+source = "9140 Series Programming Manual (no revision printed); 9140 Series Data Sheet 2025 (ratings); 9140 Series User Manual (interfaces)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9140_Series_programming_manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
 model = '(?i)^914[01]$'
-channels = 1
+channels = 3
 
 [link]
-init = ["INST 0"]
+select = "INST {ch0}"
 
 [errors]
 query = "SYST:ERR?"
@@ -59,14 +60,24 @@ parse = "float"
 query = "CURR:PROT?"
 parse = "float"
 
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
 
+[state.tracking]
+query = "OUTP:PAIR?"
+parse = "map"
+map = { OFF = "independent", PARA2 = "parallel", PARA3 = "parallel", SERI2 = "series", SERI3 = "series", TRAC2 = "unknown", TRAC3 = "unknown" }
+channel = false
+
 [state.protection]
 flags = [
-  { query = "STAT:QUES:ISUM:COND?", parse = "bits", mask = 4, value = "ovp" },
-  { query = "STAT:QUES:ISUM:COND?", parse = "bits", mask = 8, value = "ocp" },
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+  { query = "CURR:PROT:TRIP?", parse = "bool", value = "ocp" },
   { query = "STAT:QUES:ISUM:COND?", parse = "bits", mask = 16, value = "otp" },
 ]
 
@@ -81,6 +92,9 @@ command = "VOLT:PROT {value}"
 
 [setters.ocp]
 command = "CURR:PROT {value}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {bit}"

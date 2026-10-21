@@ -101,6 +101,8 @@ class Recorder:
 
     def run(self, channels: int, allow_set: bool) -> str:
         profile = self._profile
+        if profile.link.first:
+            self.send(profile.link.first)
         reply = self.query(profile.match.idn)
         idn = parse_idn(reply) if reply else None
         if profile.link.remote:

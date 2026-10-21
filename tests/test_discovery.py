@@ -528,7 +528,8 @@ def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
     profiles: list[profile.Profile],
 ) -> None:
     live = serve(DP832_REPLY)
-    held = TcpAddress("127.0.0.1", 1)
+    # Another host: a held address holds its whole host, and the live one shares localhost.
+    held = TcpAddress("10.255.255.1", 1)
     opened: list[str] = []
     real_open = discovery.open_link
 

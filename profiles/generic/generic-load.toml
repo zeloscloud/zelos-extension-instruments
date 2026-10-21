@@ -3,13 +3,13 @@ id = "generic-load"
 name = "Generic SCPI electronic load"
 category = "load"
 generic = true
-notes = """Used when no profile matches the instrument. It probes MEAS:VOLT?, MEAS:CURR?, MEAS:POW?, SOUR:FUNC? and INP?, and drops each one the instrument rejects at start. Setpoint ranges come from the CURR?, VOLT?, POW? and RES? MAX queries. Function names differ between vendors: a SOUR:FUNC? reply other than CURR, VOLT, POW or RES reads as unknown, and the function setter sends CURR, VOLT, POW or RES. Loads that use other forms, such as CURR:LEV or FUNC:MODE, need their own profile. This profile has no channel select."""
+notes = """Used when no profile matches the instrument. It probes MEAS:VOLT?, MEAS:CURR?, MEAS:POW?, SOUR:FUNC:MODE? and INP?, and drops each one the instrument rejects at start. Setpoint ranges come from the CURR?, VOLT?, POW? and RES? MAX queries. SCPI-99 defines the controlled characteristic as SOUR:FUNC:MODE with the values VOLT, CURR and POW, so a SOUR:FUNC:MODE? reply other than those reads as unknown, and the function setter sends SOUR:FUNC:MODE with CURR, VOLT or POW. SCPI-99 lists no resistance value for SOUR:FUNC:MODE, so a load that selects constant resistance with another command needs its own profile, as does a load that uses other forms such as CURR:LEV. This profile has no channel select."""
 
 [evidence]
 badge = "manual"
 source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
 url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [errors]
 query = "SYST:ERR?"
@@ -36,9 +36,9 @@ parse = "float"
 optional = true
 
 [state.mode]
-query = "SOUR:FUNC?"
+query = "SOUR:FUNC:MODE?"
 parse = "map"
-map = { CURR = "cc", VOLT = "cv", POW = "cp", RES = "cr" }
+map = { CURR = "cc", VOLT = "cv", POW = "cp" }
 optional = true
 
 [state.output]
@@ -59,8 +59,8 @@ command = "POW {value}"
 command = "RES {value}"
 
 [setters.function]
-command = "FUNC {function}"
-map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
+command = "SOUR:FUNC:MODE {function}"
+map = { cc = "CURR", cv = "VOLT", cp = "POW" }
 
 [setters.output]
 command = "INP {on}"

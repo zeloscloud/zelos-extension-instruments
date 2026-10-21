@@ -2,7 +2,7 @@ schema = 1
 id = "itech-it6100b"
 name = "ITECH IT6100B series"
 category = "psu"
-notes = """Covers the IT6121B, IT6122B, IT6123B, IT6132B and IT6133B with ratings from the IT6100B data sheet; other IT61xxB models match but have no range, so setpoints refuse until the config names a limit. \
+notes = """Covers the IT6121B, IT6122B, IT6123B, IT6132B, IT6133B and IT6162B with ratings from the IT6100B data sheet and user's manual. The IT6164B has two ranges (30 V with 40 A, 60 V with 20 A), so it matches but has no range row and setpoints refuse until the config names a limit. \
 The interfaces are RS-232, USB (USBTMC) and GPIB; there is no LAN port. \
 RS-232 defaults to 9600 baud, 8 data bits, no parity, 1 stop bit, and the manual lets the front panel choose the baud rate and parity (Shift + I-set). \
 SYST:REM sets remote control mode; the manual says RWLock disables the LOCAL key and does not say that plain remote mode locks the other keys, so locks_panel is set to be safe. \
@@ -10,17 +10,18 @@ Mode reads CV (bit 2) and CC (bit 3) of the operation condition register. \
 Protection reads OV and OT from the questionable condition register. The manual gives no OCP. \
 VOLT:PROT is the overvoltage level; the extension bounds it by the voltage range. \
 Clear is not wired: the manual lists no protection clear command. \
-The IDN reply is ITECH, <model>, <serial>, <firmware>."""
+The IDN reply is ITECH, <model>, <serial>, <firmware>; the manual's example is ITECH,6152,000004,V1.01 with no IT prefix on the model, so the match accepts the model with or without IT and B. \
+The overvoltage protection state (VOLT:PROT:STAT, off after reset) and remote sense (SYST:SENS, off after reset) have readers, and the protection state has a setter."""
 
 [evidence]
 badge = "manual"
-source = "IT6100B Series SCPI Programming Guide, Ver2.0, March 2016 (IT6100-508); IT6100B data sheet (ratings)"
+source = "IT6100B Series SCPI Programming Guide, Ver2.0, March 2016 (IT6100-508); IT6100B data sheet and IT6100B Series User's Manual (ratings)"
 url = "https://assets.testequity.com/te1/Documents/pdf/itech/ITECH_IT6100B-Programming-Guide-EN.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^itech'
-model = '(?i)^IT61\d\dB?$'
+model = '(?i)^(?:IT)?61\d\dB?$'
 channels = 1
 
 [link]
@@ -32,27 +33,32 @@ locks_panel = true
 query = "SYST:ERR?"
 
 [[ranges.models]]
-model = '(?i)^IT6121'
+model = '(?i)^(?:IT)?6121'
 voltage = { min = 0, max = 20, digits = 3 }
 current = { min = 0, max = 5, digits = 4 }
 
 [[ranges.models]]
-model = '(?i)^IT6122'
+model = '(?i)^(?:IT)?6122'
 voltage = { min = 0, max = 32, digits = 3 }
 current = { min = 0, max = 3, digits = 4 }
 
 [[ranges.models]]
-model = '(?i)^IT6123'
+model = '(?i)^(?:IT)?6123'
 voltage = { min = 0, max = 72, digits = 3 }
 current = { min = 0, max = 1.2, digits = 4 }
 
 [[ranges.models]]
-model = '(?i)^IT6132'
+model = '(?i)^(?:IT)?6162'
+voltage = { min = 0, max = 20, digits = 3 }
+current = { min = 0, max = 50, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^(?:IT)?6132'
 voltage = { min = 0, max = 30, digits = 3 }
 current = { min = 0, max = 5, digits = 4 }
 
 [[ranges.models]]
-model = '(?i)^IT6133'
+model = '(?i)^(?:IT)?6133'
 voltage = { min = 0, max = 60, digits = 3 }
 current = { min = 0, max = 2.5, digits = 4 }
 
@@ -80,6 +86,14 @@ parse = "float"
 query = "VOLT:PROT?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+
+[state.remote_sense]
+query = "SYST:SENS?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -105,6 +119,9 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {bit}"

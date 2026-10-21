@@ -6,18 +6,21 @@ notes = """Covers the 9201B, 9202B, 9205B and 9206B, single-output multi-range s
 The only interfaces are USB (USBTMC) and RS-232 at 9600 baud, 8 data bits, no parity by default; there is no LAN port. \
 Send SYST:REM first: the manual warns that commands sent without it may cause unpredictable results. Remote mode locks every key except Local. \
 The manual terminates commands with CR and LF. \
-RS-232 has no flow control and the manual calls a delay between commands mandatory but gives no value, so delay_ms is left at 0; raise it in the config if replies are lost. \
+The manual calls a delay between commands mandatory but gives no value; the profile pauses 50 ms between commands, and the config can change it. \
 The IDN reply has a space after each comma: B&K Precision, 9205B, <serial>, <firmware>. \
-Voltage and current are independent limits; the supply caps output power at 200 W (9201B), 360 W (9202B) or 600 W (9205B, 9206B). \
+Voltage and current are independent limits; the supply caps output power at 200 W (9201B), 360 W (9202B) or 600 W (9205B, 9206B), so a pair inside both ranges can be refused. \
+Current is programmed in 0.1 mA steps. \
 Constant-voltage and constant-current mode are not read: the questionable register bits for them are documented as latched events and the manual's two bit descriptions contradict each other. \
 Protection reads OVP from VOLT:PROT:TRIP? and OCP and the fan-fault over-temperature bit from the questionable condition register. \
+The manual gives the overcurrent bit as bit 11 in its register table and as bit 1 in the command section, so the OCP flag is unconfirmed; the profile reads bit 11. \
+The OVP and OCP levels act only while their states (VOLT:PROT:STAT, CURR:PROT:STAT) are on; the OVP on and OCP on switches set them. \
 Clear resets the OVP trip only."""
 
 [evidence]
 badge = "manual"
-source = "9200B Series Multi-Range DC Power Supply User Manual (Remote Commands, chapter 5)"
+source = "9200B Series Multi-Range DC Power Supply User Manual v072524 (Remote Commands, chapter 5)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/manuals/en-us/9200B_Series_manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
@@ -26,6 +29,7 @@ channels = 1
 
 [link]
 write_terminator = "\r\n"
+delay_ms = 50
 remote = "SYST:REM"
 local = "SYST:LOC"
 locks_panel = true
@@ -35,15 +39,15 @@ query = "SYST:ERR?"
 
 [ranges]
 voltage = { min = 0, max = 60, digits = 3 }
-current = { min = 0, max = 10, digits = 3 }
+current = { min = 0, max = 10, digits = 4 }
 
 [[ranges.models]]
 model = '(?i)^9202B$'
-current = { min = 0, max = 15, digits = 3 }
+current = { min = 0, max = 15, digits = 4 }
 
 [[ranges.models]]
 model = '(?i)^9205B$'
-current = { min = 0, max = 25, digits = 3 }
+current = { min = 0, max = 25, digits = 4 }
 
 [[ranges.models]]
 model = '(?i)^9206B$'
@@ -77,6 +81,14 @@ parse = "float"
 query = "CURR:PROT?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -99,6 +111,12 @@ command = "VOLT:PROT {value}"
 
 [setters.ocp]
 command = "CURR:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {bit}"

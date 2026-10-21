@@ -2,17 +2,17 @@ schema = 1
 id = "itech-it7800"
 name = "ITECH IT7800 series"
 category = "acsource"
-notes = """Transcribed from the programming guide and the user manual, not tried on a unit. The profile drives the single-phase mode, where each query returns one value. In the three-phase and multi-channel modes the queries return one value per phase or channel and the profile does not read them; the mode is chosen with SYSTem:FUNCtion. The ratings in ranges are the single-phase figures from the user manual: 350 V rms, the model's rms current, its apparent power in VA, and 16 Hz to 2.4 kHz. The current setpoint is the rms current limit. The 16 Hz to 500 Hz low band and the 2.4 kHz high band are separate frequency ranges, and the profile allows the whole span. Only the IT7803 to IT7890 models listed in the user manual are matched; the IT78105 and larger models are not. The LAN raw socket port defaults to 30000 and the serial rate to 9600 baud, with 4800, 19200, 38400, 57600 and 115200 also offered. SYST:REM takes the supply out of front-panel control. The protection state reads the questionable status condition register: weight 1 and 2 overvoltage, 8 and 16 overcurrent, 32 overpower, 128 overtemperature, and 4 and 64 for undervoltage and fan error. The Clear setter clears the protection status once the fault is gone."""
+notes = """Transcribed from the programming guide and the user manual, not tried on a unit. The profile drives the single-phase mode, where each query returns one value. In the three-phase and multi-channel modes the queries return one value per phase or channel and the profile does not read them; the mode is chosen with SYSTem:FUNCtion. The ratings in ranges are the single-phase figures from the user manual: 350 V rms, the model's rms current, its apparent power in VA, and 16 Hz to 2.4 kHz. The current setpoint is the rms current limit. The 16 Hz to 500 Hz low band and the 2.4 kHz high band are separate frequency ranges, and the profile allows the whole span. The IT7803 to IT78165 models listed in the user manual are matched, by the user manual's naming rule IT78XXX-YYY-ZZZ with or without the IT prefix. The guide's only identity example is \"ITECH, M7722, ...\", so the model string a unit returns is unverified. The LAN raw socket port defaults to 30000 and the serial rate to 9600 baud, with 4800, 19200, 38400, 57600 and 115200 also offered. SYST:REM takes the supply out of front-panel control. The protection state reads the questionable status condition register: weight 1 and 2 overvoltage, 8 and 16 overcurrent, 32 overpower, 128 overtemperature, and 4 and 64 for undervoltage and fan error. The guide gives two questionable-register tables that disagree, and the profile follows the one in the STATus commands chapter (bit 0 OVPrms, 1 OVPpeak, 2 UVPrms, 3 OCPrms, 4 OCPpeak, 5 OPP, 6 FAN err, 7 OT). The status register chapter instead gives bit 0 OV, 1 OC_Rms, 2 OC_Peak, 3 OP_POSITIVE, 4 OP_NEGATIVE, 5 UV, 6 OT, 7 UC and bits 8 to 15 for other faults; the STAT:QUES? example in the STATus chapter reads 4140, which has bits above 7. If the status register chapter is right, the protection flags mislabel, so check them on a unit. The Clear setter clears the protection status once the fault is gone."""
 
 [evidence]
 badge = "manual"
 source = "ITECH IT7800 Series Programmable AC/DC Power Supply Programming Guide, V1.0, 2021, and IT7800 Series User Manual, V1.0, 2021"
 url = "https://www.egeratedocuments.com/markalar/itech/Programming-Guide/IT7800_Programming_Guide-EN.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^itech'
-model = '^IT78(03|05|06|09|12|15|30|45|60|75|90)-350-\d+U?$'
+model = '^(?:IT)?78(?:03|05|06|09|12|15|30|45|60|75|90|105|120|135|150|165)-350-\d+U?$'
 
 [link]
 lan_port = 30000
@@ -25,80 +25,115 @@ locks_panel = true
 query = "SYST:ERR?"
 
 [[ranges.models]]
-model = '^IT7803-350-30U$'
+model = '^(?:IT)?7803-350-30U$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 30, digits = 2 }
 power = { min = 0, max = 3000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7805-350-30U$'
+model = '^(?:IT)?7805-350-30U$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 30, digits = 2 }
 power = { min = 0, max = 5000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7806-350-90$'
+model = '^(?:IT)?7806-350-90$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 90, digits = 2 }
 power = { min = 0, max = 6000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7809-350-90$'
+model = '^(?:IT)?7809-350-90$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 90, digits = 2 }
 power = { min = 0, max = 9000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7812-350-90$'
+model = '^(?:IT)?7812-350-90$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 90, digits = 2 }
 power = { min = 0, max = 12000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7815-350-90$'
+model = '^(?:IT)?7815-350-90$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 90, digits = 2 }
 power = { min = 0, max = 15000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7830-350-180$'
+model = '^(?:IT)?7830-350-180$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 180, digits = 2 }
 power = { min = 0, max = 30000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7845-350-270$'
+model = '^(?:IT)?7845-350-270$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 270, digits = 2 }
 power = { min = 0, max = 45000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7860-350-360$'
+model = '^(?:IT)?7860-350-360$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 360, digits = 2 }
 power = { min = 0, max = 60000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7875-350-450$'
+model = '^(?:IT)?7875-350-450$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 450, digits = 2 }
 power = { min = 0, max = 75000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [[ranges.models]]
-model = '^IT7890-350-540$'
+model = '^(?:IT)?7890-350-540$'
 voltage = { min = 0, max = 350, digits = 2 }
 current = { min = 0, max = 540, digits = 2 }
 power = { min = 0, max = 90000, digits = 0 }
+frequency = { min = 16, max = 2400, digits = 2 }
+
+[[ranges.models]]
+model = '^(?:IT)?78105-350-630$'
+voltage = { min = 0, max = 350, digits = 2 }
+current = { min = 0, max = 630, digits = 2 }
+power = { min = 0, max = 105000, digits = 0 }
+frequency = { min = 16, max = 2400, digits = 2 }
+
+[[ranges.models]]
+model = '^(?:IT)?78120-350-720$'
+voltage = { min = 0, max = 350, digits = 2 }
+current = { min = 0, max = 720, digits = 2 }
+power = { min = 0, max = 120000, digits = 0 }
+frequency = { min = 16, max = 2400, digits = 2 }
+
+[[ranges.models]]
+model = '^(?:IT)?78135-350-810$'
+voltage = { min = 0, max = 350, digits = 2 }
+current = { min = 0, max = 810, digits = 2 }
+power = { min = 0, max = 135000, digits = 0 }
+frequency = { min = 16, max = 2400, digits = 2 }
+
+[[ranges.models]]
+model = '^(?:IT)?78150-350-900$'
+voltage = { min = 0, max = 350, digits = 2 }
+current = { min = 0, max = 900, digits = 2 }
+power = { min = 0, max = 150000, digits = 0 }
+frequency = { min = 16, max = 2400, digits = 2 }
+
+[[ranges.models]]
+model = '^(?:IT)?78165-350-990$'
+voltage = { min = 0, max = 350, digits = 2 }
+current = { min = 0, max = 990, digits = 2 }
+power = { min = 0, max = 165000, digits = 0 }
 frequency = { min = 16, max = 2400, digits = 2 }
 
 [signals.voltage]

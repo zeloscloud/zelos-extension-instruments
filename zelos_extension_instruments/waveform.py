@@ -52,8 +52,9 @@ class WaveDesc:
     comm_type: int
     # 1 when words are big-endian.
     comm_order: int
-    # Samples in the data array.
+    # Samples in the whole acquisition, and bytes in the transferred array.
     count: int
+    array_bytes: int
     # First point and decimation step of the transfer.
     first: int
     step: int
@@ -105,6 +106,7 @@ def decode_wavedesc(payload: bytes) -> WaveDesc:
         comm_type=struct.unpack_from("<h", d, 32)[0],
         comm_order=comm_order,
         count=long(116),
+        array_bytes=long(60),
         first=long(132),
         step=max(1, long(136)),
         vertical_gain=single(156),

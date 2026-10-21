@@ -2,7 +2,7 @@ schema = 1
 id = "agilent-n5700"
 name = "Agilent N5700 series"
 category = "psu"
-notes = "These are single-output 750 W and 1500 W supplies, so no channel is addressed. The profile sends SYST:COMM:RLST REM after connect and SYST:COMM:RLST LOC for Local: REM keeps the front-panel keys active, and only RWL locks them. The limits come from the unit through VOLT? MAX and CURR? MAX. Mode comes from STAT:OPER:COND? (bit 8 CV, bit 10 CC), and a reading of 0 is shown as off. Protection comes from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 4 OT, bit 9 external inhibit). The guide gives no power measurement, so power is left out, and overcurrent protection is an on/off state (CURR:PROT:STAT) with no level, so there is no OCP setpoint. The OVP level is coupled to the voltage setting: it must be at least 1.05 times the set voltage, and its maximum depends on the model. The over-voltage and over-current latches stay until Clear sends OUTP:PROT:CLE after the fault is removed. Measurement overflow returns 9.91E+37."
+notes = "These are single-output 750 W and 1500 W supplies, so no channel is addressed. The profile sends SYST:COMM:RLST REM after connect and SYST:COMM:RLST LOC for Local: REM keeps the front-panel keys active, and only RWL locks them. The limits come from the unit through VOLT? MAX and CURR? MAX. Mode comes from STAT:OPER:COND? (bit 8 CV, bit 10 CC), and a reading of 0 is shown as off. Protection comes from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 4 OT, bit 9 external inhibit). The guide gives no power measurement, so power is left out, and overcurrent protection is an on/off state (CURR:PROT:STAT) with no level, so there is no OCP setpoint. The state is off after *RST, so the OCP flag stays quiet until it is switched on, and this profile reads and sets it. The OVP level is coupled to the voltage setting: it must be at least 1.05 times the set voltage, and its maximum, the guide's table value for the model, is read with VOLT:PROT:LEV? MAX. The over-voltage and over-current latches stay until Clear sends OUTP:PROT:CLE after the fault is removed. Measurement overflow returns 9.91E+37."
 
 [evidence]
 badge = "manual"
@@ -26,6 +26,7 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { max_query = "VOLT? MAX", digits = 3 }
 current = { max_query = "CURR? MAX", digits = 3 }
+ovp = { max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -46,6 +47,10 @@ parse = "float"
 [state.ovp_set]
 query = "VOLT:PROT:LEV?"
 parse = "float"
+
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
 
 [state.output]
 query = "OUTP?"
@@ -74,6 +79,9 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT:LEV {value}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {on}"

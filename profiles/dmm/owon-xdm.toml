@@ -2,13 +2,13 @@ schema = 1
 id = "owon-xdm"
 name = "OWON XDM2041"
 category = "dmm"
-notes = """Transcribed from the XDM2041 Digital Multimeter Programming Manual; never run on a unit. Only the XDM2041 is covered. The XDM1041 and XDM1241 programming manual could not be downloaded, so they need their own profile. The manual says the SCPI protocol runs over USB or LAN and gives no LAN port, baud rate or serial settings, so this profile sets none: set them in the config. The manual documents no error-queue query, so this profile has no error query and sets are verified by readback only. The manual says SYST:REM enters SCPI mode and SYST:LOC exits it, so the profile sends SYST:REM after connect. MEAS1? returns the main display value; MEAS? returns two comma-separated values when the secondary display is on, so this profile uses MEAS1?. The manual says FUNC? returns the abbreviated function in quotes and lists the strings in a table as VOLT AC, VOLT, CURR AC, CURR, FREQ, PER, CAP, CONT, DIOD, FRES, RES and TEMP. This profile maps those with a space, a colon or no separator. Temperature reads in the unit set by TEMP:RTD:UNIT. CONF restores the function's measurement and trigger parameters to defaults, and the function setter selects 2-wire RTD temperature."""
+notes = """Transcribed from the XDM2041 Digital Multimeter Programming Manual; never run on a unit. Only the XDM2041 is covered. The XDM1041 and XDM1241 programming manual could not be downloaded, so they need their own profile. The manual says the SCPI protocol runs over USB or LAN and gives no LAN port, baud rate or serial settings, so this profile sets none: set them in the config. The manual documents no error-queue query, so this profile has no error query and sets are verified by readback only. The manual says SYST:REM enters SCPI mode and SYST:LOC exits it, so the profile sends SYST:REM after connect. MEAS1? returns the main display value; MEAS? returns two comma-separated values when the secondary display is on, so this profile uses MEAS1?. The manual says FUNC? returns the abbreviated function in quotes and lists the strings in a table as VOLT AC, VOLT, CURR AC, CURR, FREQ, PER, CAP, CONT, DIOD, FRES, RES and TEMP. This profile maps those with a space, a colon or no separator. AUTO? returns 1 for autoscale and 0 for a manual range. The manual has a RANGE setter but no range query, and RATE? returns F, M or L rather than an integration time, so the range and the integration time are not read. Temperature reads in the unit set by TEMP:RTD:UNIT. CONF restores the function's measurement and trigger parameters to defaults, and the function setter selects 2-wire RTD temperature."""
 
 [evidence]
 badge = "manual"
 source = "OWON XDM2041 Digital Multimeter Programming Manual"
 url = "https://files.owon.com.cn/probook/XDM2041_Digital_Multimeter_Programming_Manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^owon'
@@ -21,6 +21,10 @@ local = "SYST:LOC"
 [signals.value]
 query = "MEAS1?"
 parse = "float"
+
+[state.autorange]
+query = "AUTO?"
+parse = "bool"
 
 [state.function]
 query = "FUNC?"

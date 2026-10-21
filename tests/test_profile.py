@@ -102,7 +102,7 @@ def test_load_file_reads_the_shipped_example(dp800: Profile) -> None:
     assert dp800.generic is False
     assert dp800.path == DP800_PATH
     assert dp800.evidence.badge == "manual"
-    assert dp800.evidence.date == "2026-10-20"
+    assert dp800.evidence.date == "2026-10-21"
     assert dp800.match.channels == 1
     assert [m.channels for m in dp800.match.models] == [2, 3]
     assert dp800.link.lan_port == 5555
@@ -117,11 +117,25 @@ def test_load_file_reads_the_shipped_example(dp800: Profile) -> None:
     assert [r.name for r in dp800.state] == [
         "voltage_set",
         "current_set",
+        "ovp_set",
+        "ocp_set",
+        "ovp_on",
+        "ocp_on",
+        "remote_sense",
         "output",
         "mode",
         "protection",
     ]
-    assert set(dp800.setters) == {"voltage", "current", "output", "clear"}
+    assert set(dp800.setters) == {
+        "voltage",
+        "current",
+        "ovp",
+        "ocp",
+        "ovp_on",
+        "ocp_on",
+        "output",
+        "clear",
+    }
     assert dp800.dmm is None
 
 
@@ -357,6 +371,11 @@ def test_fields_lists_signals_then_state_with_units(dp800: Profile) -> None:
         ("power", "W"),
         ("voltage_set", "V"),
         ("current_set", "A"),
+        ("ovp_set", "V"),
+        ("ocp_set", "A"),
+        ("ovp_on", None),
+        ("ocp_on", None),
+        ("remote_sense", None),
         ("output", None),
         ("mode", None),
         ("protection", None),
@@ -452,7 +471,7 @@ LINT_CASES: list[tuple[str, Any, str, str]] = [
         "select without {ch}",
         lambda r: set_(r, "link.select", "INST:NSEL 1"),
         "link.select",
-        "must contain {ch}.",
+        "must contain {ch} or {ch0}.",
     ),
     (
         "unknown placeholder in a query",

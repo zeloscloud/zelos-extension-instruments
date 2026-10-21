@@ -7,18 +7,19 @@ CONF:REM ON enables remote control (the manual says it is valid for RS-232 only)
 The output setter is CONF:OUTP ON or OFF, and CONF:OUTP? reads it back. \
 The LAN socket port is 2101 (TCP, on units with the Ethernet option); RS-232 defaults to 9600 baud with no parity; the response terminator on RS-232 is a line feed. \
 FETC:STAT? returns three fields: a warning bit mask (bit 0 OVP, bit 1 OCP, bit 2 OPP, bit 4 OTP), the output state and CV or CC. Mode and protection are read from it. \
-The OVP and OCP levels can exceed the output rating (the manual's example reads 88 V on an 80 V model), but the extension bounds them by the output ranges. \
+The OVP level goes up to 1.10 times the output voltage rating and the OCP level up to 1.05 times the output current rating (the manual's OVP and OCP range tables), and the ranges say so. \
+The manual's *IDN? table lists the manufacturer and the model as separate fields, but its example reads "CHROMA 62012P-80-60, 01.00, 12345", with a space after the manufacturer and the model joined to it. The match accepts the model with or without its voltage and current suffix and, for the example form, the version number in the second field. In those two forms the model string carries no rating, so setpoints refuse until the config names a limit. \
 Clear is not wired: the manual lists no protection clear command in the sections read."""
 
 [evidence]
 badge = "manual"
 source = "Chroma 62000P Series Programmable DC Power Supply Operating & Programming Manual, Version 1.8, September 2014"
 url = "https://valuetronics.com/cdn/shop/files/Chroma_62000P_Series_Operating_and_Programming_Manual-2014.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^chroma'
-model = '(?i)^620\d\dP-\d+-\d+$'
+model = '(?i)^(?:620\d\dP(?:-\d+-\d+)?|\d+\.\d+)$'
 channels = 1
 
 [link]
@@ -96,58 +97,82 @@ command = "CONF:OUTP {on}"
 model = '(?i)62006P-30-80$'
 voltage = { min = 0, max = 30, digits = 3 }
 current = { min = 0, max = 80, digits = 3 }
+ovp = { min = 0, max = 33, digits = 3 }
+ocp = { min = 0, max = 84, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62006P-100-25$'
 voltage = { min = 0, max = 100, digits = 3 }
 current = { min = 0, max = 25, digits = 3 }
+ovp = { min = 0, max = 110, digits = 3 }
+ocp = { min = 0, max = 26.25, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62006P-300-8$'
 voltage = { min = 0, max = 300, digits = 3 }
 current = { min = 0, max = 8, digits = 3 }
+ovp = { min = 0, max = 330, digits = 3 }
+ocp = { min = 0, max = 8.4, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62012P-40-120$'
 voltage = { min = 0, max = 40, digits = 3 }
 current = { min = 0, max = 120, digits = 3 }
+ovp = { min = 0, max = 44, digits = 3 }
+ocp = { min = 0, max = 126, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62012P-80-60$'
 voltage = { min = 0, max = 80, digits = 3 }
 current = { min = 0, max = 60, digits = 3 }
+ovp = { min = 0, max = 88, digits = 3 }
+ocp = { min = 0, max = 63, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62012P-100-50$'
 voltage = { min = 0, max = 100, digits = 3 }
 current = { min = 0, max = 50, digits = 3 }
+ovp = { min = 0, max = 110, digits = 3 }
+ocp = { min = 0, max = 52.5, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62012P-600-8$'
 voltage = { min = 0, max = 600, digits = 3 }
 current = { min = 0, max = 8, digits = 3 }
+ovp = { min = 0, max = 660, digits = 3 }
+ocp = { min = 0, max = 8.4, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62024P-40-120$'
 voltage = { min = 0, max = 40, digits = 3 }
 current = { min = 0, max = 120, digits = 3 }
+ovp = { min = 0, max = 44, digits = 3 }
+ocp = { min = 0, max = 126, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62024P-80-60$'
 voltage = { min = 0, max = 80, digits = 3 }
 current = { min = 0, max = 60, digits = 3 }
+ovp = { min = 0, max = 88, digits = 3 }
+ocp = { min = 0, max = 63, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62024P-100-50$'
 voltage = { min = 0, max = 100, digits = 3 }
 current = { min = 0, max = 50, digits = 3 }
+ovp = { min = 0, max = 110, digits = 3 }
+ocp = { min = 0, max = 52.5, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62024P-600-8$'
 voltage = { min = 0, max = 600, digits = 3 }
 current = { min = 0, max = 8, digits = 3 }
+ovp = { min = 0, max = 660, digits = 3 }
+ocp = { min = 0, max = 8.4, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)62050P-100-100$'
 voltage = { min = 0, max = 100, digits = 3 }
 current = { min = 0, max = 100, digits = 3 }
+ovp = { min = 0, max = 110, digits = 3 }
+ocp = { min = 0, max = 105, digits = 3 }

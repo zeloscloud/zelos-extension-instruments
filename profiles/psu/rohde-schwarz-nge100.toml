@@ -7,8 +7,10 @@ Channel commands act on the channel chosen with INST:NSEL, so the extension sele
 Any command switches the instrument to remote control and locks the front panel until the Local action runs or the Remote key is held. \
 OUTP switches the selected channel on or off; OUTP:SEL (the channel key) and OUTP:GEN (the master output) are not used. \
 The manual documents no error-queue query, so sets are verified by readback only. \
-Protection reads the OVP, OCP (FUSE) and OPP tripped flags of the selected channel. \
-Clear resets the OVP trip only; FUSE:TRIP:CLEar and POW:PROT:CLEar are not wired. \
+Protection reads the OVP, OCP (FUSE) and OPP tripped flags of the selected channel. The OVP, fuse and OPP functions each have an on/off state, and the manual gives *RST as off for the fuse; the OVP and fuse states are read and switched, the OPP state is not. \
+The manual prints the overtemperature query as OTP:TRIPped? but its example is OUTP:TRIP?, so overtemperature is not read. \
+The OVP level is 0.100 V (the MIN reply; the text says 0 mV) to 32.2 V in 100 mV steps. \
+Clear resets the OVP, OCP (FUSE:TRIP:CLEar) and OPP (POW:PROT:CLEar) trips of the selected channel. \
 The LAN socket port is fixed at 5025; USB offers TMC or VCP, which is selected in the instrument menu. \
 The original NGE100 (not B) manual was not read."""
 
@@ -16,7 +18,7 @@ The original NGE100 (not B) manual was not read."""
 badge = "manual"
 source = "R&S NGE100B Power Supply User Manual, 5601.1343.02, Version 11, firmware 1.55"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/5601_1343_01/NGE100B_User_Manual_en_11.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^rohde\s*&\s*schwarz'
@@ -35,6 +37,7 @@ locks_panel = true
 [ranges]
 voltage = { min = 0, max = 32.2, digits = 2, step = 0.01 }
 current = { min = 0.003, max = 3.025, digits = 3 }
+ovp = { min = 0.1, max = 32.2, digits = 1 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -59,6 +62,14 @@ parse = "float"
 [state.ovp_set]
 query = "VOLT:PROT:LEV?"
 parse = "float"
+
+[state.ovp_on]
+query = "VOLT:PROT?"
+parse = "bool"
+
+[state.ocp_on]
+query = "FUSE?"
+parse = "bool"
 
 [state.output]
 query = "OUTP?"
@@ -85,8 +96,14 @@ command = "CURR {value}"
 [setters.ovp]
 command = "VOLT:PROT:LEV {value}"
 
+[setters.ovp_on]
+command = "VOLT:PROT {bit}"
+
+[setters.ocp_on]
+command = "FUSE {bit}"
+
 [setters.output]
 command = "OUTP {bit}"
 
 [setters.clear]
-command = "VOLT:PROT:CLE"
+command = ["VOLT:PROT:CLE", "FUSE:TRIP:CLE", "POW:PROT:CLE"]

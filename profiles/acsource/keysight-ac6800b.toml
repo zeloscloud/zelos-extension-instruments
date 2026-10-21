@@ -3,8 +3,8 @@ id = "keysight-ac6800b"
 name = "Keysight AC6800B series"
 category = "acsource"
 notes = """\
-Transcribed from the operating and service guide, not tried on a unit. The AC voltage has two ranges, 155 V and 310 V, and VOLT:RANG selects one; the voltage limit in ranges is the 310 V range, and a level above the active range is rejected. \
-The current limit is 5 A, 10 A, 20 A or 40 A (AC6801B to AC6804B) in the 155 V range and half of it in the 310 V range, and the profile uses the 155 V figure. The frequency range is 40 Hz to 500 Hz. \
+Transcribed from the operating and service guide, not tried on a unit. The AC voltage has two ranges, 155 V (0 to 157.5 V) and 310 V (0 to 315.0 V), and VOLT:RANG selects one; it can be set only while the output is off, and the *RST value is 155. The profile reads the active range's limit with VOLT? MAX once after connect and falls back to 315 V; a level above the active range is rejected. \
+The CURR setting range is 0.1 to 5.2 A, 0.2 to 10.5 A, 0.4 to 21.0 A and 0.8 to 42.0 A (AC6801B to AC6804B), and a value above the maximum is set to the maximum. The rated maximum rms current is 5 A, 10 A, 20 A or 40 A in the 155 V range and half of it in the 310 V range. The frequency range is 40 Hz to 500 Hz. \
 The current setpoint is the rms current limit, not a load current. \
 OUTP:COUP AC|DC|ACDC selects the output coupling, and the profile sets AC quantities only, so use AC coupling with it: the DC voltage and DC current are separate commands (VOLT:OFFS and CURR:OFFS) that the profile does not set. \
 The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 512 overpower, 16 overtemperature, and 4, 32, 64 and 8192 for hardware failure, watchdog, remote inhibit and sense fault. The Clear setter resets the latched protection. \
@@ -14,7 +14,7 @@ Remote connection is LAN (raw socket on port 5025, VXI-11, HiSLIP), USB, and opt
 badge = "manual"
 source = "Keysight AC6800B Series Basic AC Sources Operating and Service Guide, AC6800-90901, Edition 2, April 2019"
 url = "https://transcat.ca/media/pdf/keysight-AC6800B-user-manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^keysight'
@@ -27,21 +27,21 @@ lan_port = 5025
 query = "SYST:ERR?"
 
 [ranges]
-voltage = { min = 0, max = 310, digits = 3 }
-current = { min = 0, max = 5, digits = 3 }
+voltage = { min = 0, max = 315, max_query = "VOLT? MAX", digits = 3 }
+current = { min = 0.1, max = 5.2, digits = 3 }
 frequency = { min = 40, max = 500, digits = 3 }
 
 [[ranges.models]]
 model = '^AC6802B$'
-current = { min = 0, max = 10, digits = 3 }
+current = { min = 0.2, max = 10.5, digits = 3 }
 
 [[ranges.models]]
 model = '^AC6803B$'
-current = { min = 0, max = 20, digits = 3 }
+current = { min = 0.4, max = 21, digits = 3 }
 
 [[ranges.models]]
 model = '^AC6804B$'
-current = { min = 0, max = 40, digits = 3 }
+current = { min = 0.8, max = 42, digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT:AC?"

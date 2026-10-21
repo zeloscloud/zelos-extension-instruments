@@ -8,15 +8,17 @@ Channel commands act on the channel chosen with INST:NSEL, so the extension sele
 SYST:REM locks the front panel; the Local action (SYST:LOC) unlocks it. \
 OUTP switches the selected channel on and turns its output on; OUTP:SEL (channel key) and OUTP:GEN (primary output key) are not used. \
 Mode reads the questionable condition register of the channel: bit 0 is constant current and bit 1 is constant voltage; zero is shown as off, which the manual does not state. \
-Protection reads OVP, fuse (OCP), OPP and over-temperature. Clear resets the OVP trip only. \
+Protection reads OVP, fuse (OCP), OPP and over-temperature. The OVP, fuse (OCP) and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
+Clear resets the OVP, OCP (FUSE:TRIP:CLEar) and OPP trips of the selected channel. \
 The manual lists no OCP level command, so the OCP setter is omitted. \
+Remote sense answers INT or EXT and tracking is enabled per channel; the profile reads neither. \
 The LAN socket port is fixed at 5025."""
 
 [evidence]
 badge = "manual"
 source = "R&S NGP800 Power Supply Series User Manual, 5601.5610.02, Version 14, firmware 2.025 or higher"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/5601_5610_01/NGP800_User_Manual_en_14.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^rohde\s*&\s*schwarz'
@@ -81,6 +83,14 @@ parse = "float"
 query = "VOLT:PROT:LEV?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT?"
+parse = "bool"
+
+[state.ocp_on]
+query = "FUSE?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -108,8 +118,14 @@ command = "CURR {value}"
 [setters.ovp]
 command = "VOLT:PROT:LEV {value}"
 
+[setters.ovp_on]
+command = "VOLT:PROT {bit}"
+
+[setters.ocp_on]
+command = "FUSE {bit}"
+
 [setters.output]
 command = "OUTP {bit}"
 
 [setters.clear]
-command = "VOLT:PROT:CLE"
+command = ["VOLT:PROT:CLE", "FUSE:TRIP:CLE", "POW:PROT:CLE"]

@@ -10,14 +10,16 @@ The manual documents the 8542B, 8500B, 8502B, 8510B and 8514B. It does not docum
 The identity reply puts a BK prefix on the model (BK8510B), and the profile accepts it with or without the prefix. \
 The manual does not state the reply form of the function query; the profile accepts the short and the long word. DYNAMIC, LED and IMPEDANCE read as unknown. \
 SYST:REM puts the load in remote mode and locks every front-panel key except LOCAL and SHIFT. \
-The protection state reads the questionable status condition register. The overvoltage and overcurrent bits stay set after a trip until the manual's protection clear, which has no SCPI command entry, so the profile has no Clear setter. \
+The protection state reads the questionable status condition register. The trip bits stay set until the condition is removed and PROT:CLE is programmed. The manual names PROT:CLE in the status register description but has no command entry for it (the frame protocol lists a clear-protection frame), so the Clear setter sends it, untested. The user manual says that once an overcurrent or overpower trip is cleared the input re-enables automatically, so adjust the source before clearing. \
+The manual says that when the selected mode is in operation, selecting another mode automatically disables the input, so a function change on a running load may switch the input off. \
+The manual gives the current slew rate (CURR:SLEW) in A/us and the current range (CURR:RANGE?) as a number, neither of which the slew and current range fields can hold, so neither is read or set. \
 Each current and voltage setting is accepted inside the active range only (the low range is 3 A, 12 A or 24 A and the low voltage range is 18 V or 50 V depending on the model)."""
 
 [evidence]
 badge = "manual"
-source = "B&K Precision 8500B Series Programmable DC Electronic Loads Programming Manual (SCPI and frame commands), and 8500B Series User Manual v100219"
+source = "B&K Precision 8500B Series Programmable DC Electronic Loads Programming Manual (SCPI and frame commands), version July 23, 2019; 8500B Series User Manual, version December 6, 2023"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/8500B_Series_programming_manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^b&?k'
@@ -127,3 +129,6 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = "SOUR:INP:STAT {on}"
+
+[setters.clear]
+command = "PROT:CLE"

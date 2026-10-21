@@ -3,19 +3,19 @@ id = "kikusui-plz-5w"
 name = "Kikusui PLZ-5W series"
 category = "load"
 notes = """\
-Transcribed from the communication interface manual, not tried on a unit. The series is the PLZ205W, PLZ405W and PLZ1205W; there is no PLZ1005W. \
+Transcribed from the PLZ-5W communication interface manual, not tried on a unit. That manual's web edition could not be reached when the profile was checked, so the command syntax was compared with the PLZ-5WH2 communication interface manual, a different series whose commands match the ones here, and the ratings and interfaces with the PLZ-5W user's manual. The series is the PLZ205W, PLZ405W and PLZ1205W. \
 The constant-resistance mode is set and read in conductance (siemens) through CONDuctance, and the profile has no inverse conversion, so it has no resistance setter, no resistance setpoint and no resistance measurement. The manual has no resistance query. \
 Current, voltage and power each have ranges (H, M and L for current and power, H and L for voltage). The limits in ranges are the H range, and a setpoint above the active range is rejected. \
-The manual recommends remote mode before remote control: SYST:COMM:RLST REM locks the panel except the ESCAPE key. The RS-232 bit rate is 9600, 19200, 38400, 57600 or 115200 with 8 data bits and 1 stop bit, set on the front panel, and the extracted manual does not show which is the factory default. The LAN raw-socket port is 5025. \
-The identity reply has six fields, for example KIKUSUI,PLZ1205W,AB123456,IFC01.00.0001,FPGA01.00.002,IOC01.00.002. \
+The manual recommends remote mode before remote control: SYST:COMM:RLST REM locks the panel except the ESCAPE key. The RS-232 settings are 8 data bits and 1 stop bit, fixed, with no parity; the user's manual lists the bit rate as 9600, 19200, 38400, 57600 or 115200 in its menu and as 9600, 19200, 38400 or 115200 in its specification table, and shows no factory default. The user's manual names a SCPI-RAW LAN service without a port, and the PLZ-5WH2 manual fixes its port at 5025, which the profile keeps. \
+The PLZ-5WH2 manual's identity example is KIKUSUI,PLZ1005WH2,AB123400,IFO0.53.0086 FPGA0.126.0011 IOC0.07.0062; the PLZ-5W reply form was not checked. \
 The mode state reads CC, CR, CV and CP; the ARB mode reads as unknown. \
 The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 8 overpower, 16 overtemperature, and 32, 512, 1024, 2048 and 4096 for the watchdog, undervoltage, external error, reverse voltage and connection error. The Clear setter clears the protection alarms."""
 
 [evidence]
 badge = "manual"
-source = "Kikusui Electronic Load PLZ-5W series Communication Interface Manual"
-url = "https://manual.kikusui.co.jp/P/PLZ5W/IF/english/00-intro.html"
-date = "2026-10-20"
+source = "Kikusui Electronic Load PLZ-5W series Communication Interface Manual (web edition, no longer reachable); PLZ-5W User's Manual, IB027941, Mar. 2016 (ratings); PLZ-5WH2 Communication Interface Manual, IB035123, Apr 2022 (command cross-check, https://www.kikusui.cn/resources/001/pdf/plz-5wh2_interface_manual.pdf)"
+url = "https://kikusui-korea.co.kr/files/PDF/PLZ_5W_M.pdf"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^kikusui'

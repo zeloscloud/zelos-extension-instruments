@@ -2,27 +2,30 @@ schema = 1
 id = "bk-9115"
 name = "B&K Precision 9115 and 9116 series"
 category = "psu"
-notes = """Covers the 9115, 9115B, 9115B-AT (80 V at 60 A) and the 9116, 9116B (150 V at 30 A), single-output multi-range supplies. \
+notes = """Covers the 9115, 9115B, 9115-AT, 9115B-AT (80 V at 60 A) and the 9116, 9116B (150 V at 30 A), single-output multi-range supplies. \
 Interfaces are USB (USBTMC), RS-232 and RS-485, with GPIB optional; LAN exists on the 9117 only, which this profile does not cover. \
 The RS-232 default is 4800 baud, 8 data bits, no parity, 1 stop bit, address 0, and the manual warns that 115200 baud may be unstable. \
 The manual terminates commands with CR and LF. \
 SYST:REM switches to remote control and the Local key stays active; SYST:LOC returns to the front panel. \
-Voltage and current are independent limits within the rated power, so a setpoint pair can be refused. \
-Mode reads CV and CC from the operation condition register (bit 4 and bit 5). \
+Voltage and current are independent limits within the rated power (the P-max setting), so a setpoint pair inside both ranges can be refused. \
+The 9116 programs voltage in 3 mV steps, so its voltage range has step = 0.003. \
+Mode reads CV and CC from the operation condition register. The manual contradicts itself: its summary table puts CV at bit 4 and CC at bit 5, and its register table puts CV at bit 5 and CC at bit 4. The profile follows the summary table, so check the mode on a unit. \
+A unit that is on but in neither mode, such as after a protection trip, reads as off. \
 Protection reads OV, OC, OP and OT from the questionable condition register. \
+The overvoltage protection level (VOLT:PROT) only acts while the protection state (VOLT:PROT:STAT) is on; the OVP on switch sets it. \
 The manual documents no OCP level command, so the OCP setter is omitted. \
-Clear resets the OVP trip only. \
+Clear resets the OVP trip only; the manual says to raise the OVP level or lower the output voltage first. \
 The automotive test functions of the 9115B-AT are not covered."""
 
 [evidence]
 badge = "manual"
-source = "9115 Multi-Range DC Power Supply Programming Manual; 9115 Series user manual (interfaces, ratings)"
+source = "9115 Multi-Range DC Power Supply Programming Manual V082514; 9115/B, 9115/B-AT, 9116/B, 9117 User Manual v020322 (interfaces, ratings); 9115/B Series Data Sheet 2021 (models)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9115_Series_programming_manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
-model = '(?i)^911[56]B?(-AT)?$'
+model = '(?i)^(9115B?(-AT)?|9116B?)$'
 channels = 1
 
 [link]
@@ -41,7 +44,7 @@ current = { min = 0, max = 60, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)^9116'
-voltage = { min = 0, max = 150, digits = 3 }
+voltage = { min = 0, max = 150, digits = 3, step = 0.003 }
 current = { min = 0, max = 30, digits = 3 }
 
 [signals.voltage]
@@ -67,6 +70,10 @@ parse = "float"
 [state.ovp_set]
 query = "VOLT:PROT?"
 parse = "float"
+
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
 
 [state.output]
 query = "OUTP?"
@@ -95,6 +102,9 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {bit}"

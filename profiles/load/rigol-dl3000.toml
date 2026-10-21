@@ -3,9 +3,10 @@ id = "rigol-dl3000"
 name = "Rigol DL3000 series"
 category = "load"
 notes = """\
-Transcribed from the programming guide, not tried on a unit. The guide does not name the LAN socket port; 5555 is Rigol's raw socket port and has not been confirmed on a DL3000. \
-The guide has no remote or local command. LAN is standard on the DL3021A and DL3031A and a licensed option on the DL3021 and DL3031. \
-The current and resistance ranges each have a low and a high span (4 A or 6 A and 40 A or 60 A, 15 and 15000 ohms), and a setpoint above the active span is rejected with an error. \
+Transcribed from the programming guide, not tried on a unit. The guide does not name the LAN socket port, so 5555 follows the other Rigol profiles and is unconfirmed. \
+The guide has no remote or local command. LAN is standard on the DL3021A and DL3031A and an option on the DL3021 and DL3031. \
+The guide says commands sent over RS232 end with CR LF, and this profile sends a newline, so set the write terminator in the config for an RS232 link. \
+The current and resistance ranges each have a low and a high range, and the high range is the default. The guide's List-mode ranges are 0 to 6 A or 0 to 60 A and 0 to 15 or 0 to 15000 ohms, and it does not state the DL3021's low current range. \
 The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 12 overvoltage and bit 13 protection shutdown, which covers overcurrent, overpower and overtemperature. \
 The load starts to sink only above its start voltage (Von), and the input turns off when a protection trips."""
 
@@ -13,7 +14,7 @@ The load starts to sink only above its start voltage (Von), and the input turns 
 badge = "manual"
 source = "Rigol DL3000 Series Programmable DC Electronic Load Programming Guide, PGJ01103-1110, Feb. 2017"
 url = "https://docs.ampnuts.ru/my_docs/Rigol/DL3021/doc/DL3000_ProgrammingGuide.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^rigol'

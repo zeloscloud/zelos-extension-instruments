@@ -2,11 +2,11 @@ schema = 1
 id = "keysight-e36731a"
 name = "Keysight E36731A battery emulator"
 category = "psu"
-notes = "The E36731A is bidirectional: it runs as a power supply or as an electronic load, chosen with EMUL PSUP or EMUL LOAD. This profile covers power supply mode only. Leave the unit in EMUL PSUP, because the guide says EMUL forces a *RST, so the extension never sends it. In power supply mode, CURR sets the current limit used in CV mode. Because the unit can sink current, a measured current may read negative while the DUT pushes current back, but the guide does not state the sign convention, so the extension reports the reading as the instrument returns it. The programmable ranges here are the power supply mode limits, 30.9 V and 20.6 A. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 4 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 4 OT, bit 5 negative OV). The overcurrent protection has no level in the guide, so there is no OCP setpoint. OVP is on after *RST and trips at 33 V by default. Clear sends OUTP:PROT:CLE, which clears the output latch; the guide also lists VOLT:PROT:CLE for an OVP event."
+notes = "The E36731A is bidirectional: it runs as a power supply or as an electronic load, chosen with EMUL PSUP or EMUL LOAD. This profile covers power supply mode only. Leave the unit in EMUL PSUP, because the guide says EMUL forces a *RST, so the extension never sends it. In power supply mode, CURR sets the current limit used in CV mode. Because the unit can sink current, a measured current may read negative while the DUT pushes current back, but the guide does not state the sign convention, so the extension reports the reading as the instrument returns it. The programmable ranges here are the power supply mode limits, 30.9 V and 20.6 A. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 4 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 4 OT, bit 5 negative OV). The overcurrent protection has no level in the guide, so there is no OCP setpoint. OVP is on after *RST and its level is 33 V; CURR:PROT:STAT is off after *RST, so the OCP flag stays quiet until it is switched on, and this profile reads and sets both states. The OVP level runs from VOLT:PROT? MIN to VOLT:PROT? MAX, which the guide words as 110 percent more than the maximum setting voltage. Remote sense is read from VOLT:SENS? (0 for internal, 1 for external). Clear sends OUTP:PROT:CLE, which clears the output latch; the guide also lists VOLT:PROT:CLE for an OVP event."
 
 [evidence]
 badge = "manual"
-source = "Keysight E36731A Battery Emulator Programming Guide, E36731-90009, Edition 1, November 2022; User's Guide E36731-90001 (sockets, port 5025)"
+source = "Keysight E36731A Battery Emulator Programming Guide, E36731-90009, Edition 1, November 2022"
 url = "https://www.coretechnology.com.tw/zh-tw/product/file/692189-5"
 date = "2026-10-20"
 
@@ -26,6 +26,7 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { min = 0, max = 30.9, digits = 3 }
 current = { min = 0, max = 20.6, digits = 3 }
+ovp = { min_query = "VOLT:PROT? MIN,(@{ch})", max_query = "VOLT:PROT? MAX,(@{ch})", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT? (@{ch})"
@@ -50,6 +51,18 @@ parse = "float"
 [state.ovp_set]
 query = "VOLT:PROT? (@{ch})"
 parse = "float"
+
+[state.ovp_on]
+query = "VOLT:PROT:STAT? (@{ch})"
+parse = "bool"
+
+[state.ocp_on]
+query = "CURR:PROT:STAT? (@{ch})"
+parse = "bool"
+
+[state.remote_sense]
+query = "VOLT:SENS? (@{ch})"
+parse = "bool"
 
 [state.output]
 query = "OUTP? (@{ch})"
@@ -77,6 +90,12 @@ command = "CURR {value},(@{ch})"
 
 [setters.ovp]
 command = "VOLT:PROT {value},(@{ch})"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on},(@{ch})"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on},(@{ch})"
 
 [setters.output]
 command = "OUTP {on},(@{ch})"

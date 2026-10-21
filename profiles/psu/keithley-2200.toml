@@ -9,13 +9,15 @@ SYST:REM sets remote mode. The manual says RWLock locks out the LOCAL key and do
 Power comes from FETC:POW?, which returns the last measurement without starting a new one; the manual lists no MEAS:POW?. \
 Mode reads CV and CC from the operation condition register. \
 The OVP level reaches about 10 % above the rated voltage, but the extension bounds it by the voltage range. \
-The manual lists the 2200-60-2 at 2.5 A."""
+VOLT:PROT:STAT switches OVP on and off. \
+The manual lists the 2200-60-2 at 2.5 A. \
+The unlock-code and calibration tables of the manual name a 2200-70-1 where Section 1 lists the 2200-72-1, and the profile matches only the 2200-72-1."""
 
 [evidence]
 badge = "manual"
 source = "Series 2200 Programmable DC Power Supplies Reference Manual, 2200S-901-01 Rev. C, March 2016"
 url = "https://download.tek.com/manual/2200S-901-01C.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -79,6 +81,10 @@ parse = "float"
 query = "VOLT:PROT?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -105,6 +111,9 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {bit}"

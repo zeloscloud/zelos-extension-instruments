@@ -2,11 +2,11 @@ schema = 1
 id = "keysight-e36100"
 name = "Keysight E36100A/B series"
 category = "psu"
-notes = "The grammar is transcribed from the E36100B guide, and the older E36102A to E36106A are matched on the assumption that they take the same commands: the A models have only a data sheet, so confirm one before relying on it. CV and CC come from the Operation condition register (STAT:OPER:COND?, bit 8 is CV and bit 10 is CC), and a reading of 0 is shown as off. Protection comes from the Questionable condition register (STAT:QUES:COND?, bit 0 OV, bit 1 OC, bit 4 OT). The same register has bit 10 for unregulated, which this profile does not read. Overvoltage and overcurrent protection each have an on/off state (VOLT:PROT:STAT, CURR:PROT:STAT) that the guide does not say is on by default, and overcurrent has no level, so there is no OCP setpoint. The guide gives no power measurement, so power is left out. The ranges are the nominal ratings, though the instrument accepts settings up to 3 percent above them. A remote command puts the supply in remote mode by itself, and any front-panel key or SYST:LOC returns it to local."
+notes = "The grammar is transcribed from the E36100B guide. The older E36102A to E36106A are matched on the assumption that they take the same commands: the guide covers only the B models, so confirm an A model before relying on it. CV and CC come from the Operation condition register (STAT:OPER:COND?, bit 8 is CV and bit 10 is CC), and a reading of 0 is shown as off. Protection comes from the Questionable condition register (STAT:QUES:COND?, bit 0 OV, bit 1 OC, bit 4 OT). The same register has bit 10 for unregulated, which this profile does not read. After *RST, overvoltage and overcurrent protection are both off (VOLT:PROT:STAT, CURR:PROT:STAT), so the trip flags stay quiet until protection is switched on; this profile reads both states and can switch them. Overcurrent has no level, so there is no OCP setpoint. The OVP level range comes from VOLT:PROT? MIN and MAX, because the guide gives its maximum only as varying by model. The guide gives no power measurement, so power is left out. The ranges are the nominal ratings, though the guide says the programmable values are 3 percent above them and specifications are guaranteed only up to the nominal values. Remote sense is read from VOLT:SENS? (0 for internal, 1 for external). A remote command puts the supply in remote mode by itself, and any front-panel key or SYST:LOC returns it to local."
 
 [evidence]
 badge = "manual"
-source = "Keysight E36100B Series Operating and Service Guide, 9018-04660, Edition 4, April 2021; E36100 Series Data Sheet for the A models"
+source = "Keysight E36100B Series Operating and Service Guide, E36100-90002, Edition 4, April 2021"
 url = "https://valuetronics.com/cdn/shop/files/Keysight_E36100B_Series_Operating_and_Service_Guide.pdf"
 date = "2026-10-20"
 
@@ -26,6 +26,7 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { min = 0, max = 6, digits = 3 }
 current = { min = 0, max = 5, digits = 3 }
+ovp = { min_query = "VOLT:PROT? MIN", max_query = "VOLT:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '^E36103'
@@ -67,6 +68,18 @@ parse = "float"
 query = "VOLT:PROT?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
+
+[state.remote_sense]
+query = "VOLT:SENS?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -92,6 +105,12 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {on}"

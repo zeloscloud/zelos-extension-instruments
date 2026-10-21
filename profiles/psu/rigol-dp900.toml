@@ -2,13 +2,13 @@ schema = 1
 id = "rigol-dp900"
 name = "Rigol DP900 series"
 category = "psu"
-notes = "The command set matches the DP800 profile, with OVP and OCP levels added (:OUTP:OVP:VAL, :OUTP:OCP:VAL). The DP932A and DP932U have two 32 V/3 A outputs and a 6 V/3 A output, and the DP932E has two 30 V/3 A outputs and a 6 V/3 A output. The limits here are the rated values, and the instrument accepts settings 5 percent above them. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. The programming guide does not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The DP900 has USB and LAN only."
+notes = "The command set matches the DP800 profile, with OVP and OCP levels added (:OUTP:OVP:VAL, :OUTP:OCP:VAL). The DP932A and DP932U have two 32 V/3 A outputs and a 6 V/3 A output, and the DP932E has two 30 V/3 A outputs and a 6 V/3 A output. The limits here are the rated values, and the instrument accepts settings 5 percent above them. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the guide's available ranges (Table 4.33): 1 mV to 35.2 V on the 32 V channels, 1 mV to 33 V on the DP932E 30 V channels, 1 mV to 6.6 V on CH3, and 1 mA to 3.3 A. Tracking reads the channel connection mode from :OUTP:PAIR?, which applies to CH1 and CH2. The programming guide does not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The DP900 has USB and LAN only."
 
 [evidence]
 badge = "manual"
 source = "RIGOL DP900 Series Programmable Linear DC Power Supply Programming Guide, PGH08101-1110, software version 00.01.02"
 url = "https://download.rigol.com/en/Manual/DC%20Power&Loads/DP900/DP900_ProgrammingGuide_en.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^rigol'
@@ -28,21 +28,26 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { min = 0, max = 32, digits = 3 }
 current = { min = 0, max = 3, digits = 3 }
+ovp = { min = 0.001, max = 35.2, digits = 3 }
+ocp = { min = 0.001, max = 3.3, digits = 3 }
 
 [[ranges.models]]
 model = '^DP932E$'
 channel = 1
 voltage = { min = 0, max = 30, digits = 3 }
+ovp = { min = 0.001, max = 33, digits = 3 }
 
 [[ranges.models]]
 model = '^DP932E$'
 channel = 2
 voltage = { min = 0, max = 30, digits = 3 }
+ovp = { min = 0.001, max = 33, digits = 3 }
 
 [[ranges.models]]
 model = '^DP932'
 channel = 3
 voltage = { min = 0, max = 6, digits = 3 }
+ovp = { min = 0.001, max = 6.6, digits = 3 }
 
 [signals.measure]
 query = ":MEAS:ALL? CH{ch}"
@@ -64,6 +69,20 @@ parse = "float"
 [state.ocp_set]
 query = ":OUTP:OCP:VAL? CH{ch}"
 parse = "float"
+
+[state.ovp_on]
+query = ":OUTP:OVP? CH{ch}"
+parse = "bool"
+
+[state.ocp_on]
+query = ":OUTP:OCP? CH{ch}"
+parse = "bool"
+
+[state.tracking]
+query = ":OUTP:PAIR?"
+parse = "map"
+map = { OFF = "independent", PARALLEL = "parallel", SERIES = "series" }
+channel = false
 
 [state.output]
 query = ":OUTP? CH{ch}"
@@ -91,6 +110,12 @@ command = ":OUTP:OVP:VAL CH{ch},{value}"
 
 [setters.ocp]
 command = ":OUTP:OCP:VAL CH{ch},{value}"
+
+[setters.ovp_on]
+command = ":OUTP:OVP CH{ch},{on}"
+
+[setters.ocp_on]
+command = ":OUTP:OCP CH{ch},{on}"
 
 [setters.output]
 command = ":OUTP CH{ch},{on}"

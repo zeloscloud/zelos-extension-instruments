@@ -10,14 +10,16 @@ Channel commands act on the channel chosen with INST:NSEL, so the extension sele
 SYST:REM locks the front panel; the Local action (SYST:LOC) unlocks it. \
 OUTP switches the selected channel on and turns its output on; OUTP:SEL and OUTP:GEN are not used. \
 Mode reads the questionable condition register of the channel; zero is shown as off, which the manual does not state. \
-Protection reads OVP, fuse (OCP) and over-temperature. Clear resets the OVP trip only. \
+Protection reads OVP, OCP (CURR:PROT), OPP and over-temperature. The manual lists the FUSE commands as alternatives to CURR:PROT. The OVP, OCP and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
+The OVP level is 0.001 to 20.05 V. \
+Clear resets the OVP, OCP and OPP trips of the selected channel. \
 The raw socket port is set in the instrument's network dialog; the manual gives no default, so the profile keeps 5025."""
 
 [evidence]
 badge = "manual"
 source = "R&S NGL200/NGM200 Power Supply Series User Manual, 1178.8736.02, Version 10, firmware 3.060 or higher"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1178_8736_01/NGL200_NGM200_UserManual_en_10.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^rohde\s*&\s*schwarz'
@@ -40,6 +42,7 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { min = 0, max = 20.05, digits = 3 }
 current = { min = 0, max = 6.01, digits = 3 }
+ovp = { min = 0.001, max = 20.05, digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -65,6 +68,14 @@ parse = "float"
 query = "VOLT:PROT:LEV?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT?"
+parse = "bool"
+
+[state.ocp_on]
+query = "CURR:PROT?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -78,7 +89,8 @@ map = { "0" = "off", "1" = "cc", "2" = "cv" }
 [state.protection]
 flags = [
   { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
-  { query = "FUSE:TRIP?", parse = "bool", value = "ocp" },
+  { query = "CURR:PROT:TRIP?", parse = "bool", value = "ocp" },
+  { query = "POW:PROT:TRIP?", parse = "bool", value = "opp" },
   { query = "STAT:QUES:INST:ISUM{ch}:COND?", parse = "bits", mask = 16, value = "otp" },
 ]
 
@@ -91,8 +103,14 @@ command = "CURR {value}"
 [setters.ovp]
 command = "VOLT:PROT:LEV {value}"
 
+[setters.ovp_on]
+command = "VOLT:PROT {bit}"
+
+[setters.ocp_on]
+command = "CURR:PROT {bit}"
+
 [setters.output]
 command = "OUTP {bit}"
 
 [setters.clear]
-command = "VOLT:PROT:CLE"
+command = ["VOLT:PROT:CLE", "CURR:PROT:CLE", "POW:PROT:CLE"]

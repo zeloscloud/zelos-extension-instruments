@@ -88,7 +88,9 @@ RequestKind = Literal[
 ]
 _State = Literal["connecting", "open", "released", "failed", "stopped"]
 _Future = concurrent.futures.Future[dict[str, Any]]
-_WRITE_KINDS = frozenset({"set", "output", "function", "clear", "local", "measure", "command"})
+_WRITE_KINDS = frozenset(
+    {"set", "output", "function", "local", "measure", "command", "scpi", "waveform"}
+)
 # A block reply the SCPI action returns whole, as base64; longer ones return their size.
 _BLOCK_RETURN_MAX = 65536
 
@@ -186,7 +188,12 @@ class InstrumentWorker(threading.Thread):
         self._poll_values: dict[str, float] = {}
         # A scope's live measurement slots, and the instrument-wide values last read.
         self._slots: dict[int, tuple[int, str]] = {}
+        # Slots that are on but show something the profile does not record; never reused.
+        self._busy_slots: set[int] = set()
         self._acquisition: dict[str, Any] = {}
+        self._cycles_since_connect = 0
+        self._link_timeout_s = 2.0
+        self._fast_at: dict[int | None, int] = {}
         self._interval_ns = int(_S / cfg.rate_hz)
 
     # -- threads other than the worker's --------------------------------------------------------
@@ -203,9 +210,11 @@ class InstrumentWorker(threading.Thread):
         """Ask the worker to end; closes a link blocked in a read."""
         self._stopping.set()
         self._wake.set()
-        self._hand_back()
+        # The worker hands the panel back on its own thread; a thread still blocked in a read
+        # after the link timeout is woken by closing the link.
+        self.join(self._link_timeout_s + 0.5)
         link = self._link
-        if link is not None:
+        if link is not None and self.is_alive():
             link.close()
 
     # -- the worker's thread --------------------------------------------------------------------
@@ -218,18 +227,25 @@ class InstrumentWorker(threading.Thread):
                     self._wake.wait(0.5)
                     self._wake.clear()
                     continue
-                if self._link is None and not self._connect():
-                    self._serve_requests()
-                    self._wait(self._backoff_s)
-                    continue
                 try:
+                    if self._link is None and not self._connect():
+                        self._serve_requests()
+                        self._wait(self._backoff_s)
+                        continue
                     self._cycle()
+                    if self._cycles_since_connect == 0:
+                        # The link held for a whole cycle: the next loss starts the backoff over.
+                        self._backoff_s = _BACKOFF_MIN_S
+                    self._cycles_since_connect += 1
                 except LinkError as e:
                     self._lost(str(e))
+                    self._wait(self._backoff_s)
                 except Exception:
                     logger.exception("%s: unexpected error; reconnecting", self.cfg.name)
                     self._lost("an unexpected error")
+                    self._wait(self._backoff_s)
         finally:
+            self._hand_back()
             self._close()
             self.state = "stopped"
             self.health = "Stopped."
@@ -254,6 +270,7 @@ class InstrumentWorker(threading.Thread):
         if profile is None:
             return False
         link_settings = self._link_settings(profile)
+        self._link_timeout_s = link_settings.timeout_s
         address = self._address(profile)
         self.where = self.cfg.where if self.cfg.connection == "demo" else address.where
         try:
@@ -266,10 +283,12 @@ class InstrumentWorker(threading.Thread):
         # A banner, or bytes a previous client left behind, must not become the identity.
         link.clear()
         try:
+            if profile.link.first:
+                self._send_first(link, profile)
             idn = self._identify(link, profile)
-        except LinkError as e:
+        except (LinkError, RangeError) as e:
             self._close()
-            self._failed_open(e)
+            self._failed_open(e if isinstance(e, LinkError) else LinkError(str(e)))
             return False
         try:
             profile = self._resolve_profile(profile, idn)
@@ -289,11 +308,11 @@ class InstrumentWorker(threading.Thread):
             self._drain_errors(quiet=True)
             self._read_ranges()
             self._probe_optional()
-        except LinkError as e:
+        except (LinkError, RangeError, ParseError) as e:
             self._lost(str(e))
             return False
-        self._backoff_s = _BACKOFF_MIN_S
         self._timeouts = 0
+        self._cycles_since_connect = 0
         self.state = "open"
         self.health = self._open_health()
         self._note("info", f"connected to {self.where}: {self.idn.text if self.idn else ''}")
@@ -351,6 +370,16 @@ class InstrumentWorker(threading.Thread):
             device_clear=link.device_clear,
         )
 
+    def _send_first(self, link: Link, profile: Profile) -> None:
+        """The command an instrument needs before it answers anything, with its ack."""
+        command = profile.link.first
+        assert command is not None
+        link.write(command)
+        if profile.link.ack is not None:
+            reply = link.read()
+            if reply.strip() != profile.link.ack:
+                raise LinkError(f"{self.where} answered {command} with {reply.strip()!r}")
+
     def _identify(self, link: Link, profile: Profile) -> Idn | None:
         try:
             reply = link.query(profile.match.idn)
@@ -387,8 +416,8 @@ class InstrumentWorker(threading.Thread):
         if profile.match.channels_query is not None:
             try:
                 return max(1, engine.parse_int(self._query(profile.match.channels_query)))
-            except (ParseError, LinkTimeout):
-                pass
+            except (ParseError, LinkTimeout) as e:
+                self._recover(f"{profile.match.channels_query}: {e}")
         return profile.channels_for(idn.model if idn else "")
 
     def _install(self, profile: Profile, idn: Idn | None, channels: int) -> None:
@@ -430,7 +459,8 @@ class InstrumentWorker(threading.Thread):
                         high = engine.parse_float(self._query(engine.render(r.max_query, ch=ch)))
                     if r.min_query is not None:
                         low = engine.parse_float(self._query(engine.render(r.min_query, ch=ch)))
-                except (ParseError, LinkTimeout):
+                except (ParseError, LinkTimeout) as e:
+                    self._recover(f"range {key}: {e}")
                     continue
                 if high is not None and math.isfinite(high):
                     state.ranges[key] = r.with_bounds(
@@ -453,8 +483,8 @@ class InstrumentWorker(threading.Thread):
                     engine.parse_reply(step.reader, reply, step.channel)
                 if self._drain_errors(quiet=True):
                     dropped.add(step.key)
-            except (LinkTimeout, ParseError):
-                self._clear_link()
+            except (LinkTimeout, ParseError) as e:
+                self._recover(f"{step.query}: {e}")
                 dropped.add(step.key)
         if dropped:
             names = sorted({key.split("@")[0] for key in dropped})
@@ -513,19 +543,27 @@ class InstrumentWorker(threading.Thread):
                 self._slots = scope_ops.scan_slots(self)
             self._drain_errors()
             self._keep_panel()
+        # Requests are served before the batch, never inside it: a reading's time is the time
+        # of its own query, and a slow request must not sit between a query and its stamp.
+        self._serve_requests()
+        if self._stopping.is_set() or self._link is None:
+            return
         fast_rows: dict[int | None, dict[str, Any]] = {}
+        self._fast_at = {}
         for step in self._plan.fast:
-            self._serve_requests()
             if self._stopping.is_set() or self._link is None:
                 return
             self._run_step(step, fast_rows)
         if self._slots and self._link is not None:
             sent = self._now()
             scope_ops.read_slots(self, fast_rows)
-            self._rtt_ms = (self._now() - sent) / _MS / max(1, len(self._slots))
+            done = self._now()
+            self._rtt_ms = (done - sent) / _MS / max(1, len(self._slots))
+            for ch in fast_rows:
+                self._fast_at.setdefault(ch, (sent + done) // 2)
         now = self._now()
         for ch, values in fast_rows.items():
-            self._record(ch, values, now, fast=True)
+            self._record(ch, values, self._fast_at.get(ch, now), fast=True)
         self._fast_times.append(now)
         while self._fast_times and self._fast_times[0] < now - _RATE_WINDOW_NS:
             self._fast_times.popleft()
@@ -568,6 +606,8 @@ class InstrumentWorker(threading.Thread):
         rtt = self._now() - sent
         if step.cadence == "fast":
             self._rtt_ms = rtt / _MS
+            # The reading's moment: halfway through its own round trip.
+            self._fast_at[step.channel] = sent + rtt // 2
         try:
             if step.flag is not None:
                 assert flags is not None
@@ -591,7 +631,7 @@ class InstrumentWorker(threading.Thread):
     def _record(self, ch: int | None, values: dict[str, Any], at: int, *, fast: bool) -> None:
         """Write one channel's values, stamped half a round trip before `at`, and note changes."""
         assert self.profile is not None
-        time_ns = self._clock.epoch_ns(at - int(self._rtt_ms * _MS / 2) if fast else at)
+        time_ns = self._clock.epoch_ns(at)
         shared = INSTRUMENT_FIELDS[self.profile.category]
         if ch is None and shared:
             wide = {k: v for k, v in values.items() if k in shared}
@@ -661,8 +701,8 @@ class InstrumentWorker(threading.Thread):
                 try:
                     value = engine.parse_float(self._query(query))
                 except LinkTimeout as e:
-                    self._clear_link()
                     self._log_once(f"poll {row.name}", f"{query}: {e}")
+                    self._recover(f"{query}: {e}")
                     continue
                 except ParseError as e:
                     self._log_once(f"poll {row.name}", f"{query}: {e}")
@@ -677,18 +717,18 @@ class InstrumentWorker(threading.Thread):
                 self._poll_values[key] = value
                 self._emitter.poll_value(self.cfg.name, key, value, at)
 
-    def _drain_errors(self, quiet: bool = False) -> bool:
-        """Read the error queue; True when it held an error."""
+    def _drain_errors(self, quiet: bool = False) -> int:
+        """Read the error queue; how many errors it held."""
         assert self.profile is not None
         errors = self.profile.errors
         if errors is None:
             return False
-        found = False
+        found = 0
         for _ in range(errors.drain):
             try:
                 reply = self._query(errors.query)
-            except LinkTimeout:
-                self._clear_link()
+            except LinkTimeout as e:
+                self._recover(f"{errors.query}: {e}")
                 return found
             error = engine.read_error(errors, reply)
             if error is None:
@@ -696,7 +736,7 @@ class InstrumentWorker(threading.Thread):
             if error.code is None:
                 self._resync(f"unexpected reply {reply.strip()!r} to {errors.query}")
                 return found
-            found = True
+            found += 1
             self._errors += 1
             self._last_error = (
                 f"{error.code},{error.text}" if error.code is not None else error.text
@@ -769,11 +809,20 @@ class InstrumentWorker(threading.Thread):
         command = self._selector.command_for(ch)
         if command is not None:
             self._send(command)
+            self._selector.mark(ch)
 
     def _clear_link(self) -> None:
         if self._link is not None:
             self._link.clear()
         self._selector.forget()
+
+    def _recover(self, reason: str) -> None:
+        """After a silent or garbled query: get the replies back in step, or at least drop
+        whatever still arrives, so a late reply never lands under the next query."""
+        try:
+            self._resync(reason)
+        except LinkError:
+            self._clear_link()
 
     def _resync(self, reason: str) -> None:
         """Get the replies back in step with the queries after one went astray.
@@ -811,10 +860,18 @@ class InstrumentWorker(threading.Thread):
                 if not self._requests:
                     return
                 request = self._requests.popleft()
+            if not request.future.set_running_or_notify_cancel():
+                # The action stopped waiting: the instrument must not get the request later.
+                self._note("warn", f"{request.kind} was dropped: the action stopped waiting")
+                continue
             try:
                 result = self._serve(request)
             except LinkError as e:
                 request.future.set_result({"error": str(e)})
+                if e.kind in ("timeout", "reply") and self._link is not None:
+                    # One silent or garbled reply is this request's failure, not the link's.
+                    self._recover(f"{request.kind}: {e}")
+                    continue
                 raise
             except (RangeError, ParseError, ValueError) as e:
                 request.future.set_result({"error": str(e)})
@@ -887,23 +944,53 @@ class InstrumentWorker(threading.Thread):
         return setter
 
     def _set_many(self, ch: int, args: dict[str, Any]) -> dict[str, Any]:
-        results: dict[str, Any] = {}
-        for name, value in args.items():
-            if value is None or name == "channel":
-                continue
-            if name in VALUE_SETTERS:
-                results[name] = self._set_value(ch, name, float(value))
-            elif name == "function":
-                results[name] = self._set_function(ch, str(value))["function"]
-            elif name in SWITCH_SETTERS:
-                results[name] = self._set_switch(ch, name, bool(value))[name]
-            elif name in LABEL_SETTERS:
-                results[name] = self._set_label(ch, name, str(value))[name]
-            else:
-                raise RangeError(f"{name} is not something that can be set")
-        if not results:
+        wanted = {k: v for k, v in args.items() if v is not None and k != "channel"}
+        if not wanted:
             raise RangeError("give at least one value to set")
+        for name, value in wanted.items():
+            # Every value is checked before any goes out, so a refusal leaves nothing changed.
+            self._check_setting(ch, name, value)
+        results: dict[str, Any] = {}
+        try:
+            for name, value in wanted.items():
+                if name in VALUE_SETTERS:
+                    results[name] = self._set_value(ch, name, float(value))
+                elif name == "function":
+                    results[name] = self._set_function(ch, str(value))["function"]
+                elif name in SWITCH_SETTERS:
+                    results[name] = self._set_switch(ch, name, bool(value))[name]
+                else:
+                    results[name] = self._set_label(ch, name, str(value))[name]
+        except (RangeError, ParseError, LinkError) as e:
+            if results:
+                raise RangeError(f"{e}; already set: {', '.join(results)}") from e
+            raise
         return results
+
+    def _check_setting(self, ch: int, name: str, value: Any) -> None:
+        assert self.profile is not None
+        if name in VALUE_SETTERS:
+            setter = self._setter(name)
+            key = self.profile.range_key(setter)
+            range_ = self._channel[ch].ranges.get(key) if key else None
+            limit = self.cfg.limits.for_key(key or "")
+            if range_ is not None or limit is not None or self.profile.category != "scope":
+                # A scope setting without a range (an offset, a trigger level) harms nothing;
+                # the readback still has to agree. An output's level must be bounded.
+                engine.check_range(float(value), range_, limit, name)
+            engine.check_resolution(float(value), range_, name)
+        elif name == "function":
+            setter = self._setter("function")
+            if str(value) not in setter.map:
+                raise RangeError(f"function must be one of {', '.join(setter.map)}")
+        elif name in SWITCH_SETTERS:
+            self._setter(name)
+        elif name in LABEL_SETTERS:
+            setter = self._setter(name)
+            if str(value) not in setter.map:
+                raise RangeError(f"{name} must be one of {', '.join(setter.map)}")
+        else:
+            raise RangeError(f"{name} is not something that can be set")
 
     def _set_label(self, ch: int, name: str, label: str) -> dict[str, Any]:
         """Set an enumerated setting by its label; the readback must agree."""
@@ -918,12 +1005,13 @@ class InstrumentWorker(threading.Thread):
         field_name = VERIFY_FIELD[name]
         reader = self.profile.reader(field_name)
         verify = self.profile.verify_query(setter)
-        if verify is not None and reader is not None and reader.query == verify:
-            reply = self._query(engine.render(verify, ch=ch if reader.per_channel else None))
-            readback = engine.parse_reply(reader, reply, ch)[field_name]
-            if readback != label:
-                raise RangeError(f"{name} reads back {readback}")
-            self._mark_own(ch, field_name, readback)
+        if verify is None or reader is None:
+            return {name: label, "unverified": "the profile has no readback"}
+        reply = self._query(engine.render(verify, ch=ch if reader.per_channel else None))
+        readback = engine.parse_reply(reader, reply, ch)[field_name]
+        if readback != label:
+            raise RangeError(f"{name} reads back {readback}")
+        self._mark_own(ch, field_name, readback)
         return {name: label}
 
     def _command(self, name: str) -> dict[str, Any]:
@@ -942,19 +1030,22 @@ class InstrumentWorker(threading.Thread):
         setter = self._setter(name)
         key = self.profile.range_key(setter)
         range_ = self._channel[ch].ranges.get(key) if key else None
-        limit = self.cfg.limits.for_key(key or "")
-        if range_ is not None or limit is not None or self.profile.category != "scope":
-            # A scope setting without a range (an offset, a trigger level) harms nothing; the
-            # readback still has to agree. An output's level must be bounded.
-            engine.check_range(value, range_, limit, name)
-        engine.check_resolution(value, range_, name)
         self._select(ch if setter.per_channel else None)
         self._send(engine.setter_command(setter, ch=ch, value=value, range_=range_))
         self._after_write(f"set ch{ch} {name} {engine.format_value(value, range_)}")
         readback: float | None = None
         verify = self.profile.verify_query(setter)
         if verify is not None:
-            readback = engine.parse_float(self._query(engine.render(verify, ch=ch)))
+            reply = self._query(engine.render(verify, ch=ch))
+            field_name = VERIFY_FIELD.get(name, "")
+            reader = self.profile.reader(field_name)
+            # The reader knows the reply's scale and form; a bare verify query is a number in
+            # the instrument's unit.
+            readback = (
+                float(engine.parse_reply(reader, reply, ch)[field_name])
+                if reader is not None and reader.query == verify
+                else engine.parse_float(reply) * setter.scale
+            )
             if not engine.verified(value, readback, range_):
                 raise RangeError(
                     f"{name} reads back {readback:g} after setting {value:g}; "
@@ -963,6 +1054,8 @@ class InstrumentWorker(threading.Thread):
         field_name = VERIFY_FIELD.get(name)
         if field_name is not None and readback is not None:
             self._mark_own(ch, field_name, readback)
+        if readback is None:
+            return {"set": value, "readback": None, "unverified": "the profile has no readback"}
         return {"set": value, "readback": readback}
 
     def _set_output(self, ch: int, on: bool) -> dict[str, Any]:
@@ -996,35 +1089,30 @@ class InstrumentWorker(threading.Thread):
         self._send(engine.setter_command(setter, ch=ch, function=function))
         self._after_write(f"set ch{ch} function {function}")
         verify = self.profile.verify_query(setter)
-        if verify is not None:
-            field_name = "mode" if self.profile.category == "load" else "function"
-            reader = self.profile.reader(field_name)
-            if reader is not None and reader.query == verify:
-                label = engine.parse_reply(reader, self._query(engine.render(verify, ch=ch)), ch)[
-                    field_name
-                ]
-                if label != function:
-                    raise RangeError(f"function reads back {label}")
-                self._mark_own(ch, field_name, label)
+        field_name = "mode" if self.profile.category == "load" else "function"
+        reader = self.profile.reader(field_name)
+        if verify is None or reader is None:
+            return {"function": function, "unverified": "the profile has no readback"}
+        reply = self._query(engine.render(verify, ch=ch))
+        label = engine.parse_reply(reader, reply, ch)[field_name]
+        if label != function:
+            raise RangeError(f"function reads back {label}")
+        self._mark_own(ch, field_name, label)
         return {"function": function}
 
     def _clear(self, ch: int) -> dict[str, Any]:
+        """Clear a latched protection, and report how many queued errors were drained."""
         assert self.profile is not None
+        cleared = self._drain_errors(quiet=True)
         setter = self.profile.setters.get("clear")
         if setter is not None:
             self._select(ch if setter.per_channel else None)
             for command in engine.clear_commands(setter, ch=ch):
                 self._send(command)
             self._after_write(f"clear ch{ch} protection")
-        if self.profile.errors is not None:
-            drained = 0
-            for _ in range(self.profile.errors.drain):
-                reply = self._query(self.profile.errors.query)
-                if engine.read_error(self.profile.errors, reply) is None:
-                    break
-                drained += 1
-            return {"ok": True, "errors_cleared": drained}
-        return {"ok": True}
+        if self.profile.errors is None:
+            return {"ok": True}
+        return {"ok": True, "errors_cleared": cleared + self._drain_errors(quiet=True)}
 
     def _read_now(self, ch: int) -> dict[str, Any]:
         """A fresh reading of every fast signal on one channel."""

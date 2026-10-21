@@ -3,23 +3,25 @@ id = "gw-instek-gpd"
 name = "GW Instek GPD-X303S series"
 category = "psu"
 notes = """Covers the GPD-2303S, GPD-3303S and GPD-4303S, which use the vendor grammar (VSET1:5.00, ISET1:1.000, VOUT1?, IOUT1?, OUT1), not SCPI. \
-Commands end with a line feed. Replies such as 12.00V carry a unit letter, which the float parser drops. \
+Commands end with a line feed. The manual shows no reply example for the setting and readback queries; the float parser accepts a trailing unit letter. \
+Every command lists a response time of at least 10 ms, with longer times expected at 9600 or 57600 baud, so the profile waits 10 ms between commands. \
 USB only: a virtual COM port at 9600 baud by default (the BAUD command switches to 57600 or 115200), 8 data bits, no parity, 1 stop bit, no flow control. \
 Connecting over USB locks the front panel; the LOCAL command, the Lock key or unplugging the cable restores it. \
 OUT1 and OUT0 switch every output together; the manual has no per-channel output command. \
 The output state and the constant-voltage and constant-current flags exist only in the STATUS? reply, which the manual describes as 8 bits and does not show as text, so they are not read and the output setter is not verified. \
+In tracking mode (TRACK1 or TRACK2) the instrument refuses setting CH2 and reports a command-not-allowed error; the profile does not read the mode. \
 The 3303S channel 3 is a fixed 2.5 V, 3.3 V or 5 V output chosen on the front panel, and the manual lists no remote channel number for it, so the 3303S is limited to channels 1 and 2. \
-The 4303S channel 3 is 0 to 5 V at 3 A or 5.001 to 10 V at 1 A, and channel 4 is 5 V at 1 A. \
+The 4303S channel 3 is 0 to 5 V at 3 A or 5.001 to 10 V at 1 A, and channel 4 is 5 V at 1 A; the range below carries 10 V and 3 A, so the instrument refuses 3 A above 5 V. \
 Setpoints in the manual are 0 to 32 V and 0 to 3.2 A on channels 1 and 2. \
 The manual's error query ERR? has no reply format, so no error query is set. \
 Power is not measured by any command. \
-The IDN reply is GW INSTEK,<model>,SN: <serial>,<firmware>."""
+The manual shows the IDN reply as GW INSTEK, GPD-x303S, SN: xxxxxxxx, Vx.xx, with a placeholder model name."""
 
 [evidence]
 badge = "manual"
-source = "GPD-X303S Series User Manual, GW Instek part no. 82PD-433S0MC1, Version C, 2022-03-24 (Remote Control chapter)"
-url = "https://www.gwinstek.com/en-GB/products/downloadSeriesDownNew/7842/1479"
-date = "2026-10-20"
+source = "GPD-X303S Series User Manual, GW Instek part no. 82PD-433S0MC1 (Remote Control chapter); the text prints no version or date"
+url = "https://www.gwinstek.com/en-global/products/downloadSeriesDownNew/7837/1474"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^gw[- ]?instek'
@@ -32,6 +34,7 @@ channels = 4
 
 [link]
 baud = 9600
+delay_ms = 10
 local = "LOCAL"
 locks_panel = true
 

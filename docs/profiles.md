@@ -11,20 +11,21 @@ schema = 1
 id = "rigol-dp800"
 name = "Rigol DP800 series"
 category = "psu"
+notes = "The limits are the rated values of each channel from Table 2-1 of the programming guide, and the instrument accepts settings a little above them: 0 V to 32 V and 0 A to 3.2 A on the DP832 CH1 and CH2, for example. The DP831 CH3 is negative, so its voltage runs from -30 V to 0 V. The DP811 and DP813 have two ranges, chosen with :OUTP:RANG, and the limits here take the larger voltage and the larger current of the two. The guide gives the settable values of the active range only. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the settable ranges of Table 2-2 with 0.01 as the smallest level, because the A models accept 1 mV and the others 10 mV. The models without the A suffix list 2 decimal places unless the high resolution option is installed, and this profile sends 3. Remote sense is read where the channel has the Sense function; the guide says other channels reply NONE, so they are not recorded. SYST:REMOTE leaves only the output key of each channel, the power switch and Back usable on the front panel, and SYST:LOCAL returns control. The guide says commands sent over RS232 end with CR LF, and this profile sends a newline, so set the write terminator in the config for an RS232 link. The programming guide does not name the LAN socket port, so 5555 is unverified."
 
 [evidence]
 badge = "manual"
-source = "Rigol DP800 Programming Guide, PGH05101-1110, 2016"
-url = "https://www.batronix.com/pdf/Rigol/DP800_ProgrammingGuide_EN.pdf"
-date = "2026-10-20"
+source = "RIGOL DP800 Series Programmable Linear DC Power Supply Programming Guide, PGH03109-1110, Jun. 2021, software version 00.01.17"
+url = "https://www.rigol.com/dam/global/downloads/brochures/en/program-guide/dc-powers/DP800_ProgrammingGuide_EN.pdf"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^rigol'
-model = '^DP8(11|21|31|32)A?$'
+model = '^DP8(11|13|21|22|31|32)A?$'
 channels = 1
 
 [[match.models]]
-model = '^DP821'
+model = '^DP82'
 channels = 2
 
 [[match.models]]
@@ -41,14 +42,86 @@ locks_panel = true
 [errors]
 query = "SYST:ERR?"
 
+# Programming Guide Table 2-1 (voltage and current) and Table 2-2 (OVP and OCP), rated channel values
 [ranges]
 voltage = { min = 0, max = 30, digits = 3 }
 current = { min = 0, max = 3, digits = 3 }
+ovp = { min = 0.01, max = 33, digits = 3 }
+ocp = { min = 0.01, max = 3.3, digits = 3 }
 
 [[ranges.models]]
 model = '^DP832'
 channel = 3
 voltage = { min = 0, max = 5, digits = 3 }
+ovp = { min = 0.01, max = 5.5, digits = 3 }
+
+[[ranges.models]]
+model = '^DP831'
+channel = 1
+voltage = { min = 0, max = 8, digits = 3 }
+current = { min = 0, max = 5, digits = 3 }
+ovp = { min = 0.01, max = 8.8, digits = 3 }
+ocp = { min = 0.01, max = 5.5, digits = 3 }
+
+[[ranges.models]]
+model = '^DP831'
+channel = 2
+current = { min = 0, max = 2, digits = 3 }
+ocp = { min = 0.01, max = 2.2, digits = 3 }
+
+[[ranges.models]]
+model = '^DP831'
+channel = 3
+voltage = { min = -30, max = 0, digits = 3 }
+current = { min = 0, max = 2, digits = 3 }
+ovp = { min = -33, max = -0.01, digits = 3 }
+ocp = { min = 0.01, max = 2.2, digits = 3 }
+
+[[ranges.models]]
+model = '^DP822'
+channel = 1
+voltage = { min = 0, max = 20, digits = 3 }
+current = { min = 0, max = 5, digits = 3 }
+ovp = { min = 0.01, max = 22, digits = 3 }
+ocp = { min = 0.01, max = 5.5, digits = 3 }
+
+[[ranges.models]]
+model = '^DP822'
+channel = 2
+voltage = { min = 0, max = 5, digits = 3 }
+current = { min = 0, max = 16, digits = 3 }
+ovp = { min = 0.01, max = 5.5, digits = 3 }
+ocp = { min = 0.01, max = 16.8, digits = 3 }
+
+[[ranges.models]]
+model = '^DP821'
+channel = 1
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 1, digits = 3 }
+ovp = { min = 0.01, max = 66, digits = 3 }
+ocp = { min = 0.01, max = 1.1, digits = 3 }
+
+[[ranges.models]]
+model = '^DP821'
+channel = 2
+voltage = { min = 0, max = 8, digits = 3 }
+current = { min = 0, max = 10, digits = 3 }
+ovp = { min = 0.01, max = 8.8, digits = 3 }
+ocp = { min = 0.01, max = 11, digits = 3 }
+
+[[ranges.models]]
+model = '^DP813'
+voltage = { min = 0, max = 20, digits = 3 }
+current = { min = 0, max = 20, digits = 3 }
+ovp = { min = 0.01, max = 22, digits = 3 }
+ocp = { min = 0.01, max = 22, digits = 3 }
+
+[[ranges.models]]
+model = '^DP811'
+voltage = { min = 0, max = 40, digits = 3 }
+current = { min = 0, max = 10, digits = 3 }
+ovp = { min = 0.01, max = 44, digits = 3 }
+ocp = { min = 0.01, max = 11, digits = 3 }
 
 [signals.measure]
 query = ":MEAS:ALL? CH{ch}"
@@ -62,6 +135,27 @@ parse = "float"
 [state.current_set]
 query = ":SOUR{ch}:CURR?"
 parse = "float"
+
+[state.ovp_set]
+query = ":OUTP:OVP:VAL? CH{ch}"
+parse = "float"
+
+[state.ocp_set]
+query = ":OUTP:OCP:VAL? CH{ch}"
+parse = "float"
+
+[state.ovp_on]
+query = ":OUTP:OVP? CH{ch}"
+parse = "bool"
+
+[state.ocp_on]
+query = ":OUTP:OCP? CH{ch}"
+parse = "bool"
+
+[state.remote_sense]
+query = ":OUTP:SENS? CH{ch}"
+parse = "bool"
+optional = true
 
 [state.output]
 query = ":OUTP? CH{ch}"
@@ -83,6 +177,18 @@ command = ":SOUR{ch}:VOLT {value}"
 
 [setters.current]
 command = ":SOUR{ch}:CURR {value}"
+
+[setters.ovp]
+command = ":OUTP:OVP:VAL CH{ch},{value}"
+
+[setters.ocp]
+command = ":OUTP:OCP:VAL CH{ch},{value}"
+
+[setters.ovp_on]
+command = ":OUTP:OVP CH{ch},{on}"
+
+[setters.ocp_on]
+command = ":OUTP:OCP CH{ch},{on}"
 
 [setters.output]
 command = ":OUTP CH{ch},{on}"
@@ -141,6 +247,7 @@ Connection defaults for this family. The config can override each.
 | `remote` | none | Sent once after connect, for instruments that need it before they accept commands (`SYST:REM`, `SYST:LOCK 1`). |
 | `local` | none | Returns front-panel control. The Local action sends it, and so does keep-panel. |
 | `locks_panel` | `false` | Remote control locks the front panel, so keep-panel is offered for this family. |
+| `first` | none | A command sent before the identity query, for an instrument that answers nothing until it has one: the address of a multi-drop link (`ADR 6`). It may not change an output. |
 | `needs_remote` | `false` | Queries fail unless the instrument is in remote mode (some meters refuse `READ?` in local), so the panel is never handed back while the extension runs. |
 | `device_clear` | `true` | `false` when a VISA device clear hangs the instrument; the extension then only drops its read buffer. |
 | `select` | none | Sent before a channel's commands when the selected channel changes, for the select-then-command style (`INST:NSEL {ch}`). |
@@ -172,13 +279,14 @@ A setter with no range known refuses to set until the config names a limit for i
 
 | Key | Meaning |
 |---|---|
-| `query` | The command. `{ch}` is the channel number, from 1. |
+| `query` | The command. `{ch}` is the channel number, from 1; `{ch0}` the same channel numbered from 0, for instruments that count that way. |
 | `parse` | How the reply is read. See [Parsers](#parsers). |
 | `fields` | For `parse = "floats"`: the field each value lands in, in order. |
 | `index` | For `parse = "float"` or `"int"`: which comma-separated value to take, from 0. |
 | `map` | For `parse = "map"` and `"bits"`: reply text (or bit value) to the field's label. |
 | `mask`, `shift` | For `parse = "bits"`: a whole number, or a list with one per channel when the instrument packs every channel into one status word (`mask = [0x10, 0x20]`). |
 | `format` | For `parse = "bits"` and `"int"`: `"int"` (default) or `"hex"`. |
+| `scale` | For `parse = "float"` and `"floats"`: multiplies the number, so a slew rate the instrument states in A/µs lands in A/s with `scale = 1e6`. |
 | `flags` | For `protection`: a list of `{ query, parse, value }`; the first that reads true sets the field, else `none`. |
 | `optional` | `true` lets a generic profile probe: a query the instrument rejects at start is dropped with one log line. |
 | `channel` | `false` for a query that is per instrument, not per channel (an over-temperature flag). Default `true`. A reader of an instrument-wide field (a scope's `timebase`) is per instrument whatever this says. |
@@ -214,6 +322,7 @@ Keyed by what the actions change. Values: `voltage`, `current`, `power`, `resist
 | `range` | Which `[ranges]` key bounds the value. Defaults to the setter's name. |
 | `map` | For `function` and the label setters: our label to the instrument's word (`cc = "CURR"`, `rising = "RISing"`). A label setter's command carries the word as `{value}`. |
 | `channel` | `false` for an instrument-wide command. |
+| `scale` | For a value setter: the value is sent divided by it, so a slew rate the instrument takes in A/µs goes out right with `scale = 1e6` (its `[state]` reader carries the same `scale`). |
 
 ## `[scope]`
 

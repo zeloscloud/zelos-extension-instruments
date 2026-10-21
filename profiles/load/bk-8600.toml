@@ -2,17 +2,17 @@ schema = 1
 id = "bk-8600"
 name = "B&K Precision 8600 series"
 category = "load"
-notes = """Transcribed from the programming manual and the data sheet, not tried on a unit. The programming manual lists the 8600, 8601, 8602, 8610, 8612, 8614 and 8616. The 8620, 8622, 8624 and 8625 are in the data sheet as the same SCPI family but not in that manual, so their commands are assumed to match. The ratings in ranges come from the data sheet. The data sheet lists USB (USBTMC), RS-232 and GPIB and no LAN port, so this extension reaches the load over RS-232 only. The manual offers 4800, 9600, 19200, 38400, 57600 and 115200 baud, with 8 data bits and no parity, and does not name a default; match the front-panel System menu (Shift + 8). SYST:REM puts the load in remote mode and disables every front-panel key except Local. The function query reply form is not stated; the profile accepts the short and the long word. A protection trip latches the input off until PROT:CLE, which the Clear setter sends once the fault is removed. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage. The manual documents MEAS:VOLT?, MEAS:CURR? and FETC:POW? as the measurement queries and has no power measure or resistance measure query, so power reads the last fetched value and resistance is not read. Each current setting is accepted inside the active range only, and each model has a low and a high current range."""
+notes = """Transcribed from the programming manual and the data sheet, not tried on a unit. The programming manual lists the 8600, 8601, 8602, 8610, 8612, 8614 and 8616. The 8620, 8622, 8624 and 8625 are in the data sheet as the same SCPI family but not in that manual, so their commands are assumed to match. The ratings in ranges come from the data sheet. The data sheet also lists the B models (8600B, 8601B, 8602B, 8610B, 8612B, 8614B), which have no GPIB interface (the 8616 and larger models have no B version); no manual shows their identity reply, so the match accepts the model with or without a B. The data sheet lists USB (USBTMC), RS-232 and GPIB and no LAN port, so this extension reaches the load over RS-232 only. The manual offers 4800, 9600, 19200, 38400, 57600 and 115200 baud, with 8 data bits and no parity, and does not name a default; match the front-panel System menu (Shift + 8). SYST:REM puts the load in remote mode and disables every front-panel key except Local. The function query reply form is not stated; the profile accepts the short and the long word. A protection trip latches the input off until PROT:CLE, which the Clear setter sends once the fault is removed. The manual says clearing restores the input to the state it was in before the fault, so Clear can switch the input back on. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage. The manual documents MEAS:VOLT?, MEAS:CURR? and FETC:POW? as the measurement queries and has no power measure or resistance measure query, so power reads the last fetched value, which stays the same until the load has a new reading, and resistance is not read. The manual gives the current slew rate in A/us and the current range as a number, neither of which the slew and current range fields can hold, so neither is read or set. Voltage ranges start at 0.1 V. Each current setting is accepted inside the active range only, and each model has a low and a high current range."""
 
 [evidence]
 badge = "manual"
-source = "B&K Precision 8600 Series Programmable DC Electronic Loads Programming Manual (models 8600 to 8616), and the 8600 Series Data Sheet"
+source = "B&K Precision 8600 Series Programmable DC Electronic Loads Programming Manual (models 8600 to 8616), v051118; 8600/B Series Data Sheet 2025"
 url = "https://bkpmedia.s3.amazonaws.com/downloads/programming_manuals/en-us/8600_Series_programming_manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^b&?k'
-model = '^86(0[012]|1[0246]|2[0245])$'
+model = '^(86(0[012]|1[024])B?|8616|862[0245])$'
 
 [link]
 remote = "SYST:REM"
@@ -23,77 +23,77 @@ locks_panel = true
 query = "SYST:ERR?"
 
 [ranges]
-voltage = { min = 0, max = 120, digits = 3 }
+voltage = { min = 0.1, max = 120, digits = 3 }
 current = { min = 0, max = 30, digits = 4 }
 power = { min = 0, max = 150, digits = 2 }
 resistance = { min = 0.05, max = 7500, digits = 3 }
 
 [[ranges.models]]
-model = '^8601$'
-voltage = { min = 0, max = 120, digits = 3 }
+model = '^8601B?$'
+voltage = { min = 0.1, max = 120, digits = 3 }
 current = { min = 0, max = 60, digits = 4 }
 power = { min = 0, max = 250, digits = 2 }
 resistance = { min = 0.05, max = 7500, digits = 3 }
 
 [[ranges.models]]
-model = '^8602$'
-voltage = { min = 0, max = 500, digits = 3 }
+model = '^8602B?$'
+voltage = { min = 0.1, max = 500, digits = 3 }
 current = { min = 0, max = 15, digits = 4 }
 power = { min = 0, max = 200, digits = 2 }
 resistance = { min = 0.3, max = 7500, digits = 3 }
 
 [[ranges.models]]
-model = '^8610$'
-voltage = { min = 0, max = 120, digits = 3 }
+model = '^8610B?$'
+voltage = { min = 0.1, max = 120, digits = 3 }
 current = { min = 0, max = 120, digits = 4 }
 power = { min = 0, max = 750, digits = 2 }
 resistance = { min = 0.02, max = 7500, digits = 3 }
 
 [[ranges.models]]
-model = '^8612$'
-voltage = { min = 0, max = 500, digits = 3 }
+model = '^8612B?$'
+voltage = { min = 0.1, max = 500, digits = 3 }
 current = { min = 0, max = 30, digits = 4 }
 power = { min = 0, max = 750, digits = 2 }
 resistance = { min = 0.15, max = 7500, digits = 3 }
 
 [[ranges.models]]
-model = '^8614$'
-voltage = { min = 0, max = 120, digits = 3 }
+model = '^8614B?$'
+voltage = { min = 0.1, max = 120, digits = 3 }
 current = { min = 0, max = 240, digits = 4 }
 power = { min = 0, max = 1500, digits = 2 }
 resistance = { min = 0.01, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^8616$'
-voltage = { min = 0, max = 500, digits = 3 }
+voltage = { min = 0.1, max = 500, digits = 3 }
 current = { min = 0, max = 60, digits = 4 }
 power = { min = 0, max = 1200, digits = 2 }
 resistance = { min = 0.01, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^8620$'
-voltage = { min = 0, max = 120, digits = 3 }
+voltage = { min = 0.1, max = 120, digits = 3 }
 current = { min = 0, max = 480, digits = 4 }
 power = { min = 0, max = 3000, digits = 2 }
 resistance = { min = 0.01, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^8622$'
-voltage = { min = 0, max = 500, digits = 3 }
+voltage = { min = 0.1, max = 500, digits = 3 }
 current = { min = 0, max = 100, digits = 4 }
 power = { min = 0, max = 2500, digits = 2 }
 resistance = { min = 0.03, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^8624$'
-voltage = { min = 0, max = 120, digits = 3 }
+voltage = { min = 0.1, max = 120, digits = 3 }
 current = { min = 0, max = 600, digits = 4 }
 power = { min = 0, max = 4500, digits = 2 }
 resistance = { min = 0.01, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^8625$'
-voltage = { min = 0, max = 120, digits = 3 }
+voltage = { min = 0.1, max = 120, digits = 3 }
 current = { min = 0, max = 720, digits = 4 }
 power = { min = 0, max = 6000, digits = 2 }
 resistance = { min = 0.005, max = 7500, digits = 3 }

@@ -5,20 +5,22 @@ category = "psu"
 notes = """Covers the HMP2020, HMP2030, HMP4030 and HMP4040. \
 Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
 SYST:REM locks the front panel; the Remote key or the Local action (SYST:LOC) unlocks it. \
-OUTP switches the selected channel on and turns the output on; the manual documents no query for the output state, so the output state is not read and the output setter is not verified. \
+OUTP switches the selected channel on and turns the output on, and OUTP? reads the output state. The manual also lists OUTP:SEL and OUTP:GEN as separate steps; they are not used. \
+FUSE activates the electronic fuse function of the selected channel and FUSE? reads it; the manual gives *RST as off. \
 Constant-current and constant-voltage mode come from the questionable status register of the channel; a reading of zero is shown as off, which the manual does not state. \
 The manual lists no power measurement, so power is not read. \
 The current ranges come from the R&S HMP series data sheet (HMP2020 channel 1 10 A and channel 2 5 A, HMP2030 5 A per channel, HMP4030 and HMP4040 10 A per channel); the manual only says the range depends on the model. \
-The OVP level reaches 32.5 V, but the extension bounds it by the voltage range. \
-Clear resets the OVP trip only. \
-RS-232 needs the HO720 interface option; the manual's example uses 9600 baud, 1 stop bit, no parity and handshake on. \
+The manual gives the current resolution as 0.1 mA (0.2 mA on the HMP4030 and HMP4040) and CURR? MIN as 0.0005 A. \
+The OVP level is 0.100 to 32.500 V in 0.100 V steps. \
+Clear resets the OVP trip only; the manual lists no command that clears a fuse trip. \
+RS-232 needs the HO720 interface option; the manual's example uses 9600 baud, 1 stop bit, no parity and handshake on. Without handshake the manual asks for 50 ms to 100 ms between commands; the profile sets no delay. \
 The LAN socket port is 5025."""
 
 [evidence]
 badge = "manual"
 source = "R&S HMP Series Power Supplies User Manual, 1178.6833.02, Version 05, firmware V2.7x and later"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1178_6833_01/HMPSeries_UserManual_en_05.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^(hameg|rohde\s*&\s*schwarz)'
@@ -45,16 +47,17 @@ query = "SYST:ERR?"
 
 [ranges]
 voltage = { min = 0, max = 32.05, digits = 3 }
-current = { min = 0, max = 10, digits = 3 }
+current = { min = 0.0005, max = 10, digits = 4 }
+ovp = { min = 0.1, max = 32.5, digits = 1 }
 
 [[ranges.models]]
 model = '(?i)^HMP2020$'
 channel = 2
-current = { min = 0, max = 5, digits = 3 }
+current = { min = 0.0005, max = 5, digits = 4 }
 
 [[ranges.models]]
 model = '(?i)^HMP2030$'
-current = { min = 0, max = 5, digits = 3 }
+current = { min = 0.0005, max = 5, digits = 4 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -75,6 +78,14 @@ parse = "float"
 [state.ovp_set]
 query = "VOLT:PROT:LEV?"
 parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.ocp_on]
+query = "FUSE?"
+parse = "bool"
 
 [state.mode]
 query = "STAT:QUES:INST:ISUM{ch}:COND?"
@@ -97,6 +108,9 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT:LEV {value}"
+
+[setters.ocp_on]
+command = "FUSE {on}"
 
 [setters.output]
 command = "OUTP {bit}"

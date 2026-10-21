@@ -2,10 +2,11 @@ schema = 1
 id = "itech-it6000c"
 name = "ITECH IT6000C series bidirectional power supplies"
 category = "psu"
-notes = """Covers the IT6006C, IT6012C and IT6018C, which source and sink power. \
+notes = """Covers the bidirectional IT6000C families the data sheet lists (IT6005C to IT6144C), which source and sink power. The identity model string form is not documented, so the match accepts it with or without the IT prefix. \
 Voltage and current are set for constant-voltage priority: VOLT sets the voltage and CURR:LIM sets the positive current limit. CURR sets the current in constant-current priority and FUNC VOLT or FUNC CURR switches the priority; neither is wired. \
 The sink side (CURR:LIM:NEG, negative power limits and the CC- and CP- states) is not wired; a sinking supply reads its mode as unknown. \
 The programming guide gives no per-model ratings, so each range is read from the instrument after connecting (VOLT? MAX and CURR:LIM? MAX). \
+The overvoltage and overcurrent levels act only while their protection state is on (VOLT:PROT:STAT and CURR:PROT:STAT, both off by default); the state readers and setters are wired. SENS:REM:STAT? reads whether remote sensing is on. \
 SYST:REM sets remote control mode and locks every key except Local; SYST:LOC restores the front panel. \
 RS-232 defaults to 9600 baud. The programming guide gives no LAN socket port, so the profile keeps 5025. \
 Mode reads off, constant current (positive), constant voltage and constant power (positive) from the operation condition register. \
@@ -14,13 +15,13 @@ Clear resets the tripped protections."""
 
 [evidence]
 badge = "manual"
-source = "IT6000C Series Programming Guide, V1.0/01, 2019"
+source = "IT6000C Series Programming Guide, V1.0/01, 2019; IT6000C data sheet, 2021-07-12 (model list)"
 url = "https://www.tehencom.com/Companies/ITECH/IT6000C/ITECH_IT6000C_Programming_Manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^itech'
-model = '(?i)^IT60(06|12|18)C'
+model = '(?i)^(?:IT)?(?:60(?:05|06|10|12|15|18|30|36|45|54|60|72|75|90)|61(?:05|08|20|26|44))C'
 channels = 1
 
 [link]
@@ -64,6 +65,18 @@ parse = "float"
 query = "CURR:PROT?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
+
+[state.remote_sense]
+query = "SENS:REM:STAT?"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -94,6 +107,12 @@ command = "VOLT:PROT {value}"
 
 [setters.ocp]
 command = "CURR:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {bit}"

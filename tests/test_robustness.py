@@ -123,13 +123,24 @@ def test_a_late_reply_is_not_recorded_under_the_next_query(dp800: Profile, dp832
 
 
 def test_resync_accepts_only_the_identity(dp800: Profile, dp832: Dp832) -> None:
-    link = ScriptedLink(dp832)
+    """Decoys that arrive after the clear, ahead of the identity, are read past."""
+    original = dp832.__call__
+    decoys = {"armed": False}
+
+    def with_decoys(command: str) -> str | None:
+        if command == "*IDN?" and decoys["armed"]:
+            decoys["armed"] = False
+            link.push("5.000,1.000,5.000")
+            link.push("another,comma,reply")
+        return original(command)
+
+    link = ScriptedLink(with_decoys)
     worker, _ = _worker(dp800, link)
     try:
-        link.push("5.000,1.000,5.000")
-        link.push("another,comma,reply")
+        decoys["armed"] = True
         worker._resync("test")
         assert worker._recent[-1][2].startswith("RIGOL TECHNOLOGIES,DP832A")
+        assert worker._recent[-1][1] == "*IDN?"
     finally:
         worker.stop()
         worker.join(2)
