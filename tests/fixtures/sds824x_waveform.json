@@ -6,7 +6,9 @@
   "scale": "5.00E-01",
   "probe": "1.00E+01",
   "offset": "0.00E+00",
+  "trigger_level": "4.00E-01",
+  "trigger_slope": "RISing",
+  "trigger_status": "Ready",
   "data_len": 2008,
-  "data_head_bytes": 200,
-  "note": "SDS824X HD 3.8.11.1.1.3.3, :WAVeform:POINt 1000, :WAVeform:INTerval 2500, WIDTh WORD, BYTeorder LSB; the data file holds the block header and the first 200 payload bytes"
+  "note": "SDS824X HD 3.8.11.1.1.3.3 over VXI-11: :WAVeform:POINt 1000, :WAVeform:INTerval 2500, WIDTh WORD, BYTeorder LSB, edge trigger on C1 rising at the level given, delay 1 ms; the data file is the whole block"
 }
