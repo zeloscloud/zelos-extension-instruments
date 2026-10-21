@@ -189,22 +189,40 @@ VERIFY_FIELD = {
     "trigger_slope": "trigger_slope",
     "trigger_mode": "trigger_mode",
 }
-PLACEHOLDERS = {"ch", "value", "on", "bit", "function", "slot", "type", "points", "interval"}
+PLACEHOLDERS = {
+    "ch",
+    "ch0",
+    "value",
+    "on",
+    "bit",
+    "function",
+    "slot",
+    "type",
+    "points",
+    "interval",
+}
 # Commands that change what an output does; none may appear in `init`.
 _UNSAFE_HEADS = (
     r"(PRES(ET)?|OUTP(UT)?|INP(UT)?|SOUR(CE)?|VOLT(AGE)?|CURR(ENT)?|POW(ER)?|RES(ISTANCE)?"
     r"|FUNC(TION)?|APPL(Y)?|TRIG(GER)?|INIT(IATE)?|ABOR(T)?|MODE)\b"
 )
 _UNSAFE_INIT = re.compile(
-    r"(?i)^\s*(\*(RST|TRG)\b|:?\s*"
+    r"(?i)^\s*(\*(RST|TRG|RCL)\b|:?\s*"
     + _UNSAFE_HEADS
-    + r")|[:;]\s*(\*(RST|TRG)\b|"
+    + r")|[:;]\s*(\*(RST|TRG|RCL)\b|"
     + _UNSAFE_HEADS
     + ")"
 )
 _ID = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def _head(command: str) -> str:
+    """A command's header, as the instrument would read it: the first word, case-folded."""
+    return command.strip().split()[0].casefold() if command.strip() else ""
+
+
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+_PLACEHOLDER = re.compile(r"\{([a-z_][a-z_0-9]*)\}")
 _PARITIES = ("none", "even", "odd", "mark", "space")
 _FLOW = ("none", "rts/cts", "xon/xoff", "dtr/dsr")
 
@@ -279,6 +297,9 @@ class LinkDefaults:
     remote: str | None
     local: str | None
     locks_panel: bool
+    # A command the instrument needs before it answers anything, sent before the identity
+    # query (an address on a multi-drop link).
+    first: str | None
     # Queries fail unless the instrument is in remote mode, so the panel is never handed back.
     needs_remote: bool
     # Whether a VISA device clear is safe; some scopes hang on one.
@@ -348,6 +369,8 @@ class Reader:
     optional: bool
     per_channel: bool
     flags: tuple[Flag, ...]
+    # Multiplies a parsed number: a slew rate the instrument states in A/us is 1e6 A/s.
+    scale: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +383,8 @@ class Setter:
     range: str | None
     map: dict[str, str]
     per_channel: bool
+    # The value is sent divided by this: a slew rate the instrument takes in A/us is 1e6.
+    scale: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,7 +450,10 @@ class Profile:
         """The readback query for a setter: its own, else its state field's."""
         if setter.verify is not None:
             return setter.verify
-        reader = self.reader(VERIFY_FIELD.get(setter.name, ""))
+        field_name = VERIFY_FIELD.get(setter.name, "")
+        if setter.name == "function" and self.category == "dmm":
+            field_name = "function"
+        reader = self.reader(field_name)
         return reader.query if reader is not None else None
 
     def range_key(self, setter: Setter) -> str | None:
@@ -583,6 +611,9 @@ class _Check:
 
     def template(self, text: str, allowed: set[str], where: str) -> None:
         names = set(_PLACEHOLDER.findall(text))
+        if "ch" in allowed:
+            # The same channel, numbered from 0 for instruments that count that way.
+            allowed = allowed | {"ch0"}
         if names - allowed:
             self.fail(where, f"unknown placeholder {', '.join(sorted(names - allowed))}.")
         stray = re.sub(_PLACEHOLDER, "", text)
@@ -663,6 +694,13 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
                 c.fail(f"{reader.name}", f"reads {name_}, which {seen[name_]} reads too.")
             seen[name_] = reader.name
     setters = _setters(c, c.table(raw.get("setters"), "setters"), category, ranges, overrides)
+    heads = {_head(cmd) for s in setters.values() for cmd in s.commands}
+    for key, commands in (("init", link.init), ("first", (link.first,))):
+        for command in commands:
+            if command is not None and _head(command) in heads:
+                c.fail(
+                    f"link.{key}", f"'{command}' is a setter's command; it may not run at connect."
+                )
     dmm = _dmm(c, raw.get("dmm"), category)
     scope = load_scope(c, raw.get("scope"), category)
     if category == "dmm" and not any("value" in r.fields for r in signals):
@@ -759,6 +797,7 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         "remote",
         "local",
         "locks_panel",
+        "first",
         "needs_remote",
         "device_clear",
         "select",
@@ -777,11 +816,13 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
     select = c.string(raw, "select", None, "link")
     if select is not None:
         c.template(select, {"ch"}, "link.select")
-        if "{ch}" not in select:
-            c.fail("link.select", "must contain {ch}.")
-    for key in ("remote", "local"):
+        if "{ch}" not in select and "{ch0}" not in select:
+            c.fail("link.select", "must contain {ch} or {ch0}.")
+    for key in ("remote", "local", "first"):
         if (value := raw.get(key)) is not None and isinstance(value, str):
             c.template(value, set(), f"link.{key}")
+            if key == "first" and _UNSAFE_INIT.search(value):
+                c.fail("link.first", f"'{value}' could change an output.")
     timeout = c.number(raw, "timeout_s", 2.0, "link")
     if timeout is not None and timeout <= 0:
         c.fail("link.timeout_s", "must be positive.")
@@ -803,6 +844,7 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         remote=c.string(raw, "remote", None, "link"),
         local=c.string(raw, "local", None, "link"),
         locks_panel=c.boolean(raw, "locks_panel", False, "link"),
+        first=c.string(raw, "first", None, "link"),
         needs_remote=c.boolean(raw, "needs_remote", False, "link"),
         device_clear=c.boolean(raw, "device_clear", True, "link"),
         select=select,
@@ -916,6 +958,10 @@ def _parse_options(
     words: dict[str, str] = {}
     for key, label in mapping.items():
         words.setdefault(label, key.strip())
+    scale = c.number(raw, "scale", 1.0, where) or 1.0
+    if scale == 0 or (scale != 1.0 and parse not in ("float", "floats")):
+        c.fail(f"{where}.scale", 'must be a non-zero number, for parse = "float" or "floats".')
+        scale = 1.0
     return {
         "parse": parse,
         "map": {k.strip().strip('"').casefold(): v for k, v in mapping.items()},
@@ -924,6 +970,7 @@ def _parse_options(
         "shift": shift,
         "hex": c.choice(raw, "format", ("int", "hex"), "int", where) == "hex",
         "index": index,
+        "scale": scale,
     }
 
 
@@ -958,6 +1005,7 @@ def _readers(
                 "flags",
                 "optional",
                 "channel",
+                "scale",
             ),
             where,
         )
@@ -1008,6 +1056,12 @@ def _readers(
                 c.fail(where, f'{name} needs parse = "map" or "bits".')
             if name in BOOL_FIELDS and options["parse"] not in ("bool", "bits"):
                 c.fail(where, f'{name} needs parse = "bool" or "bits".')
+            if (
+                name not in ENUM_FIELDS
+                and name not in BOOL_FIELDS
+                and options["parse"] not in ("float", "floats", "int")
+            ):
+                c.fail(where, f'{name} is a number; use parse = "float", "floats" or "int".')
         readers.append(
             Reader(
                 name=key,
@@ -1023,6 +1077,7 @@ def _readers(
                 optional=c.boolean(entry, "optional", False, where),
                 per_channel=c.boolean(entry, "channel", True, where),
                 flags=(),
+                scale=options["scale"],
             )
         )
     return tuple(readers)
@@ -1073,7 +1128,7 @@ def _setters(
             c.fail(where, f"is not a setter of this category: {', '.join(allowed)}.")
             continue
         entry = c.table(entry, where)
-        c.unknown(entry, ("command", "verify", "range", "map", "channel"), where)
+        c.unknown(entry, ("command", "verify", "range", "map", "channel", "scale"), where)
         raw_command = entry.get("command")
         if key == "clear" and isinstance(raw_command, list):
             if not raw_command or not all(isinstance(x, str) and x for x in raw_command):
@@ -1127,6 +1182,10 @@ def _setters(
         range_key = c.string(entry, "range", None, where)
         if range_key is not None and range_key not in RANGE_KEYS:
             c.fail(f"{where}.range", f"must be one of {', '.join(RANGE_KEYS)}.")
+        scale = c.number(entry, "scale", 1.0, where) or 1.0
+        if scale == 0 or (scale != 1.0 and key not in VALUE_SETTERS):
+            c.fail(f"{where}.scale", "must be a non-zero number, on a value setter.")
+            scale = 1.0
         setters[key] = Setter(
             name=key,
             command=command,
@@ -1135,6 +1194,7 @@ def _setters(
             range=range_key,
             map=mapping,
             per_channel=c.boolean(entry, "channel", True, where),
+            scale=scale,
         )
     return setters
 

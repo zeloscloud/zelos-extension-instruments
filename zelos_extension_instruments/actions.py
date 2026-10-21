@@ -519,6 +519,8 @@ def _ask(
     try:
         result = future.result(timeout=wait_s)
     except TimeoutError:
+        # The worker must not run the request later, after the person was told it failed.
+        future.cancel()
         raise RuntimeError(f"{instrument} did not answer within {wait_s:g} s") from None
     if "error" in result and len(result) == 1:
         raise RuntimeError(result["error"])

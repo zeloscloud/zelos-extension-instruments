@@ -17,6 +17,7 @@ Kind = Literal[
     "unresolved",
     "busy",
     "held",
+    "reply",
     "permission",
     "timeout",
     "config",
@@ -157,12 +158,21 @@ class Lines:
     def __init__(self, terminator: str) -> None:
         self._terminator = terminator.encode()
         self._buffer = bytearray()
+        # After a block, the line endings an instrument sends behind it may still be on the way.
+        self._after_block = False
 
     def feed(self, chunk: bytes) -> None:
         self._buffer += chunk
 
     def pop(self) -> str | None:
         """The next complete line without its terminator, or None until one has arrived."""
+        if self._after_block:
+            while self._buffer[:1] in _LINE_ENDS:
+                del self._buffer[:1]
+            if self._buffer:
+                self._after_block = False
+            else:
+                return None
         end = self._buffer.find(self._terminator) if self._terminator else len(self._buffer) or -1
         if end < 0:
             return None
@@ -174,7 +184,12 @@ class Lines:
         """True when the buffered reply is a block, False when a line, None while empty."""
         if not self._buffer:
             return None
-        return self._buffer[:1] == b"#"
+        if self._buffer[:1] != b"#":
+            return False
+        if len(self._buffer) < 2:
+            return None
+        # `#H1F` is a hex number, not a block: only a non-zero digit opens a block.
+        return self._buffer[1:2].isdigit() and self._buffer[1:2] != b"0"
 
     def pop_block(self) -> bytes | None:
         """The payload of the next complete definite-length block, or None until it has arrived;
@@ -190,10 +205,12 @@ class Lines:
         del self._buffer[: start + length]
         while self._buffer[:1] in _LINE_ENDS:
             del self._buffer[:1]
+        self._after_block = not self._buffer
         return payload
 
     def clear(self) -> None:
         self._buffer.clear()
+        self._after_block = False
 
 
 def open_link(address: Address, settings: Settings) -> Link:

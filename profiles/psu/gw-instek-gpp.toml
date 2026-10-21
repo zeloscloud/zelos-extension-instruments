@@ -4,19 +4,23 @@ name = "GW Instek GPP-1326, GPP-2323, GPP-3323 and GPP-4323"
 category = "psu"
 notes = """Channel commands carry the channel number in the header (:SOUR2:VOLT, :MEAS2:ALL?, :OUTP2:STAT), so no select command is needed. \
 The IDN reply is GW INSTEK,<model>,<serial>,<firmware> and the serial field can start with SN:. \
-The raw socket port is 1026. USB and RS-232 default to 115200 baud, 8 data bits, no parity, 1 stop bit. \
-The manual does not say remote mode must be entered first, so no remote command is sent; the Local action sends :SYST:LOC. \
+The raw socket port is 1026, taken from the manual's VISA example. USB shows 115200 baud; the manual gives no RS-232 default, so the profile uses 115200 for both, with 8 data bits, no parity, 1 stop bit and no flow control. \
+The front panel keys lock automatically when the connection succeeds. The Local action (:SYST:LOC) or a long press of F6 unlocks them. The manual does not say remote mode must be entered first, so no remote command is sent. \
+The error table lists No error as +000, so the error check accepts +000 as well as 0. \
 Channel 3 of the GPP-3323 is a fixed 1.8 V, 2.5 V, 3.3 V or 5 V output at 5 A: only those voltages are accepted, its current and OVP cannot be set, and its measured voltage reads back the set value with current and power at zero. \
 The GPP-4323 channel 3 is 5 V at 1 A and channel 4 is 15 V at 1 A. \
-The GPP-2323, GPP-3323 and GPP-4323 channels 1 and 2 are 32 V at 3.2 A; the GPP-1326 is one 32 V channel at 6.2 A. \
-Constant-voltage and constant-current mode and protection trips are not read: the manual documents them only in the 8-byte STATUS? reply and the OVP and OCP queries return the set levels. \
+The GPP-2323, GPP-3323 and GPP-4323 channels 1 and 2 are rated 32 V at 3 A; the GPP-1326 is one 32 V channel rated 6 A. The manual's ammeter full scale is 3.2 A (GPP-1326 6.2 A), and the setting commands refer to the specification sheet for the maximum. \
+The OVP level is 0.5 V to 35.0 V on channels 1 and 2 (4323 channel 3 up to 6.0 V, channel 4 up to 16.5 V) in 100 mV steps. The OCP level is 0.05 A to 3.50 A (GPP-1326 7.00 A, 4323 channels 3 and 4 1.20 A) in 10 mA steps. \
+OVP and OCP each have an on/off state (:OUTP<n>:OVP:STAT, :OUTP<n>:OCP:STAT), read and switched here. \
+The OVP and OCP trip flags use :OUTP<n>:OVP:TRIG? and :OUTP<n>:OCP:TRIG?. The manual spells the word TRIGer in the command descriptions and TRIGger in the command list, and shows no reply text, so the flags are probed once at connect and dropped if the unit rejects them. \
+Constant-voltage and constant-current mode are not read: the manual documents them only in the 8-byte STATUS? reply, whose encoding it does not state. The :MODE1? and :MODE2? queries report tracking or load mode and exist for channels 1 and 2 only. \
 The GPP-1000 series (GPP-1323, GPP-1205) uses a different manual and is not covered."""
 
 [evidence]
 badge = "manual"
-source = "GPP-1326/GPP-2323/GPP-3323/GPP-4323 User Manual (Remote Control chapter), GW Instek, 2024"
-url = "https://www.gwinstek.com/en-global/products/downloadSeriesDownNew/14242/1737"
-date = "2026-10-20"
+source = "GPP-1326/GPP-2323/GPP-3323/GPP-4323 User Manual (Remote Control chapter), GW Instek, 208 pages; the text prints no revision or date"
+url = "https://tjr-lab.mit.edu/wp-content/uploads/2023/10/GW-Instek-GPP-4323-User-manual.pdf"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^gw[- ]?instek'
@@ -39,17 +43,22 @@ channels = 4
 lan_port = 1026
 baud = 115200
 local = ":SYST:LOC"
+locks_panel = true
 
 [errors]
 query = ":SYST:ERR?"
+ok = '^\s*[+-]?0+\b'
 
 [ranges]
 voltage = { min = 0, max = 32, digits = 3 }
-current = { min = 0, max = 3.2, digits = 4 }
+current = { min = 0, max = 3, digits = 4 }
+ovp = { min = 0.5, max = 35, digits = 1 }
+ocp = { min = 0.05, max = 3.5, digits = 2 }
 
 [[ranges.models]]
 model = '(?i)^GPP-?1326$'
-current = { min = 0, max = 6.2, digits = 4 }
+current = { min = 0, max = 6, digits = 4 }
+ocp = { min = 0.05, max = 7, digits = 2 }
 
 [[ranges.models]]
 model = '(?i)^GPP-?3323$'
@@ -61,12 +70,16 @@ model = '(?i)^GPP-?4323$'
 channel = 3
 voltage = { min = 0, max = 5, digits = 3 }
 current = { min = 0, max = 1, digits = 4 }
+ovp = { min = 0.5, max = 6, digits = 1 }
+ocp = { min = 0.05, max = 1.2, digits = 2 }
 
 [[ranges.models]]
 model = '(?i)^GPP-?4323$'
 channel = 4
 voltage = { min = 0, max = 15, digits = 3 }
 current = { min = 0, max = 1, digits = 4 }
+ovp = { min = 0.5, max = 16.5, digits = 1 }
+ocp = { min = 0.05, max = 1.2, digits = 2 }
 
 [signals.measure]
 query = ":MEAS{ch}:ALL?"
@@ -89,9 +102,24 @@ parse = "float"
 query = ":OUTP{ch}:OCP?"
 parse = "float"
 
+[state.ovp_on]
+query = ":OUTP{ch}:OVP:STAT?"
+parse = "bool"
+
+[state.ocp_on]
+query = ":OUTP{ch}:OCP:STAT?"
+parse = "bool"
+
 [state.output]
 query = ":OUTP{ch}:STAT?"
 parse = "bool"
+
+[state.protection]
+optional = true
+flags = [
+  { query = ":OUTP{ch}:OVP:TRIG?", parse = "bool", value = "ovp" },
+  { query = ":OUTP{ch}:OCP:TRIG?", parse = "bool", value = "ocp" },
+]
 
 [setters.voltage]
 command = ":SOUR{ch}:VOLT {value}"
@@ -104,6 +132,12 @@ command = ":OUTP{ch}:OVP {value}"
 
 [setters.ocp]
 command = ":OUTP{ch}:OCP {value}"
+
+[setters.ovp_on]
+command = ":OUTP{ch}:OVP:STAT {on}"
+
+[setters.ocp_on]
+command = ":OUTP{ch}:OCP:STAT {on}"
 
 [setters.output]
 command = ":OUTP{ch}:STAT {bit}"

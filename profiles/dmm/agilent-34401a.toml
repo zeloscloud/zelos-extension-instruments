@@ -2,13 +2,13 @@ schema = 1
 id = "agilent-34401a"
 name = "HP / Agilent / Keysight 34401A"
 category = "dmm"
-notes = """Transcribed from the 34401A User's Guide; never run on a unit. The meter has GPIB and RS-232 only, no LAN and no USB. RS-232 is fixed at 1 start bit and 2 stop bits. The factory setting is 9600 baud, even parity and 7 data bits; choosing parity None in the front-panel I/O menu gives 8 data bits, so change data_bits and parity in the config to match the meter. The meter holds DTR false while it has a reply to send, and the extension has no DTR/DSR flow control: disable the handshake by leaving DTR unconnected and tying DSR to logic true, or expect timeouts. Over RS-232 the meter refuses READ? with error 550 until it receives SYST:REM, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 only, so on GPIB each one adds error 514 to the error queue. READ? takes a new reading each poll. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC", which later Keysight meters return. Ratio (VOLT:DC:RAT) has no label and reads as unknown. The meter has no temperature or capacitance function."""
+notes = """Transcribed from the 34401A User's Guide; never run on a unit. The meter has GPIB and RS-232 only, no LAN and no USB. RS-232 is fixed at 1 start bit and 2 stop bits. The factory setting is 9600 baud, even parity and 7 data bits; choosing parity None in the front-panel I/O menu gives 8 data bits, so change data_bits and parity in the config to match the meter. The meter holds DTR false while it has a reply to send, and the extension has no DTR/DSR flow control: disable the handshake by leaving DTR unconnected and tying DSR to logic true, or expect timeouts. Over RS-232 the meter refuses READ? with error 550 until it receives SYST:REM, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 only, so on GPIB each one adds error 514 to the error queue. The Truevolt meters (34460A, 34461A) list SYSTem:LOCal and SYSTem:LOCK but no SYSTem:REMote, and answer as a 34401A after SYST:IDEN HP34401A. READ? takes a new reading each poll. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC", which later Keysight meters return. The manual's CONF syntax lists both range and resolution, so the function setter sends DEF for each (CONF:VOLT:DC DEF,DEF); diode and continuity take no parameters. Ratio (VOLT:DC:RAT) has no label and reads as unknown. The meter has no temperature or capacitance function."""
 
 [evidence]
 badge = "manual"
 source = "HP 34401A Multimeter User's Guide, 34401-90004, February 1996"
 url = "https://xdevs.com/doc/HP_Agilent_Keysight/HP%2034401A%20User.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^(hewlett-?packard|hp|agilent|keysight)'
@@ -54,4 +54,4 @@ continuity = "Ohm"
 
 [setters.function]
 command = "CONF:{function}"
-map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", diode = "DIOD", continuity = "CONT" }
+map = { dc_voltage = "VOLT:DC DEF,DEF", ac_voltage = "VOLT:AC DEF,DEF", dc_current = "CURR:DC DEF,DEF", ac_current = "CURR:AC DEF,DEF", resistance = "RES DEF,DEF", resistance_4w = "FRES DEF,DEF", frequency = "FREQ DEF,DEF", period = "PER DEF,DEF", diode = "DIOD", continuity = "CONT" }

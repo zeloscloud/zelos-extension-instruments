@@ -398,7 +398,10 @@ def list_usb() -> list[Found]:
     except Exception as e:
         log.warning("USB listing failed: %s", e)
         found = []
-    return found or _system_visa_devices()
+    if any(f.error is None for f in found):
+        return found
+    # Nothing readable through libusb: a system VISA may hold the driver that can.
+    return found + _system_visa_devices()
 
 
 def list_serial_candidates() -> list[Found]:
@@ -559,14 +562,28 @@ def discover(
         candidates += list_usb()
         if tried is not None:
             tried.append("USB-TMC devices")
-    free = [f for f in candidates if f.address.where not in skip and f.error is None]
-    held = [dataclasses.replace(f, error=IN_USE) for f in candidates if f.address.where in skip]
-    held += [f for f in candidates if f.error is not None and f.address.where not in skip]
+    # A worker holds an instrument, not an address: its other address is held too.
+    held_hosts = {_host_of_where(where) for where in skip}
+    is_held = [f.address.where in skip or host_of(f.address) in held_hosts for f in candidates]
+    free = [f for f, h in zip(candidates, is_held, strict=True) if not h and f.error is None]
+    held = [
+        dataclasses.replace(f, error=IN_USE) for f, h in zip(candidates, is_held, strict=True) if h
+    ]
+    held += [f for f, h in zip(candidates, is_held, strict=True) if not h and f.error is not None]
     with ThreadPoolExecutor(max_workers=8) as pool:
         identified = list(
             pool.map(lambda f: _identify_safely(f, profiles, identify_timeout_s), free)
         )
     return sorted(_one_per_host(identified + held, prefer), key=lambda f: (f.source, f.detail))
+
+
+def _host_of_where(where: str) -> str:
+    """The host of a worker's `where`: `host:port`, `[v6]:port`, or a TCPIP VISA resource."""
+    if "::" in where:
+        parts = where.split("::")
+        return parts[1] if len(parts) > 1 and parts[0].upper().startswith("TCPIP") else where
+    host = where.rsplit(":", 1)[0] if ":" in where else where
+    return host.strip("[]")
 
 
 def host_of(address: Address) -> str:
@@ -583,9 +600,10 @@ def host_of(address: Address) -> str:
 def _one_per_host(found: list[Found], prefer: str) -> list[Found]:
     """A host reached by raw socket and by VXI-11 is one instrument; two sockets are two."""
 
-    def rank(f: Found) -> tuple[bool, bool, str]:
+    def rank(f: Found) -> tuple[bool, bool, bool, str]:
         wanted = isinstance(f.address, TcpAddress) == (prefer == "socket")
-        return (f.idn is None, not wanted, f.source)
+        # A held instrument is listed as held, never as free under its other address.
+        return (f.error != IN_USE, f.idn is None, not wanted, f.source)
 
     chosen: list[Found] = []
     for f in sorted(found, key=rank):

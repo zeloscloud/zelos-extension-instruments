@@ -11,6 +11,7 @@ The PSB 10000 is bidirectional: a negative measured current or power means the s
 Mode reads constant voltage, constant current and constant power from the operation condition register. \
 Protection reads OVP, OCP, OPP and over-temperature from the questionable condition register. \
 Alarm bits clear only when the alarm is gone and SYST:ERR? has read it, so the profile has no Clear. The OVP and OCP levels reach 110 percent of the rating, but the extension bounds them by the ranges. \
+The manual sets a minimum of 5 ms between two messages and recommends 10 ms on Ethernet and 10 to 15 ms on USB, so the profile pauses 10 ms between commands. \
 The LAN socket port defaults to 5025 and can be changed in the device menu; the RS-232 module is fixed at 8 data bits, no parity and 1 stop bit with a variable baud rate. \
 The IDN reply is EA Elektro-Automatik GmbH&Co.KG, PSB 10080-340, <serial>, <firmware versions>."""
 
@@ -18,7 +19,7 @@ The IDN reply is EA Elektro-Automatik GmbH&Co.KG, PSB 10080-340, <serial>, <firm
 badge = "manual"
 source = "EA Elektro-Automatik Programming Guide ModBus & SCPI for 10000 and 20000 series, 35400100_MA-Programming-10k-20k-EN_01, 2023"
 url = "https://download.tek.com/manual/Programming_ModBus_SCPI_10k_20k_REV01_EN.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^EA\s*Elektro'
@@ -26,6 +27,7 @@ model = '(?i)^(PSI|PSB|PSBE|PS|PU|PUB)\s*10\d{3}-\d+'
 channels = 1
 
 [link]
+delay_ms = 10
 remote = "SYST:LOCK ON"
 local = "SYST:LOCK OFF"
 

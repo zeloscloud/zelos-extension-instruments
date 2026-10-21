@@ -9,6 +9,8 @@ extend-ignore-re = [
 
 [default.extend-words]
 HEL = "HEL"
+# A supply's series-tracking reply word.
+SER = "SER"
 
 [files]
 extend-exclude = ["uv.lock", "tests/transcripts/"]

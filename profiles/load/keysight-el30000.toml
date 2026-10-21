@@ -7,15 +7,15 @@ Transcribed from the programming guide, not tried on a unit. The guide has no re
 Every command carries a channel list, written (@1) or (@2); the EL34243A has two inputs and the EL33133A and EL34143A have one. \
 Current, power and resistance each have several ranges that the instrument selects from the programmed level, and a level outside the active span is rejected. The limits in ranges are the widest each model allows. \
 The EL34243A limits halve in the parallel input pairing for resistance and double for current and power; the profile uses the single-input limits. \
-Reading the questionable status condition register gives the protection state: bit 0 or 5 overvoltage, bit 1 overcurrent, bit 3 power limit, bit 4 overtemperature and bit 9 under-voltage. \
-The Clear setter releases a latched protection trip and restores the input to the state it had before the trip, so use it only once the fault is gone. \
+Reading the questionable status condition register gives the protection state: bit 0 or 5 overvoltage, bit 1 overcurrent, bit 3 positive power limit (set while the input is only limited as well as when it is disabled), bit 4 overtemperature and bit 9 under-voltage. \
+The Slew setter sets the positive current slew rate in amps per second; the minimum comes from CURR:SLEW? MIN and the maximum is 9.9E+37, which reads back as not a number because it means the fastest rate, and the negative slew rate is set separately and tracks the positive one only when CURR:SLEW:COUP is on. The Clear setter releases a latched protection trip and restores the input to the state it had before the trip, so use it only once the fault is gone. \
 The identity reply is Keysight Technologies,EL34243A,serial,firmware."""
 
 [evidence]
 badge = "manual"
 source = "Keysight EL30000 Series DC Electronic Loads Programming Guide, EL34243-90007, Edition 1, September 2021"
 url = "https://www.keysight.com/us/en/assets/9923-02387/programming-guides/EL34243-90007-Programming-Guide.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^keysight'
@@ -34,6 +34,7 @@ voltage = { min = 0, max = 153, digits = 3 }
 current = { min = 0, max = 61.2, digits = 5 }
 power = { min = 0, max = 357, digits = 3 }
 resistance = { min = 0.05, max = 100000, digits = 3 }
+slew = { min_query = "CURR:SLEW? MIN,(@{ch})", max = 9.9e37, digits = 3 }
 
 [[ranges.models]]
 model = '^EL33133A$'
@@ -59,6 +60,10 @@ parse = "float"
 
 [state.current_set]
 query = "CURR:LEV:IMM? (@{ch})"
+parse = "float"
+
+[state.slew_set]
+query = "CURR:SLEW? (@{ch})"
 parse = "float"
 
 [state.voltage_set]
@@ -93,6 +98,9 @@ flags = [
 
 [setters.current]
 command = "CURR:LEV:IMM {value},(@{ch})"
+
+[setters.slew]
+command = "CURR:SLEW {value},(@{ch})"
 
 [setters.voltage]
 command = "VOLT:LEV:IMM {value},(@{ch})"

@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 
 # Samples per capture unless the request says otherwise.
 DEFAULT_POINTS = 10_000
+# A transfer rate every link manages, and the most a capture may wait, under the action's own.
+_SLOW_LINK_BPS = 500_000
+_CAPTURE_MAX_S = 55.0
 _S = 1_000_000_000
 
 
@@ -32,28 +35,31 @@ def scan_slots(worker: InstrumentWorker) -> dict[int, tuple[int, str]]:
     slots = profile.scope.slots
     if slots is None:
         return {}
+    worker._busy_slots = set()
     if slots.ready_query is not None:
         try:
-            if (
-                worker._query(slots.ready_query).strip().casefold()
-                != str(slots.ready_value).casefold()
-            ):
-                return {}
-        except LinkTimeout:
-            worker._clear_link()
+            ready = worker._query(slots.ready_query).strip().casefold()
+        except LinkTimeout as e:
+            worker._recover(f"{slots.ready_query}: {e}")
+            return {}
+        if ready != str(slots.ready_value).casefold():
+            # Another measurement mode is on: every slot may be in use for all we know.
+            worker._busy_slots = set(range(1, slots.count + 1))
             return {}
     live: dict[int, tuple[int, str]] = {}
     for slot in range(1, slots.count + 1):
         try:
             if not engine.parse_bool(worker._query(engine.render(slots.enabled, slot=slot))):
                 continue
+            worker._busy_slots.add(slot)
             word = worker._query(engine.render(slots.type, slot=slot)).strip().casefold()
             source = worker._query(engine.render(slots.source, slot=slot)).strip()
-        except LinkTimeout:
-            worker._clear_link()
+        except LinkTimeout as e:
+            worker._recover(f"slot {slot}: {e}")
             return live
         except ParseError as e:
             worker._log_once(f"slot {slot}", f"slot {slot}: {e}")
+            worker._recover(f"slot {slot}: {e}")
             continue
         field_name = slots.types.get(word)
         found = slots.source_pattern.search(source)
@@ -77,14 +83,15 @@ def read_slots(worker: InstrumentWorker, rows: dict[int | None, dict[str, Any]])
     for slot, (ch, field_name) in list(worker._slots.items()):
         try:
             reply = worker._query(engine.render(slots.value, slot=slot))
-        except LinkTimeout:
-            worker._clear_link()
+        except LinkTimeout as e:
+            worker._recover(f"slot {slot}: {e}")
             return
         try:
             value = engine.parse_float(reply)
         except ParseError as e:
             worker._log_once(f"slot value {slot}", f"slot {slot}: {e}")
-            value = math.nan
+            worker._recover(f"slot {slot}: {e}")
+            return
         rows.setdefault(ch, {})[field_name] = value
 
 
@@ -103,6 +110,8 @@ def measure(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str
         raise RangeError(f"the profile {profile.id} has no measurement for {field_name}")
     slot = args.get("slot")
     if slot is None:
+        # What the slots show right now, not what the last slow pass saw.
+        worker._slots = scan_slots(worker)
         slot = _free_slot(worker, ch, field_name)
     slot = int(slot)
     if not 1 <= slot <= scope.slots.count:
@@ -134,9 +143,9 @@ def _free_slot(worker: InstrumentWorker, ch: int, field_name: str) -> int:
         if assignment == (ch, field_name):
             return slot
     for slot in range(1, profile.scope.slots.count + 1):
-        if slot not in worker._slots:
+        if slot not in worker._slots and slot not in worker._busy_slots:
             return slot
-    raise RangeError("every slot is in use; give a slot to replace")
+    raise RangeError("every slot shows something; give a slot to replace")
 
 
 def capture(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str, Any]:
@@ -162,24 +171,25 @@ def capture(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str
     interval = max(1, math.ceil(available / points)) if available else 1
     for command in wf.setup:
         worker._send(engine.render(command, ch=ch, points=points, interval=interval))
+    reader = profile.reader("timebase")
+    if reader is None or reader.query is None:
+        raise RangeError("the profile reads no timebase, which places the samples in time")
+    timebase = engine.parse_float(worker._query(reader.query))
     worker._selector.forget()
     try:
         worker._link.write(wf.preamble)
         desc = decode_wavedesc(worker._link.read_block())
         sent = worker._now()
         worker._link.write(wf.data)
-        payload = worker._link.read_block()
+        # A capture of millions of samples needs more than a reply's timeout: allow a slow
+        # link's worth of transfer time, within what the action waits.
+        expected = min(desc.array_bytes or desc.count * desc.bytes_per_sample, points * 2)
+        payload = worker._link.read_block(min(_CAPTURE_MAX_S, 5.0 + expected / _SLOW_LINK_BPS))
     except BlockError as e:
         worker._clear_link()
         raise RangeError(f"the waveform could not be read: {e}") from e
     done = worker._now()
     values = samples(desc, payload)
-    timebase = worker._acquisition.get("timebase")
-    if not isinstance(timebase, float) or not math.isfinite(timebase):
-        reader = profile.reader("timebase")
-        if reader is None or reader.query is None:
-            raise RangeError("the profile reads no timebase, which places the samples in time")
-        timebase = engine.parse_float(worker._query(reader.query))
     times = sample_times_s(desc, len(values), timebase, scope.grid)
     anchor = worker._clock.epoch_ns(sent)
     burst = [(anchor + round(t * _S), v) for t, v in zip(times, values, strict=True)]

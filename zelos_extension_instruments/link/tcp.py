@@ -197,12 +197,13 @@ class TcpLink:
         return self.read()
 
     def read_block(self, timeout_s: float | None = None) -> bytes:
-        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
+        # A block keeps arriving in pieces: each piece restarts the clock.
+        wait = timeout_s or self._settings.timeout_s
         while True:
             block = self._pop_block()
             if block is not None:
                 return block
-            self._receive(deadline, _BLOCK_CHUNK)
+            self._receive(time.monotonic() + wait, _BLOCK_CHUNK)
 
     def read_any(self, timeout_s: float | None = None) -> str | bytes:
         deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
@@ -223,7 +224,7 @@ class TcpLink:
             return self._lines.pop_block()
         except BlockError as exc:
             self._lines.clear()
-            raise LinkError(f"{self.where} did not answer with a block: {exc}", "other") from exc
+            raise LinkError(f"{self.where} did not answer with a block: {exc}", "reply") from exc
 
     def _receive(self, deadline: float, size: int) -> None:
         """One more chunk into the line buffer, or the timeout."""

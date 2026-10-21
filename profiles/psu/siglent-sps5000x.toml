@@ -2,11 +2,11 @@ schema = 1
 id = "siglent-sps5000x"
 name = "Siglent SPS5000X series"
 category = "psu"
-notes = "The manual covers all 16 models, from the 40 V SPS5041X to the 160 V SPS5165X, and this profile matches them all. The X4 models have two channels and the X5 models have three, each with its own set of limits. Output on and off is one command for all channels (OUTPut), and the per-channel OUTPut:SET:ON:STATe is a channel enable, so the Output action switches every channel of a multi-channel unit. The manual misprints the set form of that enable command in its command format line, which is another reason the profile does not use it. The manual documents no error query, so sets are checked by readback only. It also documents no protection query, so protection is not read. OCP trips only when its switch is on (SYStem:OCP:STATe CH1,1), and the OVP and OCP setters use the voltage and current limits here as their bound. Clear sends RESET:CHANnel:PROTect for the channel. The unit answers MEAS:RUN:MODE? with CV or CC, and any other word shows as unknown. The programming section is part of the user manual, and the socket port is 5025."
+notes = "The manual covers all 16 models, from the 40 V SPS5041X to the 160 V SPS5165X, and this profile matches them all. The X4 models have two channels and the X5 models have three, each with its own set of limits. Output on and off is one command for all channels (OUTPut), and the per-channel OUTPut:SET:ON:STATe is a channel enable, so the Output action switches every channel of a multi-channel unit. The manual misprints the set form of that enable command in its command format line, which is another reason the profile does not use it. The manual documents no error query, so sets are checked by readback only. It also documents no protection query, so protection is not read. OCP trips only when its switch is on (SYStem:OCP:STATe), which the profile reads and sets per channel, and the OVP and OCP setters use the voltage and current limits here as their bound. Clear sends RESET:CHANnel:PROTect for the channel. The manual shows only the reply CV to MEAS:RUN:MODE?; the profile also reads CC, and any other word shows as unknown. The programming section is part of the user manual, and the socket port is 5025."
 
 [evidence]
 badge = "manual"
-source = "Siglent SPS5000X Series Wide Range Programmable Switching DC Power Supplies User Manual (Remote Control chapter)"
+source = "Siglent SPS5000X Series Wide Range Programmable Switching DC Power Supplies User Manual, SPS5000X_Usermanual_E02B.pdf, 2022/06 (Remote Control chapter)"
 url = "https://siglentna.com/download/21299/"
 date = "2026-10-20"
 
@@ -101,6 +101,10 @@ parse = "float"
 query = "SOUR:OCP? CH{ch}"
 parse = "float"
 
+[state.ocp_on]
+query = "SYST:OCP:STAT? CH{ch}"
+parse = "bool"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -122,6 +126,9 @@ command = "SOUR:OVP CH{ch},{value}"
 
 [setters.ocp]
 command = "SOUR:OCP CH{ch},{value}"
+
+[setters.ocp_on]
+command = "SYST:OCP:STAT CH{ch},{on}"
 
 [setters.output]
 command = "OUTP {on}"

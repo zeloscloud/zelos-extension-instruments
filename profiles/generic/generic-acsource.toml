@@ -3,19 +3,20 @@ id = "generic-acsource"
 name = "Generic SCPI AC source"
 category = "acsource"
 generic = true
-notes = """Used when no profile matches the instrument. It probes MEAS:VOLT:AC?, MEAS:CURR:AC?, MEAS:POW:AC?, MEAS:FREQ?, VOLT?, FREQ? and OUTP?, and drops each one the instrument rejects at start. Setpoint ranges come from VOLT? MAX and FREQ? MAX. AC sources that use FETC or SOUR:VOLT:LEV forms instead need their own profile. This profile has no channel select."""
+notes = """Used when no profile matches the instrument. It probes MEAS:VOLT:AC?, MEAS:CURR:AC?, MEAS:POW:AC?, MEAS:FREQ?, VOLT?, CURR?, FREQ?, OUTP? and OUTP:PROT:TRIP?, and drops each one the instrument rejects at start. Setpoint ranges come from VOLT? MAX, CURR? MAX and FREQ? MAX. Clear sends OUTP:PROT:CLE. AC sources that use FETC or SOUR:VOLT:LEV forms instead need their own profile. This profile has no channel select."""
 
 [evidence]
 badge = "manual"
 source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
 url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [errors]
 query = "SYST:ERR?"
 
 [ranges]
 voltage = { max_query = "VOLT? MAX", digits = 3 }
+current = { max_query = "CURR? MAX", digits = 3 }
 frequency = { max_query = "FREQ? MAX", digits = 3 }
 
 [signals.voltage]
@@ -43,6 +44,11 @@ query = "VOLT?"
 parse = "float"
 optional = true
 
+[state.current_set]
+query = "CURR?"
+parse = "float"
+optional = true
+
 [state.frequency_set]
 query = "FREQ?"
 parse = "float"
@@ -53,11 +59,23 @@ query = "OUTP?"
 parse = "bool"
 optional = true
 
+[state.protection]
+optional = true
+flags = [
+  { query = "OUTP:PROT:TRIP?", parse = "bool", value = "other" },
+]
+
 [setters.voltage]
 command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
 
 [setters.frequency]
 command = "FREQ {value}"
 
 [setters.output]
 command = "OUTP {on}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

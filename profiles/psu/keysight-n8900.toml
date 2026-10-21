@@ -2,7 +2,7 @@ schema = 1
 id = "keysight-n8900"
 name = "Keysight N8900 series"
 category = "psu"
-notes = "These are single-output 5 kW, 10 kW and 15 kW autoranging supplies, so no channel is addressed and the commands carry no channel list. The limits come from the unit: the profile asks for VOLT? MAX and CURR? MAX, which are 102 percent of the rating. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 2 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 3 power limit, bit 4 OT, bit 5 master/slave protection). The guide gives overcurrent protection only as an on/off state with a delay, so there is no OCP setpoint. OVP resets to 120 percent of the rating at *RST. SYST:COMM:RLST REM and LOC both leave the front panel usable, and only RWL locks it. After a protection trip, remove the fault before Clear, which sends OUTP:PROT:CLE. Models above 60 V can produce lethal voltage, up to 1500 V on the 15 kW units."
+notes = "These are single-output 5 kW, 10 kW and 15 kW autoranging supplies, so no channel is addressed and the commands carry no channel list. The limits come from the unit: the profile asks for VOLT? MAX and CURR? MAX, which are 102 percent of the rating. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 2 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 3 power limit, bit 4 OT, bit 5 master/slave protection). The guide gives overcurrent protection only as an on/off state with a delay, so there is no OCP setpoint; CURR:PROT:STAT is off after *RST, so the OCP flag stays quiet until it is switched on, and this profile reads and sets it. The OVP level runs from 0 to the maximum the unit reports for VOLT:PROT? MAX, which is 120 percent of the voltage rating, and it resets there at *RST. SYST:COMM:RLST REM and LOC both leave the front panel usable, and only RWL locks it. After a protection trip, remove the fault before Clear, which sends OUTP:PROT:CLE. Models above 60 V can produce lethal voltage, up to 1500 V on the 15 kW units."
 
 [evidence]
 badge = "manual"
@@ -25,6 +25,7 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { max_query = "VOLT? MAX", digits = 3 }
 current = { max_query = "CURR? MAX", digits = 3 }
+ovp = { max_query = "VOLT:PROT? MAX", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -49,6 +50,10 @@ parse = "float"
 [state.ovp_set]
 query = "VOLT:PROT?"
 parse = "float"
+
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
 
 [state.output]
 query = "OUTP?"
@@ -78,6 +83,9 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT {value}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {on}"

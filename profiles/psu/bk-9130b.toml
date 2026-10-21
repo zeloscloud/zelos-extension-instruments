@@ -7,17 +7,22 @@ Channel commands act on the channel chosen with INST:NSEL, so the extension sele
 SYST:REM puts the instrument in remote mode and its keys stay locked until the Local action (SYST:LOC) runs. \
 The output setter is CHAN:OUTP, which switches the selected channel; OUTP (all channels) is not used. \
 Ratings come from the 9130B series data sheet: channels 1 and 2 are 30 V at 3 A (9130B), 30 V at 6 A (9131B) and 60 V at 3 A (9132B); channel 3 is 5 V at 3 A. \
-Constant-voltage and constant-current mode come from the questionable condition register (bit 0 is CV, bit 1 is CC); the manual does not say the register follows the selected channel, so treat the mode as unconfirmed. \
-VOLT:PROT is the overvoltage level; the manual does not give the reply format of VOLT:PROT:TRIP?. \
+Constant-voltage and constant-current mode come from each channel's own questionable condition register (STAT:QUES:INST:ISUM<n>:COND?, bit 0 is CV, bit 1 is CC), because the top-level register only holds one summary bit per channel. \
+A running channel that is in neither mode reads as off. \
+VOLT:PROT is the overvoltage level and acts only while the protection state (VOLT:PROT:STAT) is on, which the OVP on switch sets; the manual's reset value for the state is OFF. \
+The manual does not give the reply format of VOLT:PROT:TRIP?. \
+The manual documents no OCP and no OCP level command. \
 Power comes from MEAS:POW?. \
-The manual lists RS-232 baud rates of 4800 to 115200 but no default, so serial settings stay at the profile defaults. \
+The manual says commands end with CR and LF. \
+The manual gives two default RS-232 settings: 4800 baud in the communication section and 9600 baud in the interface section, with 8 data bits and no parity. The profile leaves the baud rate at its default, so set the same rate on the supply and in the config. \
+The manual says RS-232 has no flow control and a delay between commands is required, without giving a value; the profile pauses 50 ms between commands, and the config can change it. \
 Clear resets the OVP trip only."""
 
 [evidence]
 badge = "manual"
-source = "9130B Series Programming Manual V051415; 9130B Series data sheet v110221 (ratings); 9130B Series user manual (RS-232 options)"
+source = "9130B Series Programming Manual V051415; 9130B Series data sheet v110221 (ratings); 9130B Series User Manual v020322 (RS-232 options)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9130B_Series_programming_manual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
@@ -25,6 +30,8 @@ model = '(?i)^913[012]B$'
 channels = 3
 
 [link]
+write_terminator = "\r\n"
+delay_ms = 50
 select = "INST:NSEL {ch}"
 remote = "SYST:REM"
 local = "SYST:LOC"
@@ -75,12 +82,16 @@ parse = "float"
 query = "VOLT:PROT?"
 parse = "float"
 
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+
 [state.output]
 query = "CHAN:OUTP?"
 parse = "bool"
 
 [state.mode]
-query = "STAT:QUES:COND?"
+query = "STAT:QUES:INST:ISUM{ch}:COND?"
 parse = "bits"
 mask = 3
 map = { "0" = "off", "1" = "cv", "2" = "cc" }
@@ -98,6 +109,9 @@ command = "CURR {value}"
 
 [setters.ovp]
 command = "VOLT:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
 
 [setters.output]
 command = "CHAN:OUTP {bit}"

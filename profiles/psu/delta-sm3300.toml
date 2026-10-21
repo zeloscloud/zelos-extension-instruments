@@ -4,9 +4,10 @@ name = "Delta Elektronika SM3300 series"
 category = "psu"
 notes = """Covers the SM3300 series over its Ethernet interface; the TCP port is fixed at 8462 and the default IP address comes from DHCP. \
 Commands end with a line feed, and the manual allows the short form of each keyword (SOUR:VOL, MEAS:VOL?). \
-The supply takes voltage and current settings from the programming source chosen with SYST:REM:CV and SYST:REM:CC; the profile sends both as Remote once after connecting, so the front-panel knobs stop setting the output. The manual gives no command to hand control back in one step, so the Local action is not set. \
+The supply takes its voltage and current settings from the programming source chosen with SYST:REM:CV and SYST:REM:CC: Remote is the same as Ethernet, and Local is the same as Front. The manual says these two settings are not reset at power-on, and it does not say which setpoint the supply adopts when the source changes. The profile therefore sends neither command: set both to Remote with the raw command action before setting voltage or current. The manual gives no single command to hand control back, so the Local action is not set. \
 Ranges are read from the instrument after connecting (SOUR:VOL:MAX? and SOUR:CUR:MAX?). \
-Mode and protection are not read: STAT:REG:A? and STAT:REG:B? return status bit sums, and the manual shows only one example (66 for constant current with DC fail), not the bit table. \
+Mode reads bit 0 (CV) and bit 1 (CC) of status register A (STAT:REG:A?); neither bit set reads as unknown. \
+Protection reads bit 8 (OT) of register A as over-temperature, and bits 6 (DCF), 9 (PSOL) and 10 (ACF) of register A and bits 7 and 8 (output overload) of register B (STAT:REG:B?) as other. \
 There is no protection clear command in the manual. \
 The older SM 70-45 D uses a different set of abbreviated commands and its manual was not available, so it is not matched. \
 The IDN reply is DELTA ELEKTRONIKA BV,SM18-220,<serial>,<firmware>,0."""
@@ -15,7 +16,7 @@ The IDN reply is DELTA ELEKTRONIKA BV,SM18-220,<serial>,<firmware>,0."""
 badge = "manual"
 source = "Delta Elektronika SM3300 Ethernet & Sequencer Programming Product Manual, firmware P0210, rev. November 2025"
 url = "https://www.deltaelektronika.com/sites/default/files/2025-11/SM3300_Parser_P0210_V202511.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^delta\s*elektronika'
@@ -24,7 +25,6 @@ channels = 1
 
 [link]
 lan_port = 8462
-init = ["SYST:REM:CV Remote", "SYST:REM:CC Remote"]
 
 [errors]
 query = "SYST:ERR?"
@@ -56,6 +56,19 @@ parse = "float"
 [state.output]
 query = "OUTP?"
 parse = "bool"
+
+[state.mode]
+query = "STAT:REG:A?"
+parse = "bits"
+mask = 3
+map = { "0" = "unknown", "1" = "cv", "2" = "cc" }
+
+[state.protection]
+flags = [
+  { query = "STAT:REG:A?", parse = "bits", mask = 256, value = "otp" },
+  { query = "STAT:REG:A?", parse = "bits", mask = 1600, value = "other" },
+  { query = "STAT:REG:B?", parse = "bits", mask = 384, value = "other" },
+]
 
 [setters.voltage]
 command = "SOUR:VOL {value}"

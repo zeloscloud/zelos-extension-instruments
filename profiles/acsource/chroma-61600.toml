@@ -8,23 +8,26 @@ The measurement queries use FETCh, which returns the last acquired reading; MEAS
 The output voltage has a 150 V and a 300 V range (VOLTage:RANGe LOW, HIGH or AUTO), and the voltage limit in ranges is the 300 V range. The current limit is the rms current limit for software protection, and the limits in ranges are the 150 V range figures, half or less in the 300 V range. The frequency range is 15 Hz to 1000 Hz. \
 OUTP OFF sets the output voltage to 0 V. OUTP:COUP AC, DC or ACDC selects the output coupling; the profile sets AC quantities only. \
 The serial settings are 9600 or 19200 baud with no, odd or even parity, and the factory setting is 9600 with no parity. The GPIB address is set at 30 from the factory. USB and Ethernet are an option board, and the manual does not name a socket port. SYST:REM works under RS-232C only, so the profile does not send it. \
-The protection state reads the questionable status condition register: weight 256 output overvoltage, 64 overcurrent, 4 overpower, 8 overtemperature, and 1, 2, 16, 32 and 128 for the internal power stage, output short, fan and line input protections. The Clear setter clears the latch once every fault is removed."""
+The protection state reads the questionable status condition register: weight 256 output overvoltage, 64 overcurrent, 4 overpower, 8 overtemperature, and 1, 2, 16, 32 and 128 for the internal power stage, output short, fan and line input protections. The Clear setter clears the latch once every fault is removed. \
+SYST:ERR? answers with a bare string, "No Error" or one of "Data Format Error", "Data Range Error", "Too Many Errors" and "Execution Error", with no numeric code, so the error check accepts "No Error" as the empty queue. \
+The manual's *IDN? example is "Chroma ATE 61600,123456,1.00,1.01,1.02": the company and the model are joined in the first field and the second field is the serial number. The match accepts a model of 61600 to 61605 in the second field, or a six-digit serial number there. With the serial form the model string carries no rating, so the current limit stays at the 61601 figure and setpoints above it refuse until the config names a limit."""
 
 [evidence]
 badge = "manual"
 source = "Chroma Programmable AC Source 61601/61602/61603/61604 User's Manual, version 1.9, October 2015, and 61605 User's Manual, version 1.8, November 2015"
 url = "https://xdevs.com/doc/Chroma/61600/UM-61601~4-acsource-v1.9-102015.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^chroma'
-model = '^616(0[1-5])$'
+model = '^(?:616(?:0[0-5])|\d{6})$'
 
 [link]
 baud = 9600
 
 [errors]
 query = ":SYST:ERR?"
+ok = '(?i)^\s*(?:no error|[+-]?0\b)'
 
 [ranges]
 voltage = { min = 0, max = 300, digits = 1 }

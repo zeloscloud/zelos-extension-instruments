@@ -119,6 +119,7 @@ def render(
     values: dict[str, Any] = {}
     if ch is not None:
         values["ch"] = ch
+        values["ch0"] = ch - 1
     for key, extra in (("slot", slot), ("type", type), ("points", points), ("interval", interval)):
         if extra is not None:
             values[key] = extra
@@ -135,8 +136,10 @@ def render(
         raise ValueError(f"cannot render '{template}': missing {e}") from None
 
 
-_METRIC = {"k": 1e3, "M": 1e6, "G": 1e9, "m": 1e-3, "u": 1e-6, "n": 1e-9}
-_UNITS = frozenset({"V", "A", "W", "Hz", "Sa/s", "S", "s", "Ohm", "pts", "F", "H"})
+_METRIC = {"k": 1e3, "M": 1e6, "G": 1e9, "m": 1e-3, "u": 1e-6, "n": 1e-9, "p": 1e-12}
+_UNITS = frozenset(
+    {"V", "A", "W", "Hz", "Sa/s", "S", "s", "Ohm", "F", "H", "V/div", "s/div", "A/div"}
+)
 _UNIT = re.compile(r"[A-Za-z%/]+")
 
 
@@ -154,7 +157,8 @@ def parse_float(text: str) -> float:
     if suffix and not _UNIT.fullmatch(suffix):
         raise ParseError(f"expected a number, got {text.strip()!r}")
     if suffix in _METRIC or (suffix[:1] in _METRIC and suffix[1:] in _UNITS):
-        # A metric prefix, as a memory depth (10M) or a sample rate (1.00GSa/s) reads.
+        # A metric prefix, as a memory depth (10M), a sample rate (1.00GSa/s) or a delay
+        # (100ps) reads. Any other suffix is a unit, left as it is.
         number *= _METRIC[suffix[0]]
     if abs(number) >= _NAN_FROM:
         return math.nan
@@ -220,10 +224,13 @@ def parse_reply(reader: Reader, reply: str, channel: int | None = None) -> dict[
         parts = text.split(",")
         if len(parts) < len(reader.fields):
             raise ParseError(f"expected {len(reader.fields)} values, got {text!r}")
-        return {name: parse_float(part) for name, part in zip(reader.fields, parts, strict=False)}
+        return {
+            name: parse_float(part) * reader.scale
+            for name, part in zip(reader.fields, parts, strict=False)
+        }
     name = reader.fields[0]
     if parse == "float":
-        return {name: parse_float(_pick(text, reader.index))}
+        return {name: parse_float(_pick(text, reader.index)) * reader.scale}
     if parse == "int":
         return {name: parse_int(_pick(text, reader.index), reader.hex)}
     if parse == "bool":
@@ -265,6 +272,9 @@ def unknown_label(field: str) -> str:
 
 
 def format_value(value: float, range_: Range | None) -> str:
+    """The number as the command carries it: the range's digits, or every digit it has."""
+    if range_ is None:
+        return f"{value:.12g}"
     digits = range_.digits if range_ is not None else 3
     return f"{value:.{digits}f}"
 
@@ -315,7 +325,7 @@ def setter_command(
     function: str | None = None,
 ) -> str:
     """The command a setter sends."""
-    text = None if value is None else format_value(value, range_)
+    text = None if value is None else format_value(value / setter.scale, _scaled(range_, setter))
     word = None
     if function is not None:
         word = setter.map.get(function)
@@ -326,14 +336,30 @@ def setter_command(
     )
 
 
+def _scaled(range_: Range | None, setter: Setter) -> Range | None:
+    """The range in the instrument's own unit, so its digits apply to what is sent."""
+    if range_ is None or setter.scale == 1.0:
+        return range_
+    return Range(
+        None if range_.min is None else range_.min / setter.scale,
+        None if range_.max is None else range_.max / setter.scale,
+        range_.digits,
+        None if range_.step is None else range_.step / setter.scale,
+        range_.min_query,
+        range_.max_query,
+    )
+
+
 def verified(expected: float, readback: float, range_: Range | None) -> bool:
     """Whether a readback agrees with the value sent, within one step of the range."""
-    if range_ is not None and range_.step is not None:
-        tolerance = range_.step
-    else:
-        digits = range_.digits if range_ is not None else 3
-        tolerance = 10.0**-digits
-    return math.isfinite(readback) and abs(readback - expected) <= tolerance * 1.5
+    if not math.isfinite(readback):
+        return False
+    if range_ is None:
+        # No digits are known: the instrument may round, but not by more than a part in a
+        # thousand, and a tiny value must not pass as zero.
+        return abs(readback - expected) <= 1e-3 * max(abs(expected), abs(readback))
+    tolerance = range_.step if range_.step is not None else 10.0**-range_.digits
+    return abs(readback - expected) <= tolerance * 1.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,8 +396,12 @@ class Selector:
         """The select command to send before touching `ch`, or None when none is needed."""
         if self._select is None or ch is None or ch == self._selected:
             return None
-        self._selected = ch
         return render(self._select, ch=ch)
+
+    def mark(self, ch: int | None) -> None:
+        """The select command went out and was accepted."""
+        if ch is not None:
+            self._selected = ch
 
     def forget(self) -> None:
         """After a reconnect or an outside command, the selection is unknown."""

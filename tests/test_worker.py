@@ -30,6 +30,10 @@ class Dp832:
         self.load = {1: 10.0, 2: 10.0, 3: 10.0}
         self.errors: list[str] = []
         self.ovp_tripped = {1: False, 2: False, 3: False}
+        self.ovp_level = {1: 33.0, 2: 33.0, 3: 5.5}
+        self.ocp_level = {1: 3.3, 2: 3.3, 3: 3.3}
+        self.ovp_on = {1: False, 2: False, 3: False}
+        self.ocp_on = {1: False, 2: False, 3: False}
         self.silent = False
         # An error the next command (not a query) queues, as a refused setting does.
         self.fail_next_set: str | None = None
@@ -70,6 +74,24 @@ class Dp832:
             return "1" if self.ovp_tripped[int(arg[2:])] else "0"
         if head == ":OUTP:OCP:QUES?":
             return "0"
+        if head in (":OUTP:OVP:VAL?", ":OUTP:OCP:VAL?"):
+            table = self.ovp_level if "OVP" in head else self.ocp_level
+            return f"{table[int(arg[2:])]:.3f}"
+        if head in (":OUTP:OVP?", ":OUTP:OCP?"):
+            table = self.ovp_on if "OVP" in head else self.ocp_on
+            return "ON" if table[int(arg[2:])] else "OFF"
+        if head == ":OUTP:SENS?":
+            return "OFF"
+        if head in (":OUTP:OVP:VAL", ":OUTP:OCP:VAL"):
+            ch, _, level = arg.partition(",")
+            table = self.ovp_level if "OVP" in head else self.ocp_level
+            table[int(ch[2:])] = float(level)
+            return None
+        if head in (":OUTP:OVP", ":OUTP:OCP"):
+            ch, _, state = arg.partition(",")
+            table = self.ovp_on if "OVP" in head else self.ocp_on
+            table[int(ch[2:])] = state == "ON"
+            return None
         if head == ":OUTP":
             ch, _, state = arg.partition(",")
             self.out[int(ch[2:])] = state == "ON"
@@ -881,7 +903,7 @@ def test_per_channel_poll_rows_get_a_field_per_channel_and_join_read(
         assert reading["temp_ch2"] == 42.5
         assert "temp_ch1" not in reading
         assert worker.health.startswith(
-            "Connected to RIGOL TECHNOLOGIES DP832A. Reading 8 signals and 1 extra readings on "
+            "Connected to RIGOL TECHNOLOGIES DP832A. Reading 13 signals and 1 extra readings on "
             "3 channels"
         )
     finally:

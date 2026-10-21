@@ -161,13 +161,13 @@ Every action except List Instruments, List Profiles and Auto-configure takes `in
 | Release | `Instruments/release` | Closes the link so another program can use the instrument. Outputs stay as they are. | no |
 | Acquire | `Instruments/acquire` | Takes a released instrument back. | no |
 
-A set returns what was sent and what the instrument reads back:
+A set checks every value against the range, the limits and the instrument's digits before anything is sent, so a refusal leaves the instrument as it was. It returns what was sent and what the instrument reads back:
 
 ```json
 { "voltage": { "set": 12.0, "readback": 12.0 }, "current": { "set": 2.0, "readback": 2.0 } }
 ```
 
-A failed action returns one sentence that says why: the range, the limit, the instrument's own error text, or a readback that disagrees.
+A failed action returns one sentence that says why: the range, the limit, a value finer than the instrument's digits, the instrument's own error text, or a readback that disagrees. When a set of several values fails after some went out, the sentence names them. A profile without a readback for a setting says `unverified` in the result instead of passing it as checked.
 
 ![The Set action in the Action panel after a run: its result shows voltage set 13.8 and readback 13.8, current set 2.5 and readback 2.5, and the plots above step at that moment.](assets/readme/set.png)
 

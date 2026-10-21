@@ -2,20 +2,22 @@ schema = 1
 id = "gw-instek-pel-3000"
 name = "GW Instek PEL-3000 series"
 category = "load"
-notes = """\
-Transcribed from the programming manual, not tried on a unit. The manual covers the PEL-3000 series and the profile matches the PEL-3021, PEL-3041 and PEL-3111. \
-The PEL-3031 is not in this manual, and the H and E variants have other ratings, so none of them is matched. \
-The manual has no resistance measurement query, so resistance is not read. Static setpoints use the A value (:CURRent:VA and so on), and each current range keeps its own A value. Replies carry a unit letter, for example 1.0A, which the reader accepts. \
+notes = """Transcribed from the programming manual, not tried on a unit. The manual covers the PEL-3000 series and the profile matches the PEL-3021, PEL-3041 and PEL-3111. \
+The PEL-3031 and the H and E variants are not matched. \
+The programming manual has no rating table, so the voltage, current, power and resistance limits of each model were not checked against it. It shows one front-panel figure labelled 1.5 - 150V 175W 0 - 35A, captioned PEL-3021 / PEL-3041. \
+The manual has no resistance measurement query, so resistance is not read. Static setpoints use the A value (:CURRent:VA and so on), and each current range keeps its own A value; the current range is read with :CRANge?. Replies carry a unit letter, for example 1.0A, which the reader accepts. \
+The switching mode is Dynamic by default (:MODE:DYNamic), and the manual says the A-value commands apply to static modes. \
+The slew rate (:CURRent:SRATe) is in mA/us; the profile scales it to A/s. \
 Remote interfaces are USB (virtual serial port), RS-232 and GPIB. RS-232 offers 2400, 4800, 9600, 19200 or 38400 baud, 1 or 2 stop bits and no, odd or even parity, set on the front panel with Shift + Help, and the manual names no default. The RS-232 cable is a null modem. \
-The manual needs no remote command. The optional :UTILity:REMote:MODE FAST deactivates the panel. \
+:UTILity:REMote turns remote control on or off; the manual does not say it must be on, so the profile sends nothing at connect and has no Local action. The optional :UTILity:REMote:MODE FAST deactivates the panel. \
 The :MODE query also returns CCCV, CRCV and CPCV for the combined modes, which read as unknown. \
 The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 8 overpower and 16 overtemperature."""
 
 [evidence]
 badge = "manual"
-source = "GW Instek DC Electronic Load PEL-3000 Programming Manual, version 1.40, and the PEL-3000 Quick Start Guide for ratings"
+source = "GW Instek DC Electronic Load PEL-3000 Programming Manual, version 1.40"
 url = "https://netes.com.tr/dosya/gw-instek-pel-3000-serisi-programlama-kilavuzu222222222"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^(gw|good)'
@@ -73,6 +75,16 @@ parse = "float"
 query = ":RES:VA?"
 parse = "float"
 
+[state.slew_set]
+query = ":CURRent:SRATe?"
+parse = "float"
+scale = 1e3
+
+[state.current_range]
+query = ":CRAN?"
+parse = "map"
+map = { High = "high", Mid = "mid", Low = "low" }
+
 [state.output]
 query = ":INP?"
 parse = "bool"
@@ -89,6 +101,10 @@ flags = [
   { query = ":STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
   { query = ":STAT:QUES:COND?", parse = "bits", mask = 16, shift = 4, value = "otp" },
 ]
+
+[setters.slew]
+command = ":CURRent:SRATe {value}"
+scale = 1e3
 
 [setters.current]
 command = ":CURR:VA {value}"

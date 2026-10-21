@@ -3,22 +3,22 @@ id = "itech-it8800"
 name = "ITECH IT8800 series"
 category = "load"
 notes = """\
-Transcribed from the programming guide, not tried on a unit. The guide covers many more IT8800 models; the profile matches the IT8811, IT8812, IT8812B and IT8812C, whose ratings were found on a distributor's product page. \
-The guide has no resistance measurement query, so resistance is not read, and it gives no resistance range, so the resistance setter refuses until the config names a limit. \
-The interfaces are RS-232, USB and GPIB with no LAN port in the guide. RS-232 offers 4800, 9600, 19200, 38400, 57600 or 115200 baud, 8 data bits with no parity or 7 bits with even or odd parity, set with Shift + System on the front panel, and the guide names no default. The cable is a null modem. \
+Transcribed from the programming guide, not tried on a unit. The guide covers the IT8811, IT8812, IT8812B, IT8812C and about forty more IT8800 models, and the profile matches all of them. Ratings are known for the IT8811, IT8812, IT8812B and IT8812C only, from the user manual's specification tables; every other model matches but has no range, so its setpoints refuse until the config names a limit. \
+The guide has no resistance measurement query, so resistance is not read. \
+The interfaces are RS-232, USB and GPIB with no LAN port in the guide. RS-232 offers 4800, 9600, 19200, 38400, 57600 or 115200 baud, 8 data bits with no parity or 7 bits with even or odd parity, set with Shift + System on the front panel, and the guide names no default. The guide contradicts itself on the cable: it says the load can connect to a PC through a null modem cable, and later says to use a straight-through cable and not a null modem cable. \
 SYST:REM puts the load in remote mode and disables every front-panel key except LOCAL. \
 The function query reply form is not stated; the profile accepts the short and the long word. \
 A protection trip latches the input off until the Clear setter's command, which restores the earlier input state, so send it only once the fault is gone. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage."""
 
 [evidence]
 badge = "manual"
-source = "ITECH Series IT8800 Programmable DC Electronic Load Programming Guide, V2.1, 2022"
+source = "ITECH Series IT8800 Programmable DC Electronic Load Programming Guide, V2.1, 2022; IT8800 Series User's Manual (ratings)"
 url = "https://assets.testequity.com/te1/Documents/pdf/itech/ITECH_IT8800-Programming-Guide-EN.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^itech'
-model = '^IT8811$|^IT8812[BC]?$'
+model = '^IT88(?:11|12[BC]?|13[BC]?|14[BC]?|16[BC]?|17[BC]?|18[BCD]?|3[0-3][BH]?|3[4-9][BH])$'
 
 [link]
 remote = "SYST:REM"
@@ -33,24 +33,28 @@ model = '^IT8811$'
 voltage = { min = 0, max = 120, digits = 3 }
 current = { min = 0, max = 30, digits = 4 }
 power = { min = 0, max = 150, digits = 2 }
+resistance = { min = 0.05, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^IT8812$'
 voltage = { min = 0, max = 120, digits = 3 }
 current = { min = 0, max = 30, digits = 4 }
 power = { min = 0, max = 250, digits = 2 }
+resistance = { min = 0.05, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^IT8812B$'
 voltage = { min = 0, max = 500, digits = 3 }
 current = { min = 0, max = 15, digits = 4 }
 power = { min = 0, max = 200, digits = 2 }
+resistance = { min = 0.3, max = 7500, digits = 3 }
 
 [[ranges.models]]
 model = '^IT8812C$'
 voltage = { min = 0, max = 120, digits = 3 }
 current = { min = 0, max = 60, digits = 4 }
 power = { min = 0, max = 250, digits = 2 }
+resistance = { min = 0.05, max = 7500, digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"

@@ -473,6 +473,16 @@ def test_compile_plan_orders_fast_then_slow_per_channel(dp800: Profile) -> None:
         "voltage_set@2",
         "current_set@1",
         "current_set@2",
+        "ovp_set@1",
+        "ovp_set@2",
+        "ocp_set@1",
+        "ocp_set@2",
+        "ovp_on@1",
+        "ovp_on@2",
+        "ocp_on@1",
+        "ocp_on@2",
+        "remote_sense@1",
+        "remote_sense@2",
         "output@1",
         "output@2",
         "mode@1",
@@ -511,7 +521,7 @@ def test_compile_plan_removes_dropped_keys(dp800: Profile) -> None:
     assert "mode@2" in keys
     assert "protection#1@1" not in keys
     assert "protection#0@1" in keys
-    assert len(keys) == 12 - 2
+    assert len(keys) == len(compile_plan(dp800, 2).slow) - 2
 
 
 def test_compile_plan_accepts_a_frozenset_and_zero_channels(dp800: Profile) -> None:
@@ -546,8 +556,11 @@ def test_format_value_uses_the_range_digits() -> None:
     assert format_value(-0.5, range_(digits=1)) == "-0.5"
 
 
-def test_format_value_defaults_to_three_digits() -> None:
-    assert format_value(1.23456, None) == "1.235"
+def test_format_value_keeps_every_digit_without_a_range() -> None:
+    """A value without a range is sent as it is; the readback decides whether it took."""
+    assert format_value(1.23456, None) == "1.23456"
+    assert format_value(1e-6, None) == "1e-06"
+    assert format_value(5.0, None) == "5"
 
 
 def test_check_range_accepts_values_inside_the_range() -> None:
@@ -611,7 +624,7 @@ def test_setter_command_formats_a_value_with_the_range_digits() -> None:
     s = setter("voltage", ":SOUR{ch}:VOLT {value}")
     assert setter_command(s, ch=2, value=5.0, range_=range_(digits=3)) == ":SOUR2:VOLT 5.000"
     assert setter_command(s, ch=1, value=5.0, range_=range_(digits=1)) == ":SOUR1:VOLT 5.0"
-    assert setter_command(s, ch=1, value=5.0) == ":SOUR1:VOLT 5.000"
+    assert setter_command(s, ch=1, value=5.0) == ":SOUR1:VOLT 5"
 
 
 def test_setter_command_renders_on_and_bit() -> None:
@@ -665,9 +678,10 @@ def test_verified_uses_the_digits_without_a_step() -> None:
     assert not verified(5.0, 6.6, range_(digits=0))
 
 
-def test_verified_defaults_to_three_digits() -> None:
-    assert verified(5.0, 5.001, None)
-    assert not verified(5.0, 5.002, None)
+def test_verified_without_a_range_allows_a_part_in_a_thousand() -> None:
+    assert verified(5.0, 5.004, None)
+    assert not verified(5.0, 5.006, None)
+    assert not verified(1e-6, 0.0, None)
 
 
 @pytest.mark.parametrize("readback", [math.nan, math.inf, -math.inf])
@@ -707,8 +721,12 @@ def test_read_error_honors_the_profiles_ok_pattern() -> None:
 def test_selector_sends_on_first_use_and_on_a_change_only() -> None:
     selector = Selector("INST:NSEL {ch}")
     assert selector.command_for(1) == "INST:NSEL 1"
+    # Until the command is marked as sent, the selection is still unknown.
+    assert selector.command_for(1) == "INST:NSEL 1"
+    selector.mark(1)
     assert selector.command_for(1) is None
     assert selector.command_for(2) == "INST:NSEL 2"
+    selector.mark(2)
     assert selector.command_for(2) is None
     assert selector.command_for(1) == "INST:NSEL 1"
 
@@ -723,6 +741,7 @@ def test_selector_forget_resends() -> None:
 def test_selector_ignores_a_channel_less_command_and_keeps_the_selection() -> None:
     selector = Selector("INST:NSEL {ch}")
     assert selector.command_for(2) == "INST:NSEL 2"
+    selector.mark(2)
     assert selector.command_for(None) is None
     assert selector.command_for(2) is None
 

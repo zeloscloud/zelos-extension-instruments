@@ -2,11 +2,11 @@ schema = 1
 id = "siglent-spd3303x"
 name = "Siglent SPD3303X and SPD3303X-E"
 category = "psu"
-notes = "The supply has three outputs, and this profile exposes channels 1 and 2 (32 V/3.2 A each). Channel 3 is the fixed 2.5 V, 3.3 V or 5 V output: the manual lists CH3 only in OUTPut and gives it no voltage, current or measurement command, so it is not exposed. Mode and output state come from SYST:STAT?, one hex word for both channels (bit 0 CH1 CC, bit 1 CH2 CC, bits 2-3 independent as 01 or parallel as 10, bit 4 CH1 on, bit 5 CH2 on, bits 6-7 timers, bits 8-9 waveform display, per the Quick Start's table; its example reply 0x0224 does not fit that table, so check a unit). The manual documents no protection query and no OVP or OCP commands for this family. Siglent says to leave 10 to 100 ms between commands, so the profile waits 100 ms, and commands end with a newline only, because extra characters cause a failure. The LAN socket port is 5025 in Siglent's socket example, while its comment lists 5024 for the SPD3303X and SPD3303X-E, so try 5024 if 5025 refuses the connection. OUTPut:TRACK sets series or parallel tracking, which changes what each channel delivers, and the profile does not read it."
+notes = "The supply has three outputs, and this profile exposes channels 1 and 2 (32 V/3.2 A each). Channel 3 is the fixed 2.5 V, 3.3 V or 5 V output: the manual lists CH3 only in OUTPut and gives it no voltage, current or measurement command, so it is not exposed. Mode and output state come from SYST:STAT?, one hex word for both channels (bit 0 CH1 CC, bit 1 CH2 CC, bits 2-3 independent as 01 or parallel as 10, bit 4 CH1 on, bit 5 CH2 on, bits 6-7 timers, bits 8-9 waveform display, per the Quick Start's table; its example reply 0x0224 sets bits 2, 5 and 9: independent mode, CH2 on and CH2 waveform display). The manual documents no protection query and no OVP or OCP commands for this family. Siglent says to leave 10 to 100 ms between commands, so the profile waits 100 ms, and commands end with a newline only, because extra characters cause a failure. The LAN socket port is 5025: Siglent's application note lists it for the SPD3303X and SPD3303X-E, and its port table shows 5024 as a telnet port that the SPD3303X does not accept. The Tracking field reads bits 2-3 of the status word, which the table defines only for independent and parallel, so a series-tracking unit reads as unknown. The manual gives 0~60 V/0~3.2 A in series mode and 0~32 V/0~6.4 A in parallel mode, and the profile's ranges stay 32 V and 3.2 A. In parallel mode the manual says CH2 works only in CC mode."
 
 [evidence]
 badge = "manual"
-source = "Siglent SPD3303X/3303X-E Programmable DC Power Supply Quick Start, EN_02A (command list); SPD Programming Tips; Siglent application note, Controlling an SPD power supply via Sockets over LAN, Jan. 2021"
+source = "Siglent SPD3303X/3303X-E Programmable DC Power Supply Quick Start, EN_02A (SPD3303X_QuickStart_E02A.pdf, command list); SPD Programming Tips; Siglent application note, Controlling an SPD power supply via Sockets over LAN, Jan. 2021"
 url = "https://siglentna.com/download/2512/"
 date = "2026-10-20"
 
@@ -52,6 +52,15 @@ parse = "bits"
 format = "hex"
 mask = [0x10, 0x20]
 shift = [4, 5]
+
+[state.tracking]
+query = "SYST:STAT?"
+parse = "bits"
+format = "hex"
+mask = 0x0C
+shift = 2
+map = { "1" = "independent", "2" = "parallel" }
+channel = false
 
 [state.mode]
 query = "SYST:STAT?"

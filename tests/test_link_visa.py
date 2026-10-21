@@ -45,11 +45,29 @@ class FakeResource(MessageBasedResource):
         self.written.append(message)
         return len(message)
 
-    def read_raw(self, size: int | None = None) -> bytes:
+    # Bytes a byte-count read left behind for the next read.
+    pending: bytes = b""
+
+    def _next(self) -> bytes:
         outcome = self.replies.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
+
+    def read_raw(self, size: int | None = None) -> bytes:
+        if self.pending:
+            data, self.pending = self.pending, b""
+            return data
+        return self._next()
+
+    def read_bytes(
+        self, count: int, chunk_size: int | None = None, break_on_termchar: bool = False
+    ) -> bytes:
+        """Exactly `count` bytes, drawn from the replies in order, as pyvisa reads by count."""
+        while len(self.pending) < count:
+            self.pending += self._next()
+        data, self.pending = self.pending[:count], self.pending[count:]
+        return data
 
     def clear(self) -> None:
         if self.fail_clear:

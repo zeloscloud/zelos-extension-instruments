@@ -2,7 +2,7 @@ schema = 1
 id = "rigol-dp700"
 name = "Rigol DP700 series"
 category = "psu"
-notes = "The DP700 has one output and an RS232 port only, with no USB or LAN: 9600 baud, 8 data bits, no parity, 1 stop bit by default, and commands end with a newline. Data bits and stop bits cannot be changed, and the baud rate can be 7200 to 115200. The command set is the DP800 style, with an optional channel name (CH1) and a single :SOUR1 source. The guide gives the OCP and OVP tests as YES or NO. Voltage and current take 2 decimal places, which suits the standard unit, and a unit with the high-resolution option (HIRES-DP700) accepts 3. The limits here are the ratings, and the instrument accepts current up to 5.3 A on the DP711 and 3.2 A on the DP712. OVP and OCP are off by default, so enable them on the front panel or with :OUTP:OVP:STAT and :OUTP:OCP:STAT before relying on the trip flags. SYST:REMOTE locks all front-panel keys except On/Off, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR."
+notes = "The DP700 has one output and an RS232 port only, with no USB or LAN: 9600 baud, 8 data bits, no parity, 1 stop bit by default, and commands end with a newline. Data bits and stop bits cannot be changed, and the baud rate can be 7200 to 115200. The command set is the DP800 style, with an optional channel name (CH1) and a single :SOUR1 source. The guide gives the OCP and OVP tests as YES or NO. Voltage and current take 2 decimal places, which suits the standard unit, and a unit with the high-resolution option (HIRES-DP700) accepts 3. The limits here are the ratings, and the instrument accepts current up to 5.3 A on the DP711 and 3.2 A on the DP712. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the guide's settable ranges: 0.01 V to 33 V and 0.01 A to 5.5 A on the DP711, 0.01 V to 55 V and 0.01 A to 3.3 A on the DP712. SYST:REMOTE locks all front-panel keys except On/Off, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR."
 
 [evidence]
 badge = "manual"
@@ -31,11 +31,15 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { min = 0, max = 30, digits = 2 }
 current = { min = 0, max = 5, digits = 2 }
+ovp = { min = 0.01, max = 33, digits = 2 }
+ocp = { min = 0.01, max = 5.5, digits = 2 }
 
 [[ranges.models]]
 model = '^DP712$'
 voltage = { min = 0, max = 50, digits = 2 }
 current = { min = 0, max = 3, digits = 2 }
+ovp = { min = 0.01, max = 55, digits = 2 }
+ocp = { min = 0.01, max = 3.3, digits = 2 }
 
 [signals.measure]
 query = ":MEAS:ALL? CH{ch}"
@@ -57,6 +61,14 @@ parse = "float"
 [state.ocp_set]
 query = ":OUTP:OCP:VAL? CH{ch}"
 parse = "float"
+
+[state.ovp_on]
+query = ":OUTP:OVP:STAT? CH{ch}"
+parse = "bool"
+
+[state.ocp_on]
+query = ":OUTP:OCP:STAT? CH{ch}"
+parse = "bool"
 
 [state.output]
 query = ":OUTP? CH{ch}"
@@ -84,6 +96,12 @@ command = ":OUTP:OVP:VAL CH{ch},{value}"
 
 [setters.ocp]
 command = ":OUTP:OCP:VAL CH{ch},{value}"
+
+[setters.ovp_on]
+command = ":OUTP:OVP:STAT CH{ch},{on}"
+
+[setters.ocp_on]
+command = ":OUTP:OCP:STAT CH{ch},{on}"
 
 [setters.output]
 command = ":OUTP CH{ch},{on}"

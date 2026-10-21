@@ -73,9 +73,8 @@ def test_every_query_parses_and_every_setter_round_trips(profile: Profile) -> No
                 fake.handle_text(engine.setter_command(setter, ch=ch, value=value, range_=range_))
                 verify = profile.verify_query(setter)
                 if verify is not None:
-                    readback = engine.parse_float(
-                        fake.handle_text(engine.render(verify, ch=ch)) or ""
-                    )
+                    reply = fake.handle_text(engine.render(verify, ch=ch)) or ""
+                    readback = engine.parse_float(reply) * setter.scale
                     assert engine.verified(value, readback, range_), (
                         profile.id,
                         name,

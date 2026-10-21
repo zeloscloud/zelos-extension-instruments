@@ -3,13 +3,13 @@ id = "generic-psu"
 name = "Generic SCPI power supply"
 category = "psu"
 generic = true
-notes = """Used when no profile matches the instrument. It probes the SCPI-99 forms MEAS:VOLT?, MEAS:CURR?, MEAS:POW?, VOLT?, CURR? and OUTP?, and drops each one the instrument rejects at start, with one log line. Setpoint ranges come from VOLT? MAX, VOLT? MIN, CURR? MAX and CURR? MIN; a setter stays refused until the instrument answers them or the config names a limit. For a multi-channel supply that follows the SCPI-99 INSTrument subsystem, set channels in the config to the channel count: the extension sends INST:NSEL <n> before each channel's commands. Instruments that put the channel in the command (SOUR2:VOLT, CH2) need their own profile."""
+notes = """Used when no profile matches the instrument. It probes the SCPI-99 forms MEAS:VOLT?, MEAS:CURR?, MEAS:POW?, VOLT?, CURR?, VOLT:PROT?, CURR:PROT?, VOLT:PROT:STAT?, CURR:PROT:STAT?, VOLT:PROT:TRIP?, CURR:PROT:TRIP?, OUTP:PROT:TRIP? and OUTP?, and drops each one the instrument rejects at start, with one log line. Setpoint ranges come from VOLT? MAX, VOLT? MIN, CURR? MAX and CURR? MIN, and the protection ranges from VOLT:PROT? and CURR:PROT? with MAX and MIN; a setter stays refused until the instrument answers them or the config names a limit. Clear sends OUTP:PROT:CLE. For a multi-channel supply that follows the SCPI-99 INSTrument subsystem, set channels in the config to the channel count: the extension sends INST:NSEL <n> before each channel's commands. Instruments that put the channel in the command (SOUR2:VOLT, CH2) need their own profile."""
 
 [evidence]
 badge = "manual"
 source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
 url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [link]
 select = "INST:NSEL {ch}"
@@ -20,6 +20,8 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { max_query = "VOLT? MAX", min_query = "VOLT? MIN", digits = 3 }
 current = { max_query = "CURR? MAX", min_query = "CURR? MIN", digits = 3 }
+ovp = { max_query = "VOLT:PROT? MAX", min_query = "VOLT:PROT? MIN", digits = 3 }
+ocp = { max_query = "CURR:PROT? MAX", min_query = "CURR:PROT? MIN", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -46,10 +48,38 @@ query = "CURR?"
 parse = "float"
 optional = true
 
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+optional = true
+
+[state.ocp_set]
+query = "CURR:PROT?"
+parse = "float"
+optional = true
+
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+optional = true
+
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
+optional = true
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
 optional = true
+
+[state.protection]
+optional = true
+flags = [
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+  { query = "CURR:PROT:TRIP?", parse = "bool", value = "ocp" },
+  { query = "OUTP:PROT:TRIP?", parse = "bool", value = "other" },
+]
 
 [setters.voltage]
 command = "VOLT {value}"
@@ -57,5 +87,20 @@ command = "VOLT {value}"
 [setters.current]
 command = "CURR {value}"
 
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.ocp]
+command = "CURR:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
+
 [setters.output]
 command = "OUTP {on}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

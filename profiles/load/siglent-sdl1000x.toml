@@ -5,13 +5,13 @@ category = "load"
 notes = """\
 Transcribed from the programming guide, not tried on a unit. The guide has no error-queue query, no protection-status query and no remote or local command, so none are used and set commands are checked by readback only. \
 The mode reply is read as the full word the guide shows (RESISTANCE); a unit that answers with the short form reads as unknown. The LED function has no label here and reads as unknown. \
-The guide does not name the LAN socket port; the profile uses 5025. The setpoint queries return the preset of the selected function, so each is meaningful only while that function is the active one. \
-The SDL1000X-E models measure with 1 mV and 1 mA resolution."""
+The guide names no LAN socket port; Siglent's port table lists 5025 for the socket. The setpoint queries return the preset of the selected function, so each is meaningful only while that function is the active one. \
+The Current Range field reads the CC-mode static current range; the guide shows only the reply 30 (the 30 A range) and the profile also reads 5 as the 5 A range. The SDL1000X-E models measure with 1 mV and 1 mA resolution."""
 
 [evidence]
 badge = "manual"
-source = "Siglent SDL1000X Programmable DC Electronic Load Programming Guide, E02B"
-url = "https://int.siglent.com/u_file/download/23_10_09/SDL1000X_programming_guide_E02B.pdf"
+source = "Siglent SDL1000X Programmable DC Electronic Load Programming Guide, E02B (87 pages); SDL1000X datasheet DS0801X-E01F (ranges)"
+url = "https://www.int.siglent.com/u_file/download/23_10_09/SDL1000X_programming_guide_E02B.pdf"
 date = "2026-10-20"
 
 [match]
@@ -59,6 +59,11 @@ parse = "float"
 [state.resistance_set]
 query = ":SOUR:RES:LEV:IMM?"
 parse = "float"
+
+[state.current_range]
+query = ":SOUR:CURR:IRANG?"
+parse = "map"
+map = { "30" = "high", "5" = "low" }
 
 [state.output]
 query = ":SOUR:INP:STAT?"

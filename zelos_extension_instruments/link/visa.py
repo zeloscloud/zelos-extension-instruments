@@ -9,7 +9,6 @@ import pyvisa
 from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
 
-from ..waveform import BlockError, block_payload
 from . import CONNECT_TIMEOUT_S, Link, LinkError, LinkTimeout, Pacer, Settings, VisaAddress
 from .tcp import tune_socket
 
@@ -163,26 +162,51 @@ class VisaLink:
         return self.read()
 
     def read_block(self, timeout_s: float | None = None) -> bytes:
-        # A block holds every byte value, so the termination character must not end the read;
-        # VISA then reads to the message's END.
-        try:
-            return block_payload(self._read_raw(timeout_s, terminated=False))
-        except BlockError as exc:
-            raise LinkError(f"{self.where} did not answer with a block: {exc}", "other") from exc
+        # A block holds every byte value, so it is read by count, never to a terminator: a raw
+        # socket has no END to read to, and the data may hold the terminator byte.
+        head = self._read_bytes(2, timeout_s)
+        return self._finish_block(head, timeout_s)
 
     def read_any(self, timeout_s: float | None = None) -> str | bytes:
-        raw = self._read_raw(timeout_s, terminated=True)
-        if raw[:1] != b"#":
-            return self._text(raw, timeout_s)
-        # The terminator may have ended the read inside the block: read on until it is whole.
-        buffer = bytearray(raw)
-        while True:
-            try:
-                return block_payload(bytes(buffer))
-            except BlockError as exc:
-                if "holds" not in str(exc) and "incomplete" not in str(exc):
-                    return self._text(bytes(buffer), timeout_s)
-            buffer += self._read_raw(timeout_s, terminated=False)
+        head = self._read_bytes(2, timeout_s)
+        if head[:1] == b"#" and head[1:2].isdigit() and head[1:2] != b"0":
+            return self._finish_block(head, timeout_s)
+        # A line: the rest of it up to the terminator, with the two bytes already read.
+        rest = self._read_raw(timeout_s, terminated=True)
+        return self._text(head + rest, timeout_s)
+
+    def _finish_block(self, head: bytes, timeout_s: float | None) -> bytes:
+        if head[:1] != b"#" or not head[1:2].isdigit() or head[1:2] == b"0":
+            with suppress(Exception):
+                self._read_raw(0.2, terminated=True)
+            raise LinkError(
+                f"{self.where} did not answer with a block: expected a #-block, got {head!r}",
+                "reply",
+            )
+        digits = self._read_bytes(int(head[1:2]), timeout_s)
+        if not digits.isdigit():
+            raise LinkError(
+                f"{self.where} did not answer with a block: expected a block length, got "
+                f"{digits!r}",
+                "reply",
+            )
+        payload = self._read_bytes(int(digits), timeout_s)
+        # The line endings behind the block, when the instrument sends any.
+        with suppress(Exception):
+            self._read_raw(0.2, terminated=True)
+        return payload
+
+    def _read_bytes(self, count: int, timeout_s: float | None) -> bytes:
+        inst = self._inst
+        timeout = inst.timeout
+        if timeout_s is not None:
+            inst.timeout = max(1, round(timeout_s * 1000))
+        try:
+            return inst.read_bytes(count, break_on_termchar=False)
+        except Exception as exc:
+            raise self._failure(exc, reading=True, timeout_s=timeout_s) from exc
+        finally:
+            inst.timeout = timeout
 
     def _read_raw(self, timeout_s: float | None, *, terminated: bool) -> bytes:
         inst = self._inst

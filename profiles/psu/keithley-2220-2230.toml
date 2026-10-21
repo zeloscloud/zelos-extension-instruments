@@ -4,19 +4,20 @@ name = "Keithley 2220 and 2230 multichannel DC power supplies"
 category = "psu"
 notes = """Covers the 2220-30-1 (two channels) and the 2230-30-1 (three channels) with the G, J and GJ variants. \
 Channels 1 and 2 are 30 V at 1.5 A; channel 3 of the 2230 is 6 V at 5 A. \
-Setpoints use INST:SEL CH<n> followed by bare VOLT and CURR; measurements take the channel as an argument. \
+Setpoints use INST:SEL CH<n> followed by bare VOLT and CURR; measurements take the channel as an argument. The command reference gives INST:SEL CH<n>, and the manual's own examples send INST:NSEL <n>. \
 The output setter is CHAN:OUTP, which switches the selected channel. OUTP (all enabled channels) and OUTP:ENAB (the Channel Enable menu) are not used. \
 Interfaces are USB (USBTMC) and, on G models, GPIB; there is no LAN or RS-232 port. \
 SYST:REM sets remote mode. The manual says RWLock locks the front panel and does not say whether plain remote mode locks the other keys, so locks_panel is set to be safe. \
-Protection is not read: the manual's status registers have no OVP or OCP bit. \
+INST:COMB? reads whether channels 1 and 2 are combined in series or parallel; a combined channel is CH1, and the manual allows up to 60 V in series mode and 3 A in parallel mode, above the ranges here. A unit in track mode reads as unknown. \
+Protection is not read: the status register tables list no OVP or OCP bit, although one manual example calls bit 0 of the questionable instrument summary an over voltage condition. \
 The manual gives the voltage limit (VOLT:LIM), not an OVP level, so the OVP setter is omitted. \
 The 2220/2230 IDN example in the manual prints spaces around each comma and a typographic dash in the model."""
 
 [evidence]
 badge = "manual"
-source = "Series 2200 Programmable Multichannel DC Power Supplies Programmer Manual, 2220S-907-01 Rev. B, December 2013; User's Manual 2220S-900-01 Rev. A, June 2012 (channel ratings)"
+source = "Series 2200 Programmable Multichannel DC Power Supplies Programmer Manual, 2220S-907-01 Rev. B, December 2013; User's Manual 2220S-900-01 Rev. C, December 2013 (channel ratings)"
 url = "https://download.tek.com/manual/Series-2200-Programmable-Multichannel-DC-Power-Supply-ProgrammerManual.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -69,6 +70,12 @@ parse = "float"
 [state.output]
 query = "CHAN:OUTP?"
 parse = "bool"
+
+[state.tracking]
+query = "INST:COMB?"
+parse = "map"
+map = { SERIES = "series", PARALLEL = "parallel", NONE = "independent" }
+channel = false
 
 [state.mode]
 query = "STAT:OPER:INST:ISUM{ch}:COND?"

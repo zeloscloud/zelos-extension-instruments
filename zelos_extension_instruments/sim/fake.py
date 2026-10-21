@@ -29,9 +29,10 @@ from ..profile import (
 # re._parser is the stdlib's regex parser; it ships without type stubs.
 _regex_parser: Any = importlib.import_module("re._parser")
 
-_PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+_PLACEHOLDER = re.compile(r"\{([a-z_][a-z_0-9]*)\}")
 _CAPTURES = {
     "ch": r"\d+",
+    "ch0": r"\d+",
     "value": r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?",
     "on": "ON|OFF",
     "bit": "[01]",
@@ -238,7 +239,12 @@ class FakeInstrument:
         for setter in profile.setters.values():
             for command in setter.commands:
                 add(command, partial(self._set, setter), setter.map.values())
-        for command in (profile.link.remote, profile.link.local, *profile.link.init):
+        for command in (
+            profile.link.first,
+            profile.link.remote,
+            profile.link.local,
+            *profile.link.init,
+        ):
             if command is not None:
                 add(command, lambda _: None)
         if self.scope is not None:
@@ -270,10 +276,12 @@ class FakeInstrument:
         return queries
 
     def _channel(self, match: re.Match[str]) -> int | None:
-        text = match.groupdict().get("ch")
-        if text is None:
+        groups = match.groupdict()
+        text = groups.get("ch")
+        zero_based = groups.get("ch0")
+        if text is None and zero_based is None:
             return self._selected
-        ch = int(text)
+        ch = int(text) if text is not None else int(zero_based or 0) + 1
         if not 1 <= ch <= self.channels:
             self._push_error(*_OUT_OF_RANGE)
             return None
@@ -327,7 +335,7 @@ class FakeInstrument:
                     return
             self.scope.set(setter, groups, targets)
         elif setter.name in VALUE_SETTERS:
-            value = float(groups["value"])
+            value = float(groups["value"]) * setter.scale
             key = self.profile.range_key(setter)
             for ch in targets:
                 low, high = self.bounds(key, ch)
@@ -379,7 +387,10 @@ class FakeInstrument:
 
     def _reader_parts(self, reader: Reader, ch: int) -> list[Part]:
         if reader.parse == "floats":
-            return [(i, _number(self._value(f, ch)), False) for i, f in enumerate(reader.fields)]
+            return [
+                (i, _number(float(self._value(f, ch)) / reader.scale), False)
+                for i, f in enumerate(reader.fields)
+            ]
         name = reader.fields[0]
         value = self._value(name, ch)
         index = reader.index or 0
@@ -396,7 +407,7 @@ class FakeInstrument:
             return [(index, reader.words.get(label) or label.upper(), False)]
         if reader.parse == "str":
             return [(index, str(value), False)]
-        return [(index, _number(value), False)]
+        return [(index, _number(float(value) / reader.scale), False)]
 
     def _flag_parts(self, flag: Flag, ch: int) -> list[Part]:
         tripped = self._state[ch - 1].trip == flag.value
@@ -428,7 +439,7 @@ class FakeInstrument:
                 return [(0, setter.map.get(value, value), False)]
             return [(0, _number(value), False)]
         if setter.name in VALUE_SETTERS:
-            return [(0, _number(state.setpoints[setter.name]), False)]
+            return [(0, _number(state.setpoints[setter.name] / setter.scale), False)]
         if setter.name == "output":
             return [(0, "1" if state.output else "0", False)]
         if setter.name in state.extras:

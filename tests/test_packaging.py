@@ -96,3 +96,11 @@ def test_importing_every_module_starts_nothing() -> None:
         "assert threading.active_count() == 1, threading.enumerate()\n"
     )
     subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT, check=True, timeout=60)
+
+
+def test_the_manifest_keeps_within_the_keyword_limit() -> None:
+    """The CLI refuses a manifest with more than 20 keywords."""
+    manifest = tomllib.loads((REPO_ROOT / "extension.toml").read_text(encoding="utf-8"))
+    keywords = manifest["keywords"]
+    assert 1 <= len(keywords) <= 20, len(keywords)
+    assert len(set(keywords)) == len(keywords)

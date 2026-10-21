@@ -2,13 +2,23 @@ schema = 1
 id = "gw-instek-gdm"
 name = "GW Instek GDM-9060 and GDM-9061"
 category = "dmm"
-notes = """Transcribed from the GDM-9060/9061 User Manual; never run on a unit. Only the GDM-9060 and GDM-9061 are covered. No manual for the GDM-8341 or GDM-8342 could be downloaded in a readable form, so they need their own profile. The manual shows the *IDN? reply as GWInstek,GDM9061,..., with no hyphen in the model. The SCPI ID setting (SYST:SCP:MODE) can make the meter answer as a GDM-8261A or with a user-defined identity; in those modes this profile does not match, so keep it on Normal. LAN uses the TCP port, 3001 by default, and a Telnet port, 3000 by default; both can be changed on the meter or its web page. RS-232 is 115200 baud at the factory, with 8 data bits, no parity, 1 stop bit and no flow control; the manual lists 9600 to 115200 baud and RTS/CTS or DTR/DSR flow control as options. Replies over RS-232 end with the EOL character set in the TX TERM menu, CR+LF by default; USBTMC, GPIB and LAN replies end with LF. SYST:LOC, SYST:REM and SYST:RWLock are listed as RS-232 commands, so the profile sends SYST:LOC for the Local action only. READ? returns the first display value and no unit; with the secondary display on, VAL? returns both values, which this profile does not read. The meter has a secondary display and a second function; this profile reads and sets the first display only. Temperature reads in the unit set by SENS:UNIT, and 4-wire temperature (TEMP:FRTD) and thermocouple (TEMP:TCO) read as temperature. CONF takes an optional range and resolution, and this profile sends neither."""
+notes = """Transcribed from the GDM-9060/9061 User Manual; never run on a unit. Only the GDM-9060 and GDM-9061 are covered. No manual for the GDM-8341 or GDM-8342 could be downloaded in a readable form, so they need their own profile. \
+The manual shows the *IDN? reply as GWInstek,GDM9061,..., with no hyphen in the model, and shows no GDM-9060 reply. The SCPI ID setting (SYST:SCP:MODE) can make the meter answer as a GDM-8261A or with a user-defined identity; in those modes this profile does not match, so keep it on Normal. \
+LAN uses the TCP port, 3001 by default, and a Telnet port, 3000 by default; both can be changed on the meter or its web page. \
+RS-232 is 115200 baud at the factory, with 8 data bits, no parity, 1 stop bit and no flow control; the manual lists 9600 to 115200 baud and RTS/CTS or DTR/DSR flow control as options. Replies over RS-232 end with the EOL character set in the TX TERM menu, CR+LF by default; USBTMC, GPIB and LAN replies end with LF. \
+SYST:LOC, SYST:REM and SYST:RWLock are listed as RS-232 commands, so the profile sends SYST:LOC for the Local action only; the manual does not state its effect over LAN or USB. \
+READ? returns the first display value and no unit. It is like INITiate followed by FETCh?, and it places the meter in the wait-for-trigger state, so with an external or bus trigger source the reading follows the trigger. With the secondary display on, VAL? returns both values, which this profile does not read. \
+The meter has a secondary display and a second function; this profile reads and sets the first display only, so the function query is FUNC1? (the manual's FUNCtion[X] with X = 1). \
+The function query answers TEMP for every temperature probe. \
+Temperature reads in the unit set by SENS:UNIT (C, F or K), so the temperature reading carries no unit label. \
+CONF takes an optional range and resolution, and this profile sends neither. CONF:TEMP is sent without a probe type, which the manual does not describe. \
+Range, autorange and NPLC are read and set per function (for example SENS:VOLT:DC:RANG?), so the profile reads none of them."""
 
 [evidence]
 badge = "manual"
 source = "GW Instek GDM-9060/9061 Dual Measurement Multimeter User Manual, 82DM-90610E01"
 url = "https://www.gmciuk.com/manuals/gw-instek-gdm-9061_manual_762347.pdf"
-date = "2026-10-20"
+date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^gw\s*-?\s*instek'
@@ -27,12 +37,12 @@ query = "READ?"
 parse = "float"
 
 [state.function]
-query = "FUNC?"
+query = "FUNC1?"
 parse = "map"
 map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "TEMP:TCO" = "temperature", "TEMP:RTD" = "temperature", "TEMP:FRTD" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
 
 [dmm]
-function_query = "FUNC?"
+function_query = "FUNC1?"
 function_map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP" = "temperature", "TEMP:TCO" = "temperature", "TEMP:RTD" = "temperature", "TEMP:FRTD" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
 
 [dmm.functions]
@@ -44,7 +54,7 @@ resistance = "Ohm"
 resistance_4w = "Ohm"
 frequency = "Hz"
 period = "s"
-temperature = "degC"
+temperature = ""
 capacitance = "F"
 diode = "V"
 continuity = "Ohm"
