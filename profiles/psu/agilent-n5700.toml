@@ -1,0 +1,82 @@
+schema = 1
+id = "agilent-n5700"
+name = "Agilent N5700 series"
+category = "psu"
+notes = "These are single-output 750 W and 1500 W supplies, so no channel is addressed. The profile sends SYST:COMM:RLST REM after connect and SYST:COMM:RLST LOC for Local: REM keeps the front-panel keys active, and only RWL locks them. The limits come from the unit through VOLT? MAX and CURR? MAX. Mode comes from STAT:OPER:COND? (bit 8 CV, bit 10 CC), and a reading of 0 is shown as off. Protection comes from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 4 OT, bit 9 external inhibit). The guide gives no power measurement, so power is left out, and overcurrent protection is an on/off state (CURR:PROT:STAT) with no level, so there is no OCP setpoint. The OVP level is coupled to the voltage setting: it must be at least 1.05 times the set voltage, and its maximum depends on the model. The over-voltage and over-current latches stay until Clear sends OUTP:PROT:CLE after the fault is removed. Measurement overflow returns 9.91E+37."
+
+[evidence]
+badge = "manual"
+source = "Agilent Series N5700 System DC Power Supply User's Guide, 5969-2917, Edition 3, January 2005"
+url = "http://ridl.cfd.rit.edu/products/manuals/agilent/power%20supplies/cd1/Model/N5700usr.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(agilent|keysight)'
+model = '^N57(4[1-9]|5[0-2]|6[1-9]|7[0-2])A$'
+channels = 1
+
+[link]
+lan_port = 5025
+remote = "SYST:COMM:RLST REM"
+local = "SYST:COMM:RLST LOC"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { max_query = "VOLT? MAX", digits = 3 }
+current = { max_query = "CURR? MAX", digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT:LEV?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND?"
+parse = "bits"
+mask = 1280
+map = { "0" = "off", "256" = "cv", "1024" = "cc" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 4, value = "other" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, value = "otp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 512, value = "other" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT:LEV {value}"
+
+[setters.output]
+command = "OUTP {on}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

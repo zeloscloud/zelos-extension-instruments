@@ -1,0 +1,81 @@
+schema = 1
+id = "rigol-dp800"
+name = "Rigol DP800 series"
+category = "psu"
+
+[evidence]
+badge = "manual"
+source = "Rigol DP800 Programming Guide, PGH05101-1110, 2016"
+url = "https://www.batronix.com/pdf/Rigol/DP800_ProgrammingGuide_EN.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^rigol'
+model = '^DP8(11|21|31|32)A?$'
+channels = 1
+
+[[match.models]]
+model = '^DP821'
+channels = 2
+
+[[match.models]]
+model = '^DP83'
+channels = 3
+
+[link]
+lan_port = 5555
+baud = 9600
+remote = "SYST:REMOTE"
+local = "SYST:LOCAL"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 3, digits = 3 }
+
+[[ranges.models]]
+model = '^DP832'
+channel = 3
+voltage = { min = 0, max = 5, digits = 3 }
+
+[signals.measure]
+query = ":MEAS:ALL? CH{ch}"
+parse = "floats"
+fields = ["voltage", "current", "power"]
+
+[state.voltage_set]
+query = ":SOUR{ch}:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR{ch}:CURR?"
+parse = "float"
+
+[state.output]
+query = ":OUTP? CH{ch}"
+parse = "bool"
+
+[state.mode]
+query = ":OUTP:MODE? CH{ch}"
+parse = "map"
+map = { CV = "cv", CC = "cc", UR = "unregulated" }
+
+[state.protection]
+flags = [
+  { query = ":OUTP:OVP:QUES? CH{ch}", parse = "bool", value = "ovp" },
+  { query = ":OUTP:OCP:QUES? CH{ch}", parse = "bool", value = "ocp" },
+]
+
+[setters.voltage]
+command = ":SOUR{ch}:VOLT {value}"
+
+[setters.current]
+command = ":SOUR{ch}:CURR {value}"
+
+[setters.output]
+command = ":OUTP CH{ch},{on}"
+
+[setters.clear]
+command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]

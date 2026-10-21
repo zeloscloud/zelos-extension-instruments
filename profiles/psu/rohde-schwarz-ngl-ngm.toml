@@ -1,0 +1,98 @@
+schema = 1
+id = "rohde-schwarz-ngl-ngm"
+name = "Rohde & Schwarz NGL200 and NGM200 series"
+category = "psu"
+notes = """Covers the NGL201, NGM201 (one channel) and the NGL202, NGM202 (two channels), read as sources. \
+These are two-quadrant supplies: they also sink current. OUTP:MODE selects AUTO, SINK or SOURce, and sink current shows as negative current. \
+The extension reads and sets the source side only; the sink side, constant-resistance mode and output mode are not wired. \
+The current limit is 6.01 A up to 6 V and 3.01 A above 6 V; the range below carries the 6.01 A figure, and the instrument refuses a higher current at a higher voltage. \
+Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
+SYST:REM locks the front panel; the Local action (SYST:LOC) unlocks it. \
+OUTP switches the selected channel on and turns its output on; OUTP:SEL and OUTP:GEN are not used. \
+Mode reads the questionable condition register of the channel; zero is shown as off, which the manual does not state. \
+Protection reads OVP, fuse (OCP) and over-temperature. Clear resets the OVP trip only. \
+The raw socket port is set in the instrument's network dialog; the manual gives no default, so the profile keeps 5025."""
+
+[evidence]
+badge = "manual"
+source = "R&S NGL200/NGM200 Power Supply Series User Manual, 1178.8736.02, Version 10, firmware 3.060 or higher"
+url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1178_8736_01/NGL200_NGM200_UserManual_en_10.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^rohde\s*&\s*schwarz'
+model = '(?i)^NG[LM]20[12]$'
+channels = 1
+
+[[match.models]]
+model = '(?i)^NG[LM]202$'
+channels = 2
+
+[link]
+select = "INST:NSEL {ch}"
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 20.05, digits = 3 }
+current = { min = 0, max = 6.01, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT:LEV?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:QUES:INST:ISUM{ch}:COND?"
+parse = "bits"
+mask = 3
+map = { "0" = "off", "1" = "cc", "2" = "cv" }
+
+[state.protection]
+flags = [
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+  { query = "FUSE:TRIP?", parse = "bool", value = "ocp" },
+  { query = "STAT:QUES:INST:ISUM{ch}:COND?", parse = "bits", mask = 16, value = "otp" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT:LEV {value}"
+
+[setters.output]
+command = "OUTP {bit}"
+
+[setters.clear]
+command = "VOLT:PROT:CLE"

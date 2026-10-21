@@ -1,0 +1,47 @@
+schema = 1
+id = "bk-5490"
+name = "B&K Precision 5491B"
+category = "dmm"
+notes = """Transcribed from the 2831E/5491B User Manual and the 2831E/5491B added-commands note; never run on a unit. Only the 5491B is covered. No programming manual for the 5492B or 5493B was found, so they need their own profile. The meter is a serial instrument: a USB virtual COM port, plus RS-232 on the 5491B. It is fixed at 8 data bits, 1 stop bit and no parity, and the factory baud rate is 9600; set the same baud rate on the meter and in the config. It has no LAN port. The manual shows the *IDN? reply as only two fields, product and version, so the match takes the product from the manufacturer field and accepts either that form or a four-field reply naming the 5491B; check Get State to see which your unit sends. The manual says the meter sends each received character back as a handshake, and the RETURN menu item echoes sent commands in the reply; a unit that echoes breaks every query, so turn RETURN off and test with a terminal first. Commands end with LF or CR; set TX TERM on the front panel to LF. The manual gives no remote or local command, and the meter returns to local with the front-panel LOCAL key. The reading comes from :FETCh?, which returns the last reading without triggering a new one; the manual says it repeats the same value until a new reading arrives. With the secondary display on, :FETCh? returns two comma-separated values. The manual says :FUNC? returns the selected function and does not print the strings; this profile reads the SCPI names, short or long. AC+DC voltage and current (VOLT:ACDC, CURR:ACDC) have no label here and read as unknown. The error query answers NO ERROR! when the queue is empty. The function setter sends :FUNC; the manual documents no CONFigure command."""
+
+[evidence]
+badge = "manual"
+source = "B&K Precision Model 2831E, 5491B User Manual; 2831E and 5491B Added Commands"
+url = "https://bkpmedia.s3.amazonaws.com/downloads/manuals/en-us/2831E_manual.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(5491B|b&?k)'
+model = '(?i)^(5491B|ver)'
+
+[errors]
+query = ":SYST:ERR?"
+ok = '(?i)no error'
+
+[signals.value]
+query = ":FETC?"
+parse = "float"
+
+[state.function]
+query = ":FUNC?"
+parse = "map"
+map = { "VOLT:DC" = "dc_voltage", "VOLTAGE:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "VOLTAGE:AC" = "ac_voltage", "CURR:DC" = "dc_current", "CURRENT:DC" = "dc_current", "CURR:AC" = "ac_current", "CURRENT:AC" = "ac_current", "RES" = "resistance", "RESISTANCE" = "resistance", "FREQ" = "frequency", "FREQUENCY" = "frequency", "PER" = "period", "PERIOD" = "period", "DIOD" = "diode", "DIODE" = "diode", "CONT" = "continuity", "CONTINUITY" = "continuity" }
+
+[dmm]
+function_query = ":FUNC?"
+function_map = { "VOLT:DC" = "dc_voltage", "VOLTAGE:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "VOLTAGE:AC" = "ac_voltage", "CURR:DC" = "dc_current", "CURRENT:DC" = "dc_current", "CURR:AC" = "ac_current", "CURRENT:AC" = "ac_current", "RES" = "resistance", "RESISTANCE" = "resistance", "FREQ" = "frequency", "FREQUENCY" = "frequency", "PER" = "period", "PERIOD" = "period", "DIOD" = "diode", "DIODE" = "diode", "CONT" = "continuity", "CONTINUITY" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+frequency = "Hz"
+period = "s"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = ":FUNC {function}"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", frequency = "FREQ", period = "PER", diode = "DIOD", continuity = "CONT" }

@@ -1,0 +1,93 @@
+schema = 1
+id = "keithley-2280s"
+name = "Keithley 2280S precision DC power supply"
+category = "psu"
+notes = """Source and measure commands follow the Series 2280 Reference Manual. \
+The manual lists no power measurement, so power is not read. \
+A MEAS query switches the instrument's measurement function and enters single-measurement mode, so the extension's polling changes what the front panel shows. \
+The raw socket port is 5025 from firmware 1.06; older firmware uses 5050. \
+Remote operation locks every front-panel key except LOCAL and OUTPUT until the Local action runs. \
+CURR sets the current limit of the voltage source. \
+The OVP and OCP levels reach slightly above the output rating, but the extension bounds them by the output ranges. \
+Constant-voltage and constant-current mode are not read: the manual gives no plain query for them. \
+The 2281S battery simulator is not covered. \
+The output query can also return DISable (2), which reads as an error."""
+
+[evidence]
+badge = "manual"
+source = "Series 2280 Precision Measurement DC Power Supplies Reference Manual, 077085503, March 2019"
+url = "https://download.tek.com/manual/077085503_2280_Ref_Mar_20191.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '(?i)^(MODEL ?)?2280S-(32-6|60-3)$'
+channels = 1
+
+[link]
+lan_port = 5025
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = ":SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 32, digits = 3 }
+current = { min = 0, max = 6.1, digits = 3 }
+
+[[ranges.models]]
+model = '2280S-60-3$'
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 3.3, digits = 3 }
+
+[signals.voltage]
+query = ":MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = ":MEAS:CURR?"
+parse = "float"
+
+[state.voltage_set]
+query = ":SOUR:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = ":SOUR:VOLT:PROT?"
+parse = "float"
+
+[state.ocp_set]
+query = ":SOUR:CURR:PROT?"
+parse = "float"
+
+[state.output]
+query = ":OUTP?"
+parse = "bool"
+
+[state.protection]
+query = ":OUTP:PROT:TRIP?"
+parse = "map"
+map = { NONE = "none", OVP = "ovp", OCP = "ocp", OTP = "otp", RVS = "other", OPS = "other" }
+
+[setters.voltage]
+command = ":SOUR:VOLT {value}"
+
+[setters.current]
+command = ":SOUR:CURR {value}"
+
+[setters.ovp]
+command = ":SOUR:VOLT:PROT {value}"
+
+[setters.ocp]
+command = ":SOUR:CURR:PROT {value}"
+
+[setters.output]
+command = ":OUTP {bit}"
+
+[setters.clear]
+command = ":OUTP:PROT:CLE"

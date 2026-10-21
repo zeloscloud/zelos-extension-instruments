@@ -1,0 +1,32 @@
+name: Soak
+
+# Nightly: cadence and memory over an hour against fake instruments, on Linux.
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: Soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - uses: extractions/setup-just@v4
+
+      - name: Install dependencies
+        run: just ci-install
+
+      - name: Cadence and memory
+        env:
+          SOAK_MINUTES: "60"
+        run: uv run pytest -m perf -q

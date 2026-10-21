@@ -1,0 +1,52 @@
+schema = 1
+id = "keithley-dmm6500"
+name = "Keithley DMM6500 and DMM7510"
+category = "dmm"
+notes = """Transcribed from the DMM6500 and DMM7510 reference manuals; never run on a unit. The meter must be in its native SCPI command set. Send *LANG SCPI on the instrument and reboot it, or choose SCPI under System, Settings, Command Set; the TSP, SCPI 2000 and 34401 emulation sets are different command sets. The meter allows one remote interface at a time. LAN uses the raw socket on port 5025. RS-232 exists on the DMM6500 only with the optional interface card and is fixed at 8 data bits, no parity and 1 stop bit; set the baud rate on the instrument and in the config. READ? makes the number of readings set by SENS:COUN, stores them in defbuffer1 and returns the last one. Each poll takes a new reading. The function query returns NONE while a digitize function is active; that reads as unknown, and the digitize functions have no label here. Voltage ratio reads as unknown. Temperature reads in the unit the meter is set to. The native command set has no CONFigure command, so the function setter sends SENS:FUNC. The manuals do not document a remote or local command for this meter."""
+
+[evidence]
+badge = "manual"
+source = "DMM6500 6½-Digit Multimeter with Scanning Reference Manual, DMM6500-901-01 Rev. A, April 2018; DMM7510 7½-Digit Graphical Sampling Multimeter Reference Manual, DMM7510-901-01C"
+url = "https://www.audentia-gestion.fr/KEITHLEY/PDF/DMM6500-901-01_A_April_2018_Ref_DMM6500-901-01A.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '(?i)^(model\s*)?DMM(6500|7510)'
+
+[link]
+lan_port = 5025
+
+[errors]
+query = ":SYST:ERR?"
+
+[signals.value]
+query = ":READ?"
+parse = "float"
+
+[state.function]
+query = ":SENS:FUNC?"
+parse = "map"
+map = { "VOLT:DC" = "dc_voltage", "VOLT" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR:DC" = "dc_current", "CURR" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "FREQ:VOLT" = "frequency", "PER" = "period", "PER:VOLT" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = ":SENS:FUNC?"
+function_map = { "VOLT:DC" = "dc_voltage", "VOLT" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR:DC" = "dc_current", "CURR" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "FREQ:VOLT" = "frequency", "PER" = "period", "PER:VOLT" = "period", "TEMP" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+temperature = "degC"
+capacitance = "F"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = ':SENS:FUNC "{function}"'
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }

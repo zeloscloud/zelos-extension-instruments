@@ -1,0 +1,89 @@
+schema = 1
+id = "bk-9140"
+name = "B&K Precision 9140 series"
+category = "psu"
+notes = """Covers the 9140 (32 V at 8 A per channel) and the 9141 (60 V at 4 A per channel), three channels each. \
+Only channel 1 is controlled. The manual selects a channel with INST 0, INST 1 or INST 2 (channel 1 is 0), and the profile's select command counts channels from 1, so channels 2 and 3 cannot be addressed. \
+The profile sends INST 0 once after connecting so that channel 1 is the programmed channel. \
+Ratings come from the 9140 series data sheet. \
+All commands work in local and remote state, so no remote command is sent and the front panel stays live. \
+Constant-voltage and constant-current mode are not read: the manual says STAT:QUES:ISUM:COND? returns 1 for constant current and 2 for constant voltage, while its bit table gives bit 0 as constant voltage and bit 1 as constant current. \
+Protection reads the OVP, OCP and OTP bits of the questionable condition register for the selected channel. \
+Clear resets all triggered protections. \
+The manual gives no LAN socket port; the profile keeps 5025. USB defaults to the virtual COM port."""
+
+[evidence]
+badge = "manual"
+source = "9140 Series Programming Manual; 9140 Series data sheet (ratings); 9140 Series user manual (interfaces)"
+url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9140_Series_programming_manual.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^b&?k\s*precision'
+model = '(?i)^914[01]$'
+channels = 1
+
+[link]
+init = ["INST 0"]
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 32, digits = 3 }
+current = { min = 0, max = 8, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^9141$'
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 4, digits = 3 }
+
+[signals.measure]
+query = "MEAS:ALL?"
+parse = "floats"
+fields = ["voltage", "current", "power"]
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.ocp_set]
+query = "CURR:PROT?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:ISUM:COND?", parse = "bits", mask = 4, value = "ovp" },
+  { query = "STAT:QUES:ISUM:COND?", parse = "bits", mask = 8, value = "ocp" },
+  { query = "STAT:QUES:ISUM:COND?", parse = "bits", mask = 16, value = "otp" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.ocp]
+command = "CURR:PROT {value}"
+
+[setters.output]
+command = "OUTP {bit}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

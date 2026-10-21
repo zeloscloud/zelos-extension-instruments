@@ -1,0 +1,109 @@
+schema = 1
+id = "gw-instek-gpp"
+name = "GW Instek GPP-1326, GPP-2323, GPP-3323 and GPP-4323"
+category = "psu"
+notes = """Channel commands carry the channel number in the header (:SOUR2:VOLT, :MEAS2:ALL?, :OUTP2:STAT), so no select command is needed. \
+The IDN reply is GW INSTEK,<model>,<serial>,<firmware> and the serial field can start with SN:. \
+The raw socket port is 1026. USB and RS-232 default to 115200 baud, 8 data bits, no parity, 1 stop bit. \
+The manual does not say remote mode must be entered first, so no remote command is sent; the Local action sends :SYST:LOC. \
+Channel 3 of the GPP-3323 is a fixed 1.8 V, 2.5 V, 3.3 V or 5 V output at 5 A: only those voltages are accepted, its current and OVP cannot be set, and its measured voltage reads back the set value with current and power at zero. \
+The GPP-4323 channel 3 is 5 V at 1 A and channel 4 is 15 V at 1 A. \
+The GPP-2323, GPP-3323 and GPP-4323 channels 1 and 2 are 32 V at 3.2 A; the GPP-1326 is one 32 V channel at 6.2 A. \
+Constant-voltage and constant-current mode and protection trips are not read: the manual documents them only in the 8-byte STATUS? reply and the OVP and OCP queries return the set levels. \
+The GPP-1000 series (GPP-1323, GPP-1205) uses a different manual and is not covered."""
+
+[evidence]
+badge = "manual"
+source = "GPP-1326/GPP-2323/GPP-3323/GPP-4323 User Manual (Remote Control chapter), GW Instek, 2024"
+url = "https://www.gwinstek.com/en-global/products/downloadSeriesDownNew/14242/1737"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^gw[- ]?instek'
+model = '(?i)^GPP-?(1326|2323|3323|4323)$'
+channels = 2
+
+[[match.models]]
+model = '(?i)^GPP-?1326$'
+channels = 1
+
+[[match.models]]
+model = '(?i)^GPP-?3323$'
+channels = 3
+
+[[match.models]]
+model = '(?i)^GPP-?4323$'
+channels = 4
+
+[link]
+lan_port = 1026
+baud = 115200
+local = ":SYST:LOC"
+
+[errors]
+query = ":SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 32, digits = 3 }
+current = { min = 0, max = 3.2, digits = 4 }
+
+[[ranges.models]]
+model = '(?i)^GPP-?1326$'
+current = { min = 0, max = 6.2, digits = 4 }
+
+[[ranges.models]]
+model = '(?i)^GPP-?3323$'
+channel = 3
+voltage = { min = 1.8, max = 5, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^GPP-?4323$'
+channel = 3
+voltage = { min = 0, max = 5, digits = 3 }
+current = { min = 0, max = 1, digits = 4 }
+
+[[ranges.models]]
+model = '(?i)^GPP-?4323$'
+channel = 4
+voltage = { min = 0, max = 15, digits = 3 }
+current = { min = 0, max = 1, digits = 4 }
+
+[signals.measure]
+query = ":MEAS{ch}:ALL?"
+parse = "floats"
+fields = ["voltage", "current", "power"]
+
+[state.voltage_set]
+query = ":SOUR{ch}:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR{ch}:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = ":OUTP{ch}:OVP?"
+parse = "float"
+
+[state.ocp_set]
+query = ":OUTP{ch}:OCP?"
+parse = "float"
+
+[state.output]
+query = ":OUTP{ch}:STAT?"
+parse = "bool"
+
+[setters.voltage]
+command = ":SOUR{ch}:VOLT {value}"
+
+[setters.current]
+command = ":SOUR{ch}:CURR {value}"
+
+[setters.ovp]
+command = ":OUTP{ch}:OVP {value}"
+
+[setters.ocp]
+command = ":OUTP{ch}:OCP {value}"
+
+[setters.output]
+command = ":OUTP{ch}:STAT {bit}"

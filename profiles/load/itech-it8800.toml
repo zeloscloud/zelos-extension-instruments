@@ -1,0 +1,120 @@
+schema = 1
+id = "itech-it8800"
+name = "ITECH IT8800 series"
+category = "load"
+notes = """\
+Transcribed from the programming guide, not tried on a unit. The guide covers many more IT8800 models; the profile matches the IT8811, IT8812, IT8812B and IT8812C, whose ratings were found on a distributor's product page. \
+The guide has no resistance measurement query, so resistance is not read, and it gives no resistance range, so the resistance setter refuses until the config names a limit. \
+The interfaces are RS-232, USB and GPIB with no LAN port in the guide. RS-232 offers 4800, 9600, 19200, 38400, 57600 or 115200 baud, 8 data bits with no parity or 7 bits with even or odd parity, set with Shift + System on the front panel, and the guide names no default. The cable is a null modem. \
+SYST:REM puts the load in remote mode and disables every front-panel key except LOCAL. \
+The function query reply form is not stated; the profile accepts the short and the long word. \
+A protection trip latches the input off until the Clear setter's command, which restores the earlier input state, so send it only once the fault is gone. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage."""
+
+[evidence]
+badge = "manual"
+source = "ITECH Series IT8800 Programmable DC Electronic Load Programming Guide, V2.1, 2022"
+url = "https://assets.testequity.com/te1/Documents/pdf/itech/ITECH_IT8800-Programming-Guide-EN.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^itech'
+model = '^IT8811$|^IT8812[BC]?$'
+
+[link]
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[[ranges.models]]
+model = '^IT8811$'
+voltage = { min = 0, max = 120, digits = 3 }
+current = { min = 0, max = 30, digits = 4 }
+power = { min = 0, max = 150, digits = 2 }
+
+[[ranges.models]]
+model = '^IT8812$'
+voltage = { min = 0, max = 120, digits = 3 }
+current = { min = 0, max = 30, digits = 4 }
+power = { min = 0, max = 250, digits = 2 }
+
+[[ranges.models]]
+model = '^IT8812B$'
+voltage = { min = 0, max = 500, digits = 3 }
+current = { min = 0, max = 15, digits = 4 }
+power = { min = 0, max = 200, digits = 2 }
+
+[[ranges.models]]
+model = '^IT8812C$'
+voltage = { min = 0, max = 120, digits = 3 }
+current = { min = 0, max = 60, digits = 4 }
+power = { min = 0, max = 250, digits = 2 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.current_set]
+query = "SOUR:CURR:LEV:IMM?"
+parse = "float"
+
+[state.voltage_set]
+query = "SOUR:VOLT:LEV:IMM?"
+parse = "float"
+
+[state.power_set]
+query = "SOUR:POW:LEV:IMM?"
+parse = "float"
+
+[state.resistance_set]
+query = "SOUR:RES:LEV:IMM?"
+parse = "float"
+
+[state.output]
+query = "SOUR:INP:STAT?"
+parse = "bool"
+
+[state.mode]
+query = "SOUR:FUNC?"
+parse = "map"
+map = { CURR = "cc", CURRENT = "cc", VOLT = "cv", VOLTAGE = "cv", POW = "cp", POWER = "cp", RES = "cr", RESISTANCE = "cr" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 4096, shift = 12, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, shift = 1, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, shift = 4, value = "otp" },
+]
+
+[setters.current]
+command = "SOUR:CURR:LEV:IMM {value}"
+
+[setters.voltage]
+command = "SOUR:VOLT:LEV:IMM {value}"
+
+[setters.power]
+command = "SOUR:POW:LEV:IMM {value}"
+
+[setters.resistance]
+command = "SOUR:RES:LEV:IMM {value}"
+
+[setters.function]
+command = "SOUR:FUNC {function}"
+map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
+
+[setters.output]
+command = "SOUR:INP:STAT {on}"
+
+[setters.clear]
+command = "SOUR:PROT:CLE"

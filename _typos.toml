@@ -1,0 +1,14 @@
+[default]
+# SCPI mnemonics in their long form keep the short form in capitals (VOLTage, RESistance), a
+# regex in the lint spells one as RES(ISTANCE)?, and register bits are named OV, OC, OP and OT.
+extend-ignore-re = [
+    "\\b[A-Z]{2,}[a-z]{2,}\\b",
+    "RES\\(ISTANCE\\)\\?",
+    "\\bO[VCPT]\\b",
+]
+
+[default.extend-words]
+HEL = "HEL"
+
+[files]
+extend-exclude = ["uv.lock", "tests/transcripts/"]

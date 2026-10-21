@@ -1,0 +1,98 @@
+schema = 1
+id = "siglent-spd1000x"
+name = "Siglent SPD1000X series"
+category = "psu"
+notes = "The SPD1168X is 16 V/8 A and the SPD1305X is 30 V/5 A, each with one output. Mode and output state come from SYST:STAT? (a hex word: bit 0 is 0 for CV and 1 for CC, bit 4 is 0 for output off and 1 for on, bit 5 is 2W or 4W sense, bit 6 timer, bit 8 waveform display). The profile shows off whenever bit 4 is clear. The manual's example reply 0x0224 does not match its own bit table, so check these bits on your unit. OVP and OCP are single instrument-wide setpoints (OVP, OCP) with no trip query, and Clear sends OUTPut:RESEt:PROTect, which clears the protection pop-up. The SPD1168X shuts the output at about 22 V and the SPD1305X at about 36 V regardless of the OVP setting. Siglent says to leave 10 to 100 ms between commands, so the profile waits 100 ms, and commands end with a newline only, because extra characters cause a failure. The socket port is 5025 and the LAN also supports VXI-11."
+
+[evidence]
+badge = "manual"
+source = "Siglent SPD1000X Programmable Linear DC Power Supply User Manual, EN_03B (SCPI command list); SPD Programming Tips"
+url = "https://siglentna.com/download/6311/"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^siglent'
+model = '^SPD1(168|305)X$'
+channels = 1
+
+[link]
+lan_port = 5025
+delay_ms = 100
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 16, digits = 3 }
+current = { min = 0, max = 8, digits = 3 }
+
+[[ranges.models]]
+model = '^SPD1305X$'
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 5, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT? CH{ch}"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR? CH{ch}"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POWE? CH{ch}"
+parse = "float"
+
+[state.voltage_set]
+query = "CH{ch}:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CH{ch}:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "OVP?"
+parse = "float"
+channel = false
+
+[state.ocp_set]
+query = "OCP?"
+parse = "float"
+channel = false
+
+[state.output]
+query = "SYST:STAT?"
+parse = "bits"
+format = "hex"
+mask = 16
+
+[state.mode]
+query = "SYST:STAT?"
+parse = "bits"
+format = "hex"
+mask = 17
+map = { "0" = "off", "1" = "off", "16" = "cv", "17" = "cc" }
+
+[setters.voltage]
+command = "CH{ch}:VOLT {value}"
+
+[setters.current]
+command = "CH{ch}:CURR {value}"
+
+[setters.ovp]
+command = "OVP {value}"
+verify = "OVP?"
+channel = false
+
+[setters.ocp]
+command = "OCP {value}"
+verify = "OCP?"
+channel = false
+
+[setters.output]
+command = "OUTP CH{ch},{on}"
+
+[setters.clear]
+command = "OUTP:RESE:PROT"
+channel = false

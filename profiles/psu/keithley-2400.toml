@@ -1,0 +1,88 @@
+schema = 1
+id = "keithley-2400"
+name = "Keithley 2400 series SourceMeter"
+category = "psu"
+notes = """\
+Transcribed from the user's manual, not tried on a unit. The profile assumes the voltage-source function: the voltage setter and setpoint are the source voltage, and the current setter and setpoint are the current compliance (:SENSe:CURRent:PROTection). In the current-source function those commands do not describe the source, and the profile does not switch the function. \
+The readings come from :READ?, whose reply is voltage, current, resistance, time and status in that order only while :FORMat:ELEMents is at its default VOLTage,CURRent,RESistance,TIME,STATus. Do not change :FORMat:ELEMents. A reading of +9.91E+37 means the value was not measured. \
+:READ? starts a new source-measure cycle. With auto output-off disabled (:SOURce1:CLEar:AUTO OFF, the usual setting) the output must already be on, and a read with the output off is an error. With auto output-off enabled, every :READ? turns the output on for one cycle and off again, so polling would pulse the source at its setpoint. Keep auto output-off disabled. \
+The ranges are the largest source voltage and current compliance of each model. The models are power limited, so the full voltage is available only at a lower current: the 2400 gives 210 V at 105 mA and 21 V at 1.05 A, the 2410 gives 1100 V at 21 mA, the 2420 gives 63 V at 1.05 A, the 2425 gives 105 V at 1.05 A, the 2440 gives 42 V at 1.05 A, and the 2400-LV and 2401 stop at 21 V. The 2430 reaches 10.5 A in pulse mode only; DC reaches 3.15 A. \
+The identity reply reads KEITHLEY INSTRUMENTS INC.,MODEL 2400,serial,firmware, and the profile accepts the model with or without the word MODEL. \
+The interfaces are GPIB and RS-232. RS-232 uses 8 data bits, 1 stop bit and no parity (7 data bits with even or odd parity are also offered), the factory rate is 9600 baud, and the response terminator is set in the front-panel COMMUNICATION menu as CR, CR+LF, LF or LF+CR. Match it in the instrument settings. The manual defines no remote command that is needed over RS-232."""
+
+[evidence]
+badge = "manual"
+source = "Keithley Series 2400 SourceMeter User's Manual, 2400S-900-01 Rev. K, September 2011"
+url = "https://download.tek.com/manual/2400S-900-01_K-Sep2011_User.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '^(MODEL ?)?24(00|01|10|20|25|30|40)(-C|-LV)?$'
+
+[link]
+baud = 9600
+
+[errors]
+query = ":SYST:ERR?"
+
+[[ranges.models]]
+model = '(2400-LV|2401)$'
+voltage = { min = -21, max = 21, digits = 6 }
+current = { min = 0, max = 1.05, digits = 7 }
+
+[[ranges.models]]
+model = '2400(-C)?$'
+voltage = { min = -210, max = 210, digits = 6 }
+current = { min = 0, max = 1.05, digits = 7 }
+
+[[ranges.models]]
+model = '2410(-C)?$'
+voltage = { min = -1100, max = 1100, digits = 5 }
+current = { min = 0, max = 1.05, digits = 7 }
+
+[[ranges.models]]
+model = '2420(-C)?$'
+voltage = { min = -63, max = 63, digits = 6 }
+current = { min = 0, max = 3.15, digits = 7 }
+
+[[ranges.models]]
+model = '2425(-C)?$'
+voltage = { min = -105, max = 105, digits = 6 }
+current = { min = 0, max = 3.15, digits = 7 }
+
+[[ranges.models]]
+model = '2430(-C)?$'
+voltage = { min = -105, max = 105, digits = 6 }
+current = { min = 0, max = 3.15, digits = 7 }
+
+[[ranges.models]]
+model = '2440(-C)?$'
+voltage = { min = -42, max = 42, digits = 6 }
+current = { min = 0, max = 5.25, digits = 7 }
+
+[signals.measure]
+query = ":READ?"
+parse = "floats"
+fields = ["voltage", "current"]
+
+[state.voltage_set]
+query = ":SOUR:VOLT:LEV:IMM:AMPL?"
+parse = "float"
+
+[state.current_set]
+query = ":SENS:CURR:PROT:LEV?"
+parse = "float"
+
+[state.output]
+query = ":OUTP?"
+parse = "bool"
+
+[setters.voltage]
+command = ":SOUR:VOLT:LEV:IMM:AMPL {value}"
+
+[setters.current]
+command = ":SENS:CURR:PROT {value}"
+
+[setters.output]
+command = ":OUTP {on}"

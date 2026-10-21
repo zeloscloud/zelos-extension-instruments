@@ -1,0 +1,56 @@
+schema = 1
+id = "agilent-34401a"
+name = "HP / Agilent / Keysight 34401A"
+category = "dmm"
+notes = """Transcribed from the 34401A User's Guide; never run on a unit. The meter has GPIB and RS-232 only, no LAN and no USB. RS-232 is fixed at 1 start bit and 2 stop bits. The factory setting is 9600 baud, even parity and 7 data bits; choosing parity None in the front-panel I/O menu gives 8 data bits, so change data_bits and parity in the config to match the meter. The meter holds DTR false while it has a reply to send, and the extension has no DTR/DSR flow control: disable the handshake by leaving DTR unconnected and tying DSR to logic true, or expect timeouts. Over RS-232 the meter refuses READ? with error 550 until it receives SYST:REM, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 only, so on GPIB each one adds error 514 to the error queue. READ? takes a new reading each poll. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC", which later Keysight meters return. Ratio (VOLT:DC:RAT) has no label and reads as unknown. The meter has no temperature or capacitance function."""
+
+[evidence]
+badge = "manual"
+source = "HP 34401A Multimeter User's Guide, 34401-90004, February 1996"
+url = "https://xdevs.com/doc/HP_Agilent_Keysight/HP%2034401A%20User.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(hewlett-?packard|hp|agilent|keysight)'
+model = '^34401A$'
+
+[link]
+baud = 9600
+data_bits = 7
+parity = "even"
+stop_bits = 2
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[signals.value]
+query = "READ?"
+parse = "float"
+
+[state.function]
+query = "FUNC?"
+parse = "map"
+map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = "FUNC?"
+function_map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = "CONF:{function}"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", diode = "DIOD", continuity = "CONT" }

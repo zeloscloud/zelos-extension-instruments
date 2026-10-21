@@ -1,0 +1,314 @@
+schema = 1
+id = "chroma-63200"
+name = "Chroma 63200A series"
+category = "load"
+notes = """Transcribed from the operation and programming manual, not tried on a unit. The model string carries the voltage and current rating (63205A-150-500 is 150 V and 500 A), and the ranges follow the manual's specification tables. The A632009 and A632010 parallel systems do not support the optional interfaces and are not matched. The manual has no CHAN select command: each load is one channel, and a multi-load frame is addressed through its interface cards. The remote interfaces are optional GPIB, Ethernet, CAN and USB cards, used one at a time, and the first one used locks the rest out until a reset. The Ethernet socket port is 2101, set on the front panel with the address. The manual has no resistance measurement query, so resistance is not read, and its resistance range depends on the mode range, so the resistance setter refuses until the config names a limit. MODE combines the function with a range: CCL, CCM and CCH are CC at the low, middle and high range, and the same suffixes apply to CV, CP and CR. The mode state folds each range to its function, and the function setter selects the high range. Dynamic, battery and other modes read as unknown. SYST:REM puts the load in remote mode and disables the front panel except LOCAL. The protection state reads LOAD:PROTection? by bit weight: 1, 2 and 65536 overvoltage, 8, 16 and 32 overcurrent, 64, 128 and 256 overpower, 512 and 32768 overtemperature, and 4 reverse voltage. The Clear setter resets the latched status."""
+
+[evidence]
+badge = "manual"
+source = "Chroma 63200A Series DC Electronic Load Operation and Programming Manual, Version 2.3, October 2024"
+url = "https://www.finaltest.com.mx/v/vspfiles/assets/datasheet/UM-63200A-DC-Electronic-Load-102024.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^chroma'
+model = '^632(0[2-6]|08|10|12|15|18|20|24)A-(60|150|600|1200)-\d+$'
+
+[link]
+lan_port = 2101
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[[ranges.models]]
+model = '^63202A-150-200$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 200, digits = 4 }
+power = { min = 0, max = 2000, digits = 3 }
+
+[[ranges.models]]
+model = '^63203A-150-300$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 300, digits = 4 }
+power = { min = 0, max = 3000, digits = 3 }
+
+[[ranges.models]]
+model = '^63204A-150-400$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 400, digits = 4 }
+power = { min = 0, max = 4000, digits = 3 }
+
+[[ranges.models]]
+model = '^63205A-150-500$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 500, digits = 4 }
+power = { min = 0, max = 5000, digits = 3 }
+
+[[ranges.models]]
+model = '^63206A-150-600$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 600, digits = 4 }
+power = { min = 0, max = 6000, digits = 3 }
+
+[[ranges.models]]
+model = '^63208A-150-800$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 800, digits = 4 }
+power = { min = 0, max = 8000, digits = 3 }
+
+[[ranges.models]]
+model = '^63210A-150-1000$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 1000, digits = 4 }
+power = { min = 0, max = 10000, digits = 3 }
+
+[[ranges.models]]
+model = '^63212A-150-1200$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 1200, digits = 4 }
+power = { min = 0, max = 12000, digits = 3 }
+
+[[ranges.models]]
+model = '^63215A-150-1500$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 1500, digits = 4 }
+power = { min = 0, max = 15000, digits = 3 }
+
+[[ranges.models]]
+model = '^63218A-150-1800$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 1800, digits = 4 }
+power = { min = 0, max = 18000, digits = 3 }
+
+[[ranges.models]]
+model = '^63220A-150-2000$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 2000, digits = 4 }
+power = { min = 0, max = 20000, digits = 3 }
+
+[[ranges.models]]
+model = '^63224A-150-2000$'
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 2000, digits = 4 }
+power = { min = 0, max = 24000, digits = 3 }
+
+[[ranges.models]]
+model = '^63202A-600-140$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 140, digits = 4 }
+power = { min = 0, max = 2000, digits = 3 }
+
+[[ranges.models]]
+model = '^63203A-600-210$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 210, digits = 4 }
+power = { min = 0, max = 3000, digits = 3 }
+
+[[ranges.models]]
+model = '^63204A-600-280$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 280, digits = 4 }
+power = { min = 0, max = 4000, digits = 3 }
+
+[[ranges.models]]
+model = '^63205A-600-350$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 350, digits = 4 }
+power = { min = 0, max = 5000, digits = 3 }
+
+[[ranges.models]]
+model = '^63206A-600-420$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 420, digits = 4 }
+power = { min = 0, max = 6000, digits = 3 }
+
+[[ranges.models]]
+model = '^63208A-600-560$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 560, digits = 4 }
+power = { min = 0, max = 8000, digits = 3 }
+
+[[ranges.models]]
+model = '^63210A-600-700$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 700, digits = 4 }
+power = { min = 0, max = 10000, digits = 3 }
+
+[[ranges.models]]
+model = '^63212A-600-840$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 840, digits = 4 }
+power = { min = 0, max = 12000, digits = 3 }
+
+[[ranges.models]]
+model = '^63215A-600-1050$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 1050, digits = 4 }
+power = { min = 0, max = 15000, digits = 3 }
+
+[[ranges.models]]
+model = '^63218A-600-1260$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 1260, digits = 4 }
+power = { min = 0, max = 18000, digits = 3 }
+
+[[ranges.models]]
+model = '^63220A-600-1400$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 1400, digits = 4 }
+power = { min = 0, max = 20000, digits = 3 }
+
+[[ranges.models]]
+model = '^63224A-600-1680$'
+voltage = { min = 0, max = 600, digits = 3 }
+current = { min = 0, max = 1680, digits = 4 }
+power = { min = 0, max = 24000, digits = 3 }
+
+[[ranges.models]]
+model = '^63202A-1200-80$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 80, digits = 4 }
+power = { min = 0, max = 2000, digits = 3 }
+
+[[ranges.models]]
+model = '^63203A-1200-120$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 120, digits = 4 }
+power = { min = 0, max = 3000, digits = 3 }
+
+[[ranges.models]]
+model = '^63204A-1200-160$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 160, digits = 4 }
+power = { min = 0, max = 4000, digits = 3 }
+
+[[ranges.models]]
+model = '^63205A-1200-200$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 200, digits = 4 }
+power = { min = 0, max = 5000, digits = 3 }
+
+[[ranges.models]]
+model = '^63206A-1200-240$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 240, digits = 4 }
+power = { min = 0, max = 6000, digits = 3 }
+
+[[ranges.models]]
+model = '^63208A-1200-320$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 320, digits = 4 }
+power = { min = 0, max = 8000, digits = 3 }
+
+[[ranges.models]]
+model = '^63210A-1200-400$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 400, digits = 4 }
+power = { min = 0, max = 10000, digits = 3 }
+
+[[ranges.models]]
+model = '^63212A-1200-480$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 480, digits = 4 }
+power = { min = 0, max = 12000, digits = 3 }
+
+[[ranges.models]]
+model = '^63215A-1200-600$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 600, digits = 4 }
+power = { min = 0, max = 15000, digits = 3 }
+
+[[ranges.models]]
+model = '^63218A-1200-720$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 720, digits = 4 }
+power = { min = 0, max = 18000, digits = 3 }
+
+[[ranges.models]]
+model = '^63220A-1200-800$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 800, digits = 4 }
+power = { min = 0, max = 20000, digits = 3 }
+
+[[ranges.models]]
+model = '^63224A-1200-960$'
+voltage = { min = 0, max = 1200, digits = 3 }
+current = { min = 0, max = 960, digits = 4 }
+power = { min = 0, max = 24000, digits = 3 }
+
+[[ranges.models]]
+model = '^63206A-60-1000$'
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 1000, digits = 4 }
+power = { min = 0, max = 6000, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.current_set]
+query = "CURR:STAT:L1?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT:STAT:L1?"
+parse = "float"
+
+[state.power_set]
+query = "POW:STAT:L1?"
+parse = "float"
+
+[state.resistance_set]
+query = "RES:STAT:L1?"
+parse = "float"
+
+[state.output]
+query = "LOAD?"
+parse = "bool"
+
+[state.mode]
+query = "MODE?"
+parse = "map"
+map = { CCL = "cc", CCM = "cc", CCH = "cc", CVL = "cv", CVM = "cv", CVH = "cv", CPL = "cp", CPM = "cp", CPH = "cp", CRL = "cr", CRM = "cr", CRH = "cr" }
+
+[state.protection]
+flags = [
+  { query = "LOAD:PROT?", parse = "bits", mask = 65539, value = "ovp" },
+  { query = "LOAD:PROT?", parse = "bits", mask = 56, value = "ocp" },
+  { query = "LOAD:PROT?", parse = "bits", mask = 448, value = "opp" },
+  { query = "LOAD:PROT?", parse = "bits", mask = 33280, value = "otp" },
+  { query = "LOAD:PROT?", parse = "bits", mask = 4, value = "other" },
+]
+
+[setters.current]
+command = "CURR:STAT:L1 {value}"
+
+[setters.voltage]
+command = "VOLT:STAT:L1 {value}"
+
+[setters.power]
+command = "POW:STAT:L1 {value}"
+
+[setters.resistance]
+command = "RES:STAT:L1 {value}"
+
+[setters.function]
+command = "MODE {function}"
+map = { cc = "CCH", cv = "CVH", cp = "CPH", cr = "CRH" }
+
+[setters.output]
+command = "LOAD {on}"
+
+[setters.clear]
+command = "LOAD:PROT:CLE"

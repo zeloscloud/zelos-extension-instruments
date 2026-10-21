@@ -1,0 +1,131 @@
+schema = 1
+id = "siglent-sps5000x"
+name = "Siglent SPS5000X series"
+category = "psu"
+notes = "The manual covers all 16 models, from the 40 V SPS5041X to the 160 V SPS5165X, and this profile matches them all. The X4 models have two channels and the X5 models have three, each with its own set of limits. Output on and off is one command for all channels (OUTPut), and the per-channel OUTPut:SET:ON:STATe is a channel enable, so the Output action switches every channel of a multi-channel unit. The manual misprints the set form of that enable command in its command format line, which is another reason the profile does not use it. The manual documents no error query, so sets are checked by readback only. It also documents no protection query, so protection is not read. OCP trips only when its switch is on (SYStem:OCP:STATe CH1,1), and the OVP and OCP setters use the voltage and current limits here as their bound. Clear sends RESET:CHANnel:PROTect for the channel. The unit answers MEAS:RUN:MODE? with CV or CC, and any other word shows as unknown. The programming section is part of the user manual, and the socket port is 5025."
+
+[evidence]
+badge = "manual"
+source = "Siglent SPS5000X Series Wide Range Programmable Switching DC Power Supplies User Manual (Remote Control chapter)"
+url = "https://siglentna.com/download/21299/"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^siglent'
+model = '^SPS5(04[1-5]|051|08[1-5]|16[1-5])X$'
+channels = 1
+
+[[match.models]]
+model = '^SPS5(04|08|16)4X$'
+channels = 2
+
+[[match.models]]
+model = '^SPS5(04|08|16)5X$'
+channels = 3
+
+[link]
+lan_port = 5025
+
+[ranges]
+voltage = { min = 0, max = 40, digits = 3 }
+current = { min = 0, max = 30, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS5042X$'
+current = { min = 0, max = 60, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS5043X$'
+current = { min = 0, max = 90, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS5051X$'
+voltage = { min = 0, max = 50, digits = 3 }
+current = { min = 0, max = 10, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS508[145]X$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 15, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS5082X$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 30, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS5083X$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 45, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS516[145]X$'
+voltage = { min = 0, max = 160, digits = 3 }
+current = { min = 0, max = 7.5, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS5162X$'
+voltage = { min = 0, max = 160, digits = 3 }
+current = { min = 0, max = 15, digits = 3 }
+
+[[ranges.models]]
+model = '^SPS5163X$'
+voltage = { min = 0, max = 160, digits = 3 }
+current = { min = 0, max = 22.5, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT? CH{ch}"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR? CH{ch}"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POWER? CH{ch}"
+parse = "float"
+
+[state.voltage_set]
+query = "SOUR:VOLT:SET? CH{ch}"
+parse = "float"
+
+[state.current_set]
+query = "SOUR:CURR:SET? CH{ch}"
+parse = "float"
+
+[state.ovp_set]
+query = "SOUR:OVP? CH{ch}"
+parse = "float"
+
+[state.ocp_set]
+query = "SOUR:OCP? CH{ch}"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+channel = false
+
+[state.mode]
+query = "MEAS:RUN:MODE? CH{ch}"
+parse = "map"
+map = { CV = "cv", CC = "cc" }
+
+[setters.voltage]
+command = "SOUR:VOLT:SET CH{ch},{value}"
+
+[setters.current]
+command = "SOUR:CURR:SET CH{ch},{value}"
+
+[setters.ovp]
+command = "SOUR:OVP CH{ch},{value}"
+
+[setters.ocp]
+command = "SOUR:OCP CH{ch},{value}"
+
+[setters.output]
+command = "OUTP {on}"
+channel = false
+
+[setters.clear]
+command = "RESET:CHAN:PROT CH{ch}"

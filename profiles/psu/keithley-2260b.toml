@@ -1,0 +1,244 @@
+schema = 1
+id = "keithley-2260b"
+name = "Keithley 2260B and GW Instek / TEXIO PSW series"
+category = "psu"
+notes = """The Keithley 2260B and the GW Instek PSW (sold by TEXIO) share one command set; the PSW Programming Manual confirms every command used here. \
+The instrument has one output and needs no remote command; the front panel stays live. \
+The LAN socket server listens on port 2268 only and must be enabled from the front-panel function menu (firmware V1.12 or newer). \
+Setpoints accept 0 to 105 % of the rating, so the ranges below carry 105 % of the rated voltage and current. \
+The OVP and OCP levels reach 110 % of the rating, but the extension bounds them by the same ranges. \
+Mode reads CV or CC from the Operation Status condition register; it reads off when neither bit is set. \
+Protection reads the Questionable Status condition register: OV, OC and OT. Clear a trip with the Clear action. \
+Serial settings are not given in the manuals and are left at the defaults."""
+
+[evidence]
+badge = "manual"
+source = "Series 2260B Programmable DC Power Supplies Programming, 077104703, October 2024; GW Instek PSW Series Programming Manual"
+url = "https://download.tek.com/manual/077104703_Oct2024_2260B_Programming.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(keithley|gw[- ]?instek|texio)'
+model = '(?i)^(MODEL ?)?(2260B-|PSW)'
+channels = 1
+
+[link]
+lan_port = 2268
+
+[errors]
+query = ":SYST:ERR?"
+
+[signals.voltage]
+query = ":MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = ":MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = ":MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = ":SOUR:VOLT?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR:CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = ":SOUR:VOLT:PROT?"
+parse = "float"
+
+[state.ocp_set]
+query = ":SOUR:CURR:PROT?"
+parse = "float"
+
+[state.output]
+query = ":OUTP?"
+parse = "bool"
+
+[state.mode]
+query = ":STAT:OPER:COND?"
+parse = "bits"
+mask = 1280
+shift = 8
+map = { "0" = "off", "1" = "cv", "4" = "cc" }
+
+[state.protection]
+flags = [
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 2, value = "ocp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 16, value = "otp" },
+]
+
+[setters.voltage]
+command = ":SOUR:VOLT {value}"
+
+[setters.current]
+command = ":SOUR:CURR {value}"
+
+[setters.ovp]
+command = ":SOUR:VOLT:PROT {value}"
+
+[setters.ocp]
+command = ":SOUR:CURR:PROT {value}"
+
+[setters.output]
+command = ":OUTP {bit}"
+
+[setters.clear]
+command = ":OUTP:PROT:CLE"
+
+[[ranges.models]]
+model = '2260B-30-36$'
+voltage = { min = 0, max = 31.5, digits = 3 }
+current = { min = 0, max = 37.8, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-80-13$'
+voltage = { min = 0, max = 84, digits = 3 }
+current = { min = 0, max = 14.175, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-250-4$'
+voltage = { min = 0, max = 262.5, digits = 3 }
+current = { min = 0, max = 4.725, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-800-1$'
+voltage = { min = 0, max = 840, digits = 3 }
+current = { min = 0, max = 1.512, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-30-72$'
+voltage = { min = 0, max = 31.5, digits = 3 }
+current = { min = 0, max = 75.6, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-80-27$'
+voltage = { min = 0, max = 84, digits = 3 }
+current = { min = 0, max = 28.35, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-250-9$'
+voltage = { min = 0, max = 262.5, digits = 3 }
+current = { min = 0, max = 9.45, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-800-2$'
+voltage = { min = 0, max = 840, digits = 3 }
+current = { min = 0, max = 3.024, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-30-108$'
+voltage = { min = 0, max = 31.5, digits = 3 }
+current = { min = 0, max = 113.4, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-80-40$'
+voltage = { min = 0, max = 84, digits = 3 }
+current = { min = 0, max = 42.525, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-250-13$'
+voltage = { min = 0, max = 262.5, digits = 3 }
+current = { min = 0, max = 14.175, digits = 3 }
+
+[[ranges.models]]
+model = '2260B-800-4$'
+voltage = { min = 0, max = 840, digits = 3 }
+current = { min = 0, max = 4.536, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?30[- ]?36$'
+voltage = { min = 0, max = 31.5, digits = 3 }
+current = { min = 0, max = 37.8, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?40[- ]?27$'
+voltage = { min = 0, max = 42, digits = 3 }
+current = { min = 0, max = 28.35, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?80[- ]?13\.5$'
+voltage = { min = 0, max = 84, digits = 3 }
+current = { min = 0, max = 14.175, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?160[- ]?7\.2$'
+voltage = { min = 0, max = 168, digits = 3 }
+current = { min = 0, max = 7.56, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?250[- ]?4\.5$'
+voltage = { min = 0, max = 262.5, digits = 3 }
+current = { min = 0, max = 4.725, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?800[- ]?1\.44$'
+voltage = { min = 0, max = 840, digits = 3 }
+current = { min = 0, max = 1.512, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?30[- ]?72$'
+voltage = { min = 0, max = 31.5, digits = 3 }
+current = { min = 0, max = 75.6, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?40[- ]?54$'
+voltage = { min = 0, max = 42, digits = 3 }
+current = { min = 0, max = 56.7, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?80[- ]?27$'
+voltage = { min = 0, max = 84, digits = 3 }
+current = { min = 0, max = 28.35, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?160[- ]?14\.4$'
+voltage = { min = 0, max = 168, digits = 3 }
+current = { min = 0, max = 15.12, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?250[- ]?9$'
+voltage = { min = 0, max = 262.5, digits = 3 }
+current = { min = 0, max = 9.45, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?800[- ]?2\.88$'
+voltage = { min = 0, max = 840, digits = 3 }
+current = { min = 0, max = 3.024, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?30[- ]?108$'
+voltage = { min = 0, max = 31.5, digits = 3 }
+current = { min = 0, max = 113.4, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?40[- ]?81$'
+voltage = { min = 0, max = 42, digits = 3 }
+current = { min = 0, max = 85.05, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?80[- ]?40\.5$'
+voltage = { min = 0, max = 84, digits = 3 }
+current = { min = 0, max = 42.525, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?160[- ]?21\.6$'
+voltage = { min = 0, max = 168, digits = 3 }
+current = { min = 0, max = 22.68, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?250[- ]?13\.5$'
+voltage = { min = 0, max = 262.5, digits = 3 }
+current = { min = 0, max = 14.175, digits = 3 }
+
+[[ranges.models]]
+model = 'PSW[- ]?800[- ]?4\.32$'
+voltage = { min = 0, max = 840, digits = 3 }
+current = { min = 0, max = 4.536, digits = 3 }
+

@@ -1,0 +1,15 @@
+schema = 1
+id = "ieee488"
+name = "Any IEEE 488.2 instrument"
+category = "psu"
+generic = true
+notes = """Identifies the instrument and records nothing by itself. It exists so the raw poll table in the config and the raw command action work on any instrument, including one whose family has no profile. Add queries to the config's raw poll table to record values, and send commands with the raw command action. Sets by name are not available."""
+
+[evidence]
+badge = "manual"
+source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
+url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
+date = "2026-10-20"
+
+[errors]
+query = "SYST:ERR?"

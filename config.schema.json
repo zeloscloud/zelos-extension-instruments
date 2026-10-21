@@ -1,0 +1,90 @@
+{
+  "type": "object",
+  "title": "Instruments",
+  "description": "Record bench instruments on the same timeline as the device under test, and set them from the app or a notebook.",
+  "ui:options": { "autoconfig": "Instruments/auto_config" },
+  "properties": {
+    "instruments": {
+      "type": "array", "title": "Instruments", "minItems": 1, "default": [],
+      "description": "One entry per instrument. Auto-configure adds one for each instrument found on the network, on USB and on the serial ports of known instrument vendors.",
+      "items": {
+        "type": "object", "title": "Instrument",
+        "properties": {
+          "connection": { "type": "string", "title": "Connection", "enum": ["lan", "usb", "serial", "visa", "demo"], "ui:enumNames": ["LAN (raw socket)", "USB", "Serial port", "VISA resource", "Demo bench"], "default": "lan" },
+          "profile": { "type": "string", "title": "Profile", "description": "auto picks the profile from the instrument's identity. Or choose one, or give the path to your own profile file.", "default": "auto", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_profiles" } },
+          "name": { "type": "string", "title": "Name", "description": "How this instrument appears in the trace. Letters, digits, spaces, _ and -. Empty uses the model and serial number.", "pattern": "^[A-Za-z0-9 _-]*$", "maxLength": 64 },
+          "rate_hz": { "type": "number", "title": "Readings per second", "description": "How often the measurements are read. The instrument's own turnaround is the floor: ask for more and it reads back to back.", "default": 10, "exclusiveMinimum": 0 }
+        },
+        "required": ["connection"],
+        "dependencies": {
+          "connection": {
+            "oneOf": [
+              { "properties": {
+                  "connection": { "enum": ["lan"] },
+                  "host": { "type": "string", "title": "Host", "minLength": 1, "description": "An instrument from the list, or a host name or address.", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_instruments", "params": { "connection": "lan" } } },
+                  "port": { "type": "integer", "title": "Port", "description": "The raw socket port. Empty uses the profile's default, 5025 for most instruments.", "minimum": 1, "maximum": 65535 },
+                  "advanced": { "$ref": "#/definitions/advanced" } },
+                "required": ["host"] },
+              { "properties": {
+                  "connection": { "enum": ["usb"] },
+                  "resource": { "type": "string", "title": "Device", "minLength": 1, "description": "A USB instrument from the list, or its VISA resource string, such as USB0::0x1AB1::0x0E11::DP8C123::INSTR.", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_instruments", "params": { "connection": "usb" } } },
+                  "advanced": { "$ref": "#/definitions/advanced" } },
+                "required": ["resource"] },
+              { "properties": {
+                  "connection": { "enum": ["serial"] },
+                  "port": { "type": "string", "title": "Port", "minLength": 1, "description": "A serial port from the list, or a path such as COM7 or /dev/ttyUSB0.", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_instruments", "params": { "connection": "serial" } } },
+                  "baud": { "type": "integer", "title": "Baud", "description": "Empty uses the profile's default.", "minimum": 50, "maximum": 20000000 },
+                  "advanced": { "$ref": "#/definitions/advanced" } },
+                "required": ["port"] },
+              { "properties": {
+                  "connection": { "enum": ["visa"] },
+                  "resource": { "type": "string", "title": "Resource", "minLength": 1, "description": "A VISA resource string, such as TCPIP0::192.168.1.40::inst0::INSTR, TCPIP0::192.168.1.40::hislip0::INSTR or GPIB0::5::INSTR." },
+                  "backend": { "type": "string", "title": "VISA library", "enum": ["auto", "py", "ivi"], "ui:enumNames": ["Automatic", "Built in", "System VISA (NI, Keysight, R&S)"], "default": "auto", "description": "Automatic uses the system VISA for USB and GPIB when one is installed, and the built-in library otherwise." },
+                  "advanced": { "$ref": "#/definitions/advanced" } },
+                "required": ["resource"] },
+              { "properties": {
+                  "connection": { "enum": ["demo"] },
+                  "category": { "type": "string", "title": "Instrument", "enum": ["psu", "load", "dmm", "acsource"], "ui:enumNames": ["Power supply", "Electronic load", "Multimeter", "AC source"], "default": "psu" } } }
+            ]
+          }
+        },
+        "ui:order": ["connection", "host", "port", "resource", "backend", "baud", "category", "profile", "name", "rate_hz", "*"]
+      }
+    },
+    "advanced": {
+      "type": "object", "title": "Advanced (all instruments)", "ui:options": { "collapsed": true }, "additionalProperties": false, "default": {},
+      "properties": {
+        "prefix": { "type": "string", "title": "Prefix", "default": "Instruments", "pattern": "^[A-Za-z0-9 _-]*[A-Za-z0-9_-][A-Za-z0-9 _-]*$", "maxLength": 128, "description": "The trace source every instrument publishes under." },
+        "log_level": { "type": "string", "title": "Log level", "enum": ["DEBUG", "INFO", "WARNING", "ERROR"], "default": "INFO" }
+      }
+    }
+  },
+  "required": ["instruments"],
+  "definitions": {
+    "advanced": {
+      "type": "object", "title": "Advanced", "ui:options": { "collapsed": true }, "additionalProperties": false,
+      "properties": {
+        "limits": { "type": "object", "title": "Limits", "description": "The most the extension will ever set, whatever the instrument allows. A set above a limit is refused.", "additionalProperties": false, "properties": {
+          "max_voltage": { "type": "number", "title": "Max voltage (V)", "minimum": 0 },
+          "max_current": { "type": "number", "title": "Max current (A)", "minimum": 0 },
+          "max_power": { "type": "number", "title": "Max power (W)", "minimum": 0 },
+          "max_frequency": { "type": "number", "title": "Max frequency (Hz)", "minimum": 0 } } },
+        "keep_panel": { "type": "boolean", "title": "Keep the front panel usable", "description": "On instruments that lock their front panel while a computer talks to them, hand control back once a second.", "default": true, "ui:widget": "toggle" },
+        "channels": { "type": "integer", "title": "Channels", "description": "Empty uses the count the profile knows for the model.", "minimum": 1, "maximum": 64 },
+        "timeout_s": { "type": "number", "title": "Reply timeout (s)", "description": "Empty uses the profile's default, 2 s for most instruments.", "exclusiveMinimum": 0, "maximum": 60 },
+        "delay_ms": { "type": "integer", "title": "Delay between commands (ms)", "description": "Empty uses the profile's default. Only some instruments need one.", "minimum": 0, "maximum": 5000 },
+        "line_ending": { "type": "string", "title": "Line ending", "description": "Empty uses the profile's default.", "enum": ["LF", "CRLF", "CR"] },
+        "poll": { "type": "array", "title": "Extra readings", "description": "Any query whose reply is a number, recorded as its own signal.", "default": [], "items": { "type": "object", "title": "Reading", "additionalProperties": false, "properties": {
+          "name": { "type": "string", "title": "Reading name", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_][A-Za-z0-9 _-]*$" },
+          "query": { "type": "string", "title": "Query", "minLength": 1, "description": "{ch} is the channel number. A query without it is read once per interval." },
+          "unit": { "type": "string", "title": "Unit", "maxLength": 32 },
+          "every_s": { "type": "number", "title": "Every (s)", "default": 1, "exclusiveMinimum": 0 } }, "required": ["name", "query"] } }
+      }
+    }
+  },
+  "examples": [
+    { "instruments": [{ "connection": "lan", "host": "192.168.1.40", "profile": "auto", "name": "psu" }] },
+    { "instruments": [{ "connection": "usb", "resource": "USB0::0xF4EC::0x1430::SDL13GCX::INSTR", "profile": "siglent-sdl1000x", "name": "load", "rate_hz": 5 }, { "connection": "serial", "port": "/dev/ttyUSB1", "baud": 9600, "profile": "keysight-e36100", "name": "aux" }] },
+    { "instruments": [{ "connection": "demo", "category": "psu" }, { "connection": "demo", "category": "load" }] }
+  ]
+}

@@ -1,0 +1,112 @@
+schema = 1
+id = "chroma-61600"
+name = "Chroma 61600 series"
+category = "acsource"
+notes = """\
+Transcribed from the user's manuals, not tried on a unit. The 61601 to 61604 manual (version 1.9) and the 61605 manual (version 1.8) share the commands. \
+The measurement queries use FETCh, which returns the last acquired reading; MEASure starts a new acquisition first. The voltage reads FETC:VOLT:ACDC?, the rms of the AC and DC parts together. \
+The output voltage has a 150 V and a 300 V range (VOLTage:RANGe LOW, HIGH or AUTO), and the voltage limit in ranges is the 300 V range. The current limit is the rms current limit for software protection, and the limits in ranges are the 150 V range figures, half or less in the 300 V range. The frequency range is 15 Hz to 1000 Hz. \
+OUTP OFF sets the output voltage to 0 V. OUTP:COUP AC, DC or ACDC selects the output coupling; the profile sets AC quantities only. \
+The serial settings are 9600 or 19200 baud with no, odd or even parity, and the factory setting is 9600 with no parity. The GPIB address is set at 30 from the factory. USB and Ethernet are an option board, and the manual does not name a socket port. SYST:REM works under RS-232C only, so the profile does not send it. \
+The protection state reads the questionable status condition register: weight 256 output overvoltage, 64 overcurrent, 4 overpower, 8 overtemperature, and 1, 2, 16, 32 and 128 for the internal power stage, output short, fan and line input protections. The Clear setter clears the latch once every fault is removed."""
+
+[evidence]
+badge = "manual"
+source = "Chroma Programmable AC Source 61601/61602/61603/61604 User's Manual, version 1.9, October 2015, and 61605 User's Manual, version 1.8, November 2015"
+url = "https://xdevs.com/doc/Chroma/61600/UM-61601~4-acsource-v1.9-102015.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^chroma'
+model = '^616(0[1-5])$'
+
+[link]
+baud = 9600
+
+[errors]
+query = ":SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 300, digits = 1 }
+current = { min = 0, max = 4, digits = 2 }
+frequency = { min = 15, max = 1000, digits = 2 }
+
+[[ranges.models]]
+model = '^61602$'
+current = { min = 0, max = 8, digits = 2 }
+
+[[ranges.models]]
+model = '^61603$'
+current = { min = 0, max = 12, digits = 2 }
+
+[[ranges.models]]
+model = '^61604$'
+current = { min = 0, max = 16, digits = 2 }
+
+[[ranges.models]]
+model = '^61605$'
+current = { min = 0, max = 32, digits = 2 }
+
+[signals.voltage]
+query = ":FETC:VOLT:ACDC?"
+parse = "float"
+
+[signals.current]
+query = ":FETC:CURR:AC?"
+parse = "float"
+
+[signals.power]
+query = ":FETC:POW:AC?"
+parse = "float"
+
+[signals.apparent_power]
+query = ":FETC:POW:AC:APP?"
+parse = "float"
+
+[signals.power_factor]
+query = ":FETC:POW:AC:PFAC?"
+parse = "float"
+
+[signals.frequency]
+query = ":FETC:FREQ?"
+parse = "float"
+
+[state.voltage_set]
+query = ":SOUR:VOLT:AC?"
+parse = "float"
+
+[state.frequency_set]
+query = ":SOUR:FREQ?"
+parse = "float"
+
+[state.current_set]
+query = ":SOUR:CURR:LIM?"
+parse = "float"
+
+[state.output]
+query = ":OUTP?"
+parse = "bool"
+
+[state.protection]
+flags = [
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 256, shift = 8, value = "ovp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 64, shift = 6, value = "ocp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 4, shift = 2, value = "opp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "otp" },
+  { query = ":STAT:QUES:COND?", parse = "bits", mask = 179, value = "other" },
+]
+
+[setters.voltage]
+command = ":SOUR:VOLT:AC {value}"
+
+[setters.frequency]
+command = ":SOUR:FREQ {value}"
+
+[setters.current]
+command = ":SOUR:CURR:LIM {value}"
+
+[setters.output]
+command = ":OUTP {on}"
+
+[setters.clear]
+command = ":OUTP:PROT:CLE"

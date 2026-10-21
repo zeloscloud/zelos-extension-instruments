@@ -1,0 +1,85 @@
+schema = 1
+id = "keysight-e36731a"
+name = "Keysight E36731A battery emulator"
+category = "psu"
+notes = "The E36731A is bidirectional: it runs as a power supply or as an electronic load, chosen with EMUL PSUP or EMUL LOAD. This profile covers power supply mode only. Leave the unit in EMUL PSUP, because the guide says EMUL forces a *RST, so the extension never sends it. In power supply mode, CURR sets the current limit used in CV mode. Because the unit can sink current, a measured current may read negative while the DUT pushes current back, but the guide does not state the sign convention, so the extension reports the reading as the instrument returns it. The programmable ranges here are the power supply mode limits, 30.9 V and 20.6 A. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 4 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 4 OT, bit 5 negative OV). The overcurrent protection has no level in the guide, so there is no OCP setpoint. OVP is on after *RST and trips at 33 V by default. Clear sends OUTP:PROT:CLE, which clears the output latch; the guide also lists VOLT:PROT:CLE for an OVP event."
+
+[evidence]
+badge = "manual"
+source = "Keysight E36731A Battery Emulator Programming Guide, E36731-90009, Edition 1, November 2022; User's Guide E36731-90001 (sockets, port 5025)"
+url = "https://www.coretechnology.com.tw/zh-tw/product/file/692189-5"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent)'
+model = '^E36731A$'
+channels = 1
+
+[link]
+lan_port = 5025
+local = "SYST:LOC"
+
+[errors]
+query = "SYST:ERR?"
+
+# Programming Guide p. 21, Programming Ranges, power supply mode
+[ranges]
+voltage = { min = 0, max = 30.9, digits = 3 }
+current = { min = 0, max = 20.6, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT? (@{ch})"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR? (@{ch})"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW? (@{ch})"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT? (@{ch})"
+parse = "float"
+
+[state.current_set]
+query = "CURR? (@{ch})"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT? (@{ch})"
+parse = "float"
+
+[state.output]
+query = "OUTP? (@{ch})"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND? (@{ch})"
+parse = "bits"
+mask = 31
+map = { "1" = "cv", "2" = "cc", "4" = "cr", "8" = "cp", "16" = "off" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 2, value = "ocp" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 16, value = "otp" },
+  { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 32, value = "ovp" },
+]
+
+[setters.voltage]
+command = "VOLT {value},(@{ch})"
+
+[setters.current]
+command = "CURR {value},(@{ch})"
+
+[setters.ovp]
+command = "VOLT:PROT {value},(@{ch})"
+
+[setters.output]
+command = "OUTP {on},(@{ch})"
+
+[setters.clear]
+command = "OUTP:PROT:CLE (@{ch})"

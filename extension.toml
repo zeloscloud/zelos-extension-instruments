@@ -1,0 +1,35 @@
+name = "Instruments"
+version = "0.1.0"
+description = "Record bench instruments (power supplies, electronic loads, multimeters, AC sources) over SCPI and set them from the app or a notebook."
+author = "Zelos"
+repository = "https://github.com/zeloscloud/zelos-extension-instruments"
+homepage = "https://github.com/zeloscloud/zelos-extension-instruments"
+# The app's search and its AI read these, with the name and description; the page shows the first
+# three categories.
+keywords = ["scpi", "visa", "lxi", "usbtmc", "vxi-11", "hislip", "gpib", "power supply", "electronic load", "multimeter", "dmm", "ac source", "bench", "test equipment", "keysight", "rigol", "siglent", "keithley", "rohde schwarz", "instrument"]
+categories = ["Test & Measurement", "Embedded", "Industrial"]
+
+icon = "assets/icon.svg"
+readme = "README.md"
+
+[zelos]
+version = ">=26.0.10"
+
+[config]
+schema = "config.schema.json"
+
+[agent]
+runtime = "python"
+entry = "main.py"
+python_version = "3.11"
+
+# Linux and macOS: SIGTERM, then SIGKILL after this many seconds. Workers stop within one query
+# timeout (2 s) and the app waits for them before it flushes; the rest is headroom for the SDK's
+# atexit drain. Windows: the agent terminates the job after at most 1 s.
+[agent.stop]
+grace_seconds = 5
+
+# The packager adds extension.toml, the readme, icon and config schema, pyproject.toml, uv.lock and
+# the generated actions.json; everything else is named here.
+[package]
+paths = ["main.py", "zelos_extension_instruments", "profiles", "LICENSE", "assets/readme"]

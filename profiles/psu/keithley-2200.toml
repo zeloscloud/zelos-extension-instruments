@@ -1,0 +1,113 @@
+schema = 1
+id = "keithley-2200"
+name = "Keithley 2200 series single-channel DC power supplies"
+category = "psu"
+notes = """Covers the 2200-20-5, 2200-30-5, 2200-32-3, 2200-60-2 and 2200-72-1. \
+The 2200 has one output and no INST:SEL; the 2220 and 2230 multichannel models have their own profile. \
+The only interfaces are USB (USBTMC) and GPIB; RS-232 appears in the front-panel menu with defaults of 9600 8N1, but the manual recommends USBTMC and GPIB. \
+SYST:REM sets remote mode. The manual says RWLock locks out the LOCAL key and does not say whether plain remote mode locks the other keys, so locks_panel is set to be safe. The Local action sends SYST:LOC; Shift 7 on the front panel does the same. \
+Power comes from FETC:POW?, which returns the last measurement without starting a new one; the manual lists no MEAS:POW?. \
+Mode reads CV and CC from the operation condition register. \
+The OVP level reaches about 10 % above the rated voltage, but the extension bounds it by the voltage range. \
+The manual lists the 2200-60-2 at 2.5 A."""
+
+[evidence]
+badge = "manual"
+source = "Series 2200 Programmable DC Power Supplies Reference Manual, 2200S-901-01 Rev. C, March 2016"
+url = "https://download.tek.com/manual/2200S-901-01C.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '^2200-(20-5|30-5|32-3|60-2|72-1)$'
+channels = 1
+
+[link]
+baud = 9600
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 20, digits = 3 }
+current = { min = 0, max = 5, digits = 4 }
+
+[[ranges.models]]
+model = '^2200-30-5$'
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 5, digits = 4 }
+
+[[ranges.models]]
+model = '^2200-32-3$'
+voltage = { min = 0, max = 32, digits = 3 }
+current = { min = 0, max = 3, digits = 4 }
+
+[[ranges.models]]
+model = '^2200-60-2$'
+voltage = { min = 0, max = 60, digits = 3 }
+current = { min = 0, max = 2.5, digits = 4 }
+
+[[ranges.models]]
+model = '^2200-72-1$'
+voltage = { min = 0, max = 72, digits = 3 }
+current = { min = 0, max = 1.2, digits = 4 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "FETC:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "STAT:OPER:COND?"
+parse = "bits"
+mask = 12
+shift = 2
+map = { "0" = "off", "1" = "cv", "2" = "cc" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, value = "otp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 24, value = "other" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.output]
+command = "OUTP {bit}"
+
+[setters.clear]
+command = "OUTP:PROT:CLE"

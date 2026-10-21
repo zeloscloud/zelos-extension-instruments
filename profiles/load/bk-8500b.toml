@@ -1,0 +1,129 @@
+schema = 1
+id = "bk-8500b"
+name = "B&K Precision 8500B series"
+category = "load"
+notes = """\
+Transcribed from the programming manual and user manual, not tried on a unit. Only the B models speak SCPI. The older 8500 series without the B suffix speaks a 26-byte binary frame protocol and does not match this profile. \
+A B model also speaks the frame protocol: its PROTOCOL menu setting chooses FRAME or SCPI, and the default is SCPI. Set it to SCPI before connecting. \
+The units reach the PC through a TTL-to-USB serial adapter or RS-232. The RS-232 settings are 4800, 9600, 19200 or 38400 baud, 8 data bits, no parity, 1 stop bit, and the factory default is 4800. \
+The manual documents the 8542B, 8500B, 8502B, 8510B and 8514B. It does not document the 8518B, 8520B, 8522B, 8524B or 8526B, so they are not matched. \
+The identity reply puts a BK prefix on the model (BK8510B), and the profile accepts it with or without the prefix. \
+The manual does not state the reply form of the function query; the profile accepts the short and the long word. DYNAMIC, LED and IMPEDANCE read as unknown. \
+SYST:REM puts the load in remote mode and locks every front-panel key except LOCAL and SHIFT. \
+The protection state reads the questionable status condition register. The overvoltage and overcurrent bits stay set after a trip until the manual's protection clear, which has no SCPI command entry, so the profile has no Clear setter. \
+Each current and voltage setting is accepted inside the active range only (the low range is 3 A, 12 A or 24 A and the low voltage range is 18 V or 50 V depending on the model)."""
+
+[evidence]
+badge = "manual"
+source = "B&K Precision 8500B Series Programmable DC Electronic Loads Programming Manual (SCPI and frame commands), and 8500B Series User Manual v100219"
+url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/8500B_Series_programming_manual.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^b&?k'
+model = '^(BK)?85(00|02|10|14|42)B$'
+
+[link]
+baud = 4800
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0.1, max = 150, digits = 3 }
+current = { min = 0, max = 30, digits = 4 }
+power = { min = 0, max = 300, digits = 2 }
+resistance = { min = 0.05, max = 7500, digits = 3 }
+
+[[ranges.models]]
+model = '^(BK)?8542B$'
+power = { min = 0, max = 150, digits = 2 }
+
+[[ranges.models]]
+model = '^(BK)?8502B$'
+voltage = { min = 0.1, max = 500, digits = 3 }
+current = { min = 0, max = 15, digits = 4 }
+resistance = { min = 0.3, max = 7500, digits = 3 }
+
+[[ranges.models]]
+model = '^(BK)?8510B$'
+voltage = { min = 0.1, max = 120, digits = 3 }
+current = { min = 0, max = 120, digits = 4 }
+power = { min = 0, max = 600, digits = 2 }
+
+[[ranges.models]]
+model = '^(BK)?8514B$'
+voltage = { min = 0.1, max = 120, digits = 3 }
+current = { min = 0, max = 240, digits = 4 }
+power = { min = 0, max = 1500, digits = 2 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[signals.resistance]
+query = "MEAS:RES?"
+parse = "float"
+
+[state.current_set]
+query = "SOUR:CURR:LEV:IMM?"
+parse = "float"
+
+[state.voltage_set]
+query = "SOUR:VOLT:LEV:IMM?"
+parse = "float"
+
+[state.power_set]
+query = "SOUR:POW:LEV:IMM?"
+parse = "float"
+
+[state.resistance_set]
+query = "SOUR:RES:LEV:IMM?"
+parse = "float"
+
+[state.output]
+query = "SOUR:INP:STAT?"
+parse = "bool"
+
+[state.mode]
+query = "SOUR:FUNC?"
+parse = "map"
+map = { CURR = "cc", CURRENT = "cc", VOLT = "cv", VOLTAGE = "cv", POW = "cp", POWER = "cp", RES = "cr", RESISTANCE = "cr" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 8192, shift = 13, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, shift = 1, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, shift = 4, value = "otp" },
+]
+
+[setters.current]
+command = "SOUR:CURR:LEV:IMM {value}"
+
+[setters.voltage]
+command = "SOUR:VOLT:LEV:IMM {value}"
+
+[setters.power]
+command = "SOUR:POW:LEV:IMM {value}"
+
+[setters.resistance]
+command = "SOUR:RES:LEV:IMM {value}"
+
+[setters.function]
+command = "SOUR:FUNC {function}"
+map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
+
+[setters.output]
+command = "SOUR:INP:STAT {on}"

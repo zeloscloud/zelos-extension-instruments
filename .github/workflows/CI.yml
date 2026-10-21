@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      # The links open real sockets and serial URLs; one failing OS must not hide the others.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      # Agent runtime: uv installs the Python version pinned in .python-version.
+      - uses: astral-sh/setup-uv@v10.2.0
+        if: hashFiles('pyproject.toml') != ''
+        with:
+          enable-cache: true
+
+      # Web project (tab and panels)
+      - uses: actions/setup-node@v7
+        if: hashFiles('web/package.json') != ''
+        with:
+          node-version-file: web/.nvmrc
+
+      - uses: extractions/setup-just@v4
+
+      - name: Install dependencies
+        run: just ci-install
+
+      - name: Check formatting, lint and type-check
+        run: just check
+
+      - name: Run tests
+        run: just test
+
+      - name: Build web project
+        if: hashFiles('web/package.json') != ''
+        run: just build

@@ -1,0 +1,106 @@
+schema = 1
+id = "kikusui-plz-5w"
+name = "Kikusui PLZ-5W series"
+category = "load"
+notes = """\
+Transcribed from the communication interface manual, not tried on a unit. The series is the PLZ205W, PLZ405W and PLZ1205W; there is no PLZ1005W. \
+The constant-resistance mode is set and read in conductance (siemens) through CONDuctance, and the profile has no inverse conversion, so it has no resistance setter, no resistance setpoint and no resistance measurement. The manual has no resistance query. \
+Current, voltage and power each have ranges (H, M and L for current and power, H and L for voltage). The limits in ranges are the H range, and a setpoint above the active range is rejected. \
+The manual recommends remote mode before remote control: SYST:COMM:RLST REM locks the panel except the ESCAPE key. The RS-232 bit rate is 9600, 19200, 38400, 57600 or 115200 with 8 data bits and 1 stop bit, set on the front panel, and the extracted manual does not show which is the factory default. The LAN raw-socket port is 5025. \
+The identity reply has six fields, for example KIKUSUI,PLZ1205W,AB123456,IFC01.00.0001,FPGA01.00.002,IOC01.00.002. \
+The mode state reads CC, CR, CV and CP; the ARB mode reads as unknown. \
+The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 8 overpower, 16 overtemperature, and 32, 512, 1024, 2048 and 4096 for the watchdog, undervoltage, external error, reverse voltage and connection error. The Clear setter clears the protection alarms."""
+
+[evidence]
+badge = "manual"
+source = "Kikusui Electronic Load PLZ-5W series Communication Interface Manual"
+url = "https://manual.kikusui.co.jp/P/PLZ5W/IF/english/00-intro.html"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^kikusui'
+model = '^PLZ(205|405|1205)W$'
+
+[link]
+remote = "SYST:COMM:RLST REM"
+local = "SYST:COMM:RLST LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+voltage = { min = 0, max = 157.5, digits = 3 }
+current = { min = 0, max = 42, digits = 3 }
+power = { min = 0, max = 210, digits = 3 }
+
+[[ranges.models]]
+model = '^PLZ405W$'
+current = { min = 0, max = 84, digits = 3 }
+power = { min = 0, max = 420, digits = 3 }
+
+[[ranges.models]]
+model = '^PLZ1205W$'
+current = { min = 0, max = 252, digits = 3 }
+power = { min = 0, max = 1260, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.power_set]
+query = "POW?"
+parse = "float"
+
+[state.output]
+query = "INP?"
+parse = "bool"
+
+[state.mode]
+query = "FUNC?"
+parse = "map"
+map = { CC = "cc", CV = "cv", CP = "cp", CR = "cr" }
+
+[state.protection]
+flags = [
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 1, value = "ovp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 2, shift = 1, value = "ocp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 16, shift = 4, value = "otp" },
+  { query = "STAT:QUES:COND?", parse = "bits", mask = 7712, value = "other" },
+]
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.power]
+command = "POW {value}"
+
+[setters.function]
+command = "FUNC {function}"
+map = { cc = "CC", cv = "CV", cp = "CP", cr = "CR" }
+
+[setters.output]
+command = "INP {on}"
+
+[setters.clear]
+command = "INP:PROT:CLE"

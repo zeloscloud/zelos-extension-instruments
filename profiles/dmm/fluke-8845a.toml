@@ -1,0 +1,56 @@
+schema = 1
+id = "fluke-8845a"
+name = "Fluke 8845A and 8846A"
+category = "dmm"
+notes = """Transcribed from the 8845A/8846A Programmers Manual; never run on a unit. The meter must be in its 8845A/46A command set, which follows the Agilent 34401A SCPI set. The 8842A and Fluke 45 emulation modes use other commands, and Fluke 45 mode does not work over Ethernet. Choose the language on the front panel under the interface setup. On RS-232 select Computer mode, not Terminal mode: Terminal mode echoes characters and returns prompts. RS-232 is 9600 baud, 8 data bits, no parity, 1 stop bit and no flow control at the factory. The LAN socket port is 3490. The manual shows the *IDN? reply as Fluke, 884XA, ... with 884XA standing for the model. The meter must receive SYST:REM before READ? or MEAS? over RS-232 or Ethernet, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 and Ethernet only, so on GPIB each one adds error 1005 to the error queue. After a query over RS-232, wait for the reply before sending the next query, or the second query is discarded with an error. READ? waits for the trigger and puts the reading in the output buffer; read every reading out, or the meter stops measuring and stale data shows up in later replies. With a sample count above 1, readings return comma separated. The manual says FUNC? returns the measurement mode but does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC". Ratio (VOLT:DC:RAT) has no label and reads as unknown. The function setter selects 2-wire temperature (TEMP:RTD); 4-wire temperature (TEMP:FRTD) reads as temperature but has no setter. CONF presets the function's range and resolution."""
+
+[evidence]
+badge = "manual"
+source = "Fluke 8845A/8846A Digital Multimeter Programmers Manual, September 2006"
+url = "https://assets.fluke.com/manuals/8845A___pmeng0300.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^fluke'
+model = '^884[56]A$'
+
+[link]
+lan_port = 3490
+baud = 9600
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+
+[errors]
+query = "SYST:ERR?"
+
+[signals.value]
+query = "READ?"
+parse = "float"
+
+[state.function]
+query = "FUNC?"
+parse = "map"
+map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP:RTD" = "temperature", "TEMP:FRTD" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm]
+function_query = "FUNC?"
+function_map = { "VOLT" = "dc_voltage", "VOLT:DC" = "dc_voltage", "VOLT:AC" = "ac_voltage", "CURR" = "dc_current", "CURR:DC" = "dc_current", "CURR:AC" = "ac_current", "RES" = "resistance", "FRES" = "resistance_4w", "FREQ" = "frequency", "PER" = "period", "TEMP:RTD" = "temperature", "TEMP:FRTD" = "temperature", "CAP" = "capacitance", "DIOD" = "diode", "CONT" = "continuity" }
+
+[dmm.functions]
+dc_voltage = "V"
+ac_voltage = "V"
+dc_current = "A"
+ac_current = "A"
+resistance = "Ohm"
+resistance_4w = "Ohm"
+frequency = "Hz"
+period = "s"
+temperature = "degC"
+capacitance = "F"
+diode = "V"
+continuity = "Ohm"
+
+[setters.function]
+command = "CONF:{function}"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP:RTD", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }

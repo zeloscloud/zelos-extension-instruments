@@ -1,0 +1,92 @@
+schema = 1
+id = "rohde-schwarz-nge100"
+name = "Rohde & Schwarz NGE100B series"
+category = "psu"
+notes = """Covers the NGE102B (two channels) and NGE103B (three channels). \
+Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
+Any command switches the instrument to remote control and locks the front panel until the Local action runs or the Remote key is held. \
+OUTP switches the selected channel on or off; OUTP:SEL (the channel key) and OUTP:GEN (the master output) are not used. \
+The manual documents no error-queue query, so sets are verified by readback only. \
+Protection reads the OVP, OCP (FUSE) and OPP tripped flags of the selected channel. \
+Clear resets the OVP trip only; FUSE:TRIP:CLEar and POW:PROT:CLEar are not wired. \
+The LAN socket port is fixed at 5025; USB offers TMC or VCP, which is selected in the instrument menu. \
+The original NGE100 (not B) manual was not read."""
+
+[evidence]
+badge = "manual"
+source = "R&S NGE100B Power Supply User Manual, 5601.1343.02, Version 11, firmware 1.55"
+url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/5601_1343_01/NGE100B_User_Manual_en_11.pdf"
+date = "2026-10-20"
+
+[match]
+manufacturer = '(?i)^rohde\s*&\s*schwarz'
+model = '(?i)^NGE10[23]B$'
+channels = 2
+
+[[match.models]]
+model = '(?i)^NGE103B$'
+channels = 3
+
+[link]
+select = "INST:NSEL {ch}"
+local = "SYST:LOC"
+locks_panel = true
+
+[ranges]
+voltage = { min = 0, max = 32.2, digits = 2, step = 0.01 }
+current = { min = 0.003, max = 3.025, digits = 3 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[signals.power]
+query = "MEAS:POW?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT:LEV?"
+parse = "float"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[state.mode]
+query = "OUTP:MODE?"
+parse = "map"
+map = { OFF = "off", CV = "cv", CC = "cc" }
+
+[state.protection]
+flags = [
+  { query = "VOLT:PROT:TRIP?", parse = "bool", value = "ovp" },
+  { query = "FUSE:TRIP?", parse = "bool", value = "ocp" },
+  { query = "POW:PROT:TRIP?", parse = "bool", value = "opp" },
+]
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT:LEV {value}"
+
+[setters.output]
+command = "OUTP {bit}"
+
+[setters.clear]
+command = "VOLT:PROT:CLE"
