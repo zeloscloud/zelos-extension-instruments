@@ -12,7 +12,7 @@ import math
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from contextlib import suppress
 from typing import Any, Literal
 
@@ -182,6 +182,8 @@ class InstrumentWorker(threading.Thread):
         self._backoff_s = _BACKOFF_MIN_S
         self._recent: deque[tuple[int, str, str]] = deque(maxlen=_KEPT)
         self._next_slow_ns = 0
+        # The slow round in progress: its steps run between fast passes.
+        self._slow: Generator[None, None, None] | None = None
         self._next_status_ns = 0
         self._next_fast_ns = 0
         self._next_poll_ns: dict[str, int] = {}
@@ -190,6 +192,8 @@ class InstrumentWorker(threading.Thread):
         self._slots: dict[int, tuple[int, str]] = {}
         # Slots that are on but show something the profile does not record; never reused.
         self._busy_slots: set[int] = set()
+        # Whole scans an action ran; a slow round's scan that overlapped one is stale.
+        self._slot_scans = 0
         self._acquisition: dict[str, Any] = {}
         self._cycles_since_connect = 0
         self._link_timeout_s = 2.0
@@ -441,6 +445,7 @@ class InstrumentWorker(threading.Thread):
             self._emitter.add_instrument(self.cfg.name, profile, channels, self.cfg.poll)
             self._registered = True
         self._next_slow_ns = 0
+        self._slow = None
         self._next_status_ns = 0
         self._next_fast_ns = 0
         self._next_poll_ns = {}
@@ -520,29 +525,18 @@ class InstrumentWorker(threading.Thread):
     # -- the poll cycle ----------------------------------------------------------------------
 
     def _cycle(self) -> None:
-        """One pass: the slow steps when due, then the fast ones, serving requests in between."""
+        """One pass: the fast steps on their schedule, then slow steps in the time left before
+        the next fast pass, serving requests in between."""
         assert self._plan is not None and self.profile is not None
         start = self._now()
-        if start >= self._next_slow_ns:
-            # State first, so a meter's first reading already knows its function.
+        if self._slow is None and start >= self._next_slow_ns:
+            first = self._next_slow_ns == 0
             self._next_slow_ns = start + _SLOW_NS
-            slow_rows: dict[int | None, dict[str, Any]] = {}
-            flags: dict[int | None, list[tuple[str, bool]]] = {}
-            for step in self._plan.slow:
-                self._serve_requests()
-                if self._stopping.is_set() or self._link is None:
-                    return
-                self._run_step(step, slow_rows, flags)
-            for ch, found in flags.items():
-                label = next((value for value, is_set in found if is_set), "none")
-                slow_rows.setdefault(ch, {})["protection"] = label
-            at = self._now()
-            for ch, values in slow_rows.items():
-                self._record(ch, values, at, fast=False)
-            if self.profile.scope is not None and self.profile.scope.slots is not None:
-                self._slots = scope_ops.scan_slots(self)
-            self._drain_errors()
-            self._keep_panel()
+            self._slow = self._slow_round()
+            if first:
+                # State first, so a meter's first reading already knows its function.
+                while self._slow is not None:
+                    self._slow_step()
         # Requests are served before the batch, never inside it: a reading's time is the time
         # of its own query, and a slow request must not sit between a query and its stamp.
         self._serve_requests()
@@ -572,13 +566,66 @@ class InstrumentWorker(threading.Thread):
             self._next_status_ns = now + _STATUS_NS
             self._emit_status(connected=True)
             self.health = self._open_health()
-        self._serve_requests()
         # A fixed schedule: the next cycle is due one interval after this one was, so the rate
         # holds whatever each cycle took, and a cycle that ran late does not delay the next.
         self._next_fast_ns = max(self._next_fast_ns + self._interval_ns, start)
+        # Slow steps fill the time before the next fast pass, so the fast readings keep their
+        # spacing; one runs every cycle regardless, so a round ends even with no time to spare.
+        longest = 0
+        while self._slow is not None and not self._stopping.is_set():
+            began = self._now()
+            if longest and began + longest > self._next_fast_ns:
+                break
+            self._slow_step()
+            longest = max(longest, self._now() - began)
+        self._serve_requests()
         remaining_s = (self._next_fast_ns - self._now()) / _S
         if remaining_s > 0:
             self._wait(remaining_s)
+
+    def _slow_step(self) -> None:
+        """One query of the slow round in progress; the round ends when its steps do."""
+        assert self._slow is not None
+        try:
+            next(self._slow)
+        except StopIteration:
+            self._slow = None
+        except BaseException:
+            self._slow = None
+            raise
+
+    def _slow_round(self) -> Generator[None, None, None]:
+        """The slow steps one query at a time; each channel is recorded once its last slow
+        step is in, at that moment, so its row never lands behind a later fast reading."""
+        assert self._plan is not None and self.profile is not None
+        steps = self._plan.slow
+        last = {step.channel: index for index, step in enumerate(steps)}
+        rows: dict[int | None, dict[str, Any]] = {}
+        flags: dict[int | None, list[tuple[str, bool]]] = {}
+        for index, step in enumerate(steps):
+            self._serve_requests()
+            if self._stopping.is_set() or self._link is None:
+                return
+            self._run_step(step, rows, flags)
+            if last[step.channel] == index:
+                found = flags.pop(step.channel, None)
+                if found is not None:
+                    label = next((value for value, is_set in found if is_set), "none")
+                    rows.setdefault(step.channel, {})["protection"] = label
+                values = rows.pop(step.channel, None)
+                if values:
+                    self._record(step.channel, values, self._now(), fast=False)
+            yield
+        if self.profile.scope is not None and self.profile.scope.slots is not None:
+            scans = self._slot_scans
+            live, busy = yield from scope_ops.slot_steps(self)
+            if self._slot_scans == scans:
+                self._slots, self._busy_slots = live, busy
+        self._drain_errors()
+        # The health line names the last instrument error as soon as it is read.
+        self.health = self._open_health()
+        yield
+        self._keep_panel()
 
     def _run_step(
         self,

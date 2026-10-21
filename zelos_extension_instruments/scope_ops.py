@@ -8,6 +8,7 @@ read back every slow pass, and only an explicit Measure request changes them.
 from __future__ import annotations
 
 import math
+from collections.abc import Generator
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
@@ -28,35 +29,55 @@ _CAPTURE_MAX_S = 55.0
 _S = 1_000_000_000
 
 
-def scan_slots(worker: InstrumentWorker) -> dict[int, tuple[int, str]]:
-    """Slot number to (channel, measurement field) for every slot that is on and understood."""
+Slots = dict[int, tuple[int, str]]
+
+
+def scan_slots(worker: InstrumentWorker) -> Slots:
+    """Every slot that is on and understood, read now in one go; marks the slots in use."""
+    worker._slot_scans += 1
+    steps = slot_steps(worker)
+    while True:
+        try:
+            next(steps)
+        except StopIteration as done:
+            live, worker._busy_slots = done.value
+            return live
+
+
+def slot_steps(worker: InstrumentWorker) -> Generator[None, None, tuple[Slots, set[int]]]:
+    """The slot scan one query at a time: slot number to (channel, measurement field) for every
+    slot that is on and understood, and the slots in use."""
     profile = worker.profile
     assert profile is not None and profile.scope is not None
     slots = profile.scope.slots
     if slots is None:
-        return {}
-    worker._busy_slots = set()
+        return {}, set()
     if slots.ready_query is not None:
         try:
             ready = worker._query(slots.ready_query).strip().casefold()
         except LinkTimeout as e:
             worker._recover(f"{slots.ready_query}: {e}")
-            return {}
+            return {}, set()
+        yield
         if ready != str(slots.ready_value).casefold():
             # Another measurement mode is on: every slot may be in use for all we know.
-            worker._busy_slots = set(range(1, slots.count + 1))
-            return {}
-    live: dict[int, tuple[int, str]] = {}
+            return {}, set(range(1, slots.count + 1))
+    live: Slots = {}
+    busy: set[int] = set()
     for slot in range(1, slots.count + 1):
         try:
-            if not engine.parse_bool(worker._query(engine.render(slots.enabled, slot=slot))):
+            on = engine.parse_bool(worker._query(engine.render(slots.enabled, slot=slot)))
+            yield
+            if not on:
                 continue
-            worker._busy_slots.add(slot)
+            busy.add(slot)
             word = worker._query(engine.render(slots.type, slot=slot)).strip().casefold()
+            yield
             source = worker._query(engine.render(slots.source, slot=slot)).strip()
+            yield
         except LinkTimeout as e:
             worker._recover(f"slot {slot}: {e}")
-            return live
+            return live, busy
         except ParseError as e:
             worker._log_once(f"slot {slot}", f"slot {slot}: {e}")
             worker._recover(f"slot {slot}: {e}")
@@ -72,7 +93,7 @@ def scan_slots(worker: InstrumentWorker) -> dict[int, tuple[int, str]]:
         ch = int(found.group("ch"))
         if ch in worker._channel:
             live[slot] = (ch, field_name)
-    return live
+    return live, busy
 
 
 def read_slots(worker: InstrumentWorker, rows: dict[int | None, dict[str, Any]]) -> None:

@@ -2,6 +2,7 @@
 
 import math
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -14,9 +15,11 @@ from tests.conftest import (
     settings_for,
     wait_until,
 )
+from zelos_extension_instruments import scope_ops
 from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.link import LinkError, LinkTimeout
 from zelos_extension_instruments.profile import Profile, from_dict, load_file
+from zelos_extension_instruments.sim import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 
 
@@ -909,3 +912,72 @@ def test_per_channel_poll_rows_get_a_field_per_channel_and_join_read(
     finally:
         worker.stop()
         worker.join(2)
+
+
+def test_the_slow_round_runs_between_fast_readings_without_delaying_them(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    """The slow round ran whole before a due fast pass, holding that reading back for its whole
+    length. A round longer than the interval must now be split between fast passes."""
+
+    def slow_instrument(command: str) -> str | None:
+        time.sleep(0.008)
+        return dp832(command)
+
+    emitter = RecordingEmitter()
+    worker, link = start(dp800, slow_instrument, emitter, rate_hz=10)
+    try:
+        assert wait_until(lambda: worker.state == "open")
+        assert worker._plan is not None
+        fast = {step.query for step in worker._plan.fast}
+        slow = {step.query for step in worker._plan.slow}
+        # 33 settings queries take about 270 ms: more than two intervals at 10 Hz.
+        assert len(slow) * 0.008 > 0.2
+        # The first round runs whole before the first reading, so a meter knows its function.
+        assert wait_until(lambda: any("voltage" in v for _, _, v, _ in emitter.rows))
+        settled = len(emitter.rows)
+        # Later rounds yield to the fast schedule but always finish: every channel's settings.
+        assert wait_until(
+            lambda: (
+                {ch for _, ch, v, _ in emitter.rows[settled:] if "voltage_set" in v} == {1, 2, 3}
+            ),
+            timeout_s=10,
+        )
+        sent = list(link.commands)
+    finally:
+        worker.stop()
+        worker.join(2)
+    after_first = sent[next(i for i, command in enumerate(sent) if command in fast) :]
+    runs: list[int] = []
+    run = 0
+    for command in after_first:
+        if command in fast:
+            runs.append(run)
+            run = 0
+        elif command in slow:
+            run += 1
+    runs.append(run)
+    assert max(runs) < len(slow), f"{max(runs)} settings queries in one gap"
+
+
+def test_a_slot_scan_an_action_overtook_never_overwrites_its_result(
+    profiles: list[Profile],
+) -> None:
+    """A slow round scans slots between fast passes; a Measure in between must survive it."""
+    scope = next(p for p in profiles if p.id == "siglent-sds")
+    fake = FakeInstrument(scope)
+    link = ScriptedLink(fake.handle, "scope")
+    cfg = instrument_config(name="scope", profile=scope.id)
+    worker = InstrumentWorker(
+        cfg, [scope], RecordingEmitter(), settings_for(cfg), open=opener_for(link)
+    )
+    assert worker._connect()
+    assert worker._plan is not None
+    round_ = worker._slow_round()
+    for _ in range(len(worker._plan.slow) + 2):
+        next(round_)
+    assert link.commands[-1] == ":MEASure:ADVanced:P1?"
+    shown = scope_ops.measure(worker, 2, {"type": "frequency"})
+    for _ in round_:
+        pass
+    assert worker._slots[shown["slot"]] == (2, "frequency")
