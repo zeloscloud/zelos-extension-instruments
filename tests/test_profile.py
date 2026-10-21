@@ -145,9 +145,14 @@ def test_shipped_ids_equal_file_stems(profiles: list[Profile]) -> None:
         assert p.id == p.path.stem
 
 
-def test_shipped_badges_are_manual(profiles: list[Profile]) -> None:
+def test_shipped_badges_are_earned(profiles: list[Profile]) -> None:
     """A profile is only promoted by a transcript or the bench, never by hand."""
-    assert [p.id for p in profiles if p.evidence.badge != "manual"] == []
+    transcripts = SHIPPED_DIR.parent / "tests" / "transcripts"
+    recorded = (
+        {d.name for d in transcripts.iterdir() if d.is_dir()} if transcripts.is_dir() else set()
+    )
+    promoted = {p.id: p.evidence.badge for p in profiles if p.evidence.badge != "manual"}
+    assert promoted == dict.fromkeys(recorded, "transcript")
 
 
 def test_shipped_has_a_generic_profile_for_each_category(profiles: list[Profile]) -> None:
@@ -411,7 +416,7 @@ LINT_CASES: list[tuple[str, Any, str, str]] = [
         "use lower-case letters, digits and hyphens.",
     ),
     ("missing name", lambda r: drop(r, "name"), "name", "missing or empty."),
-    ("bad category", lambda r: set_(r, "category", "scope"), "category", "must be one of"),
+    ("bad category", lambda r: set_(r, "category", "oven"), "category", "must be one of"),
     (
         "missing evidence source",
         lambda r: drop(r, "evidence.source"),
@@ -894,3 +899,13 @@ def test_main_reads_sys_argv_when_not_given(
 def test_shipped_directory_is_the_repo_profiles_directory() -> None:
     assert profile_module.SHIPPED_DIR == REPO_ROOT / "profiles"
     assert [p.id for p in shipped()] == [p.id for p in load_dir(SHIPPED_DIR)]
+
+
+def test_a_scope_profiles_fields_include_every_measurement_its_slots_can_show() -> None:
+    scope = by_id(shipped(), "siglent-sds")
+    assert scope is not None and scope.scope is not None and scope.scope.slots is not None
+    fields = scope.fields
+    for name in scope.scope.slots.types.values():
+        assert name in fields, name
+    assert fields["pkpk"] == "V" and fields["frequency"] == "Hz" and fields["scale"] == "V"
+    assert "timebase" not in fields and scope.instrument_fields["timebase"] == "s"

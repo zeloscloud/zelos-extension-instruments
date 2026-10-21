@@ -26,6 +26,10 @@ class _Instrument:
     poll: zelos_sdk.TraceSourceEvent | None
     poll_fields: dict[str, str]
     fields: dict[str, str | None]
+    # One event for settings the whole instrument shares, such as a scope's timebase.
+    acquisition: zelos_sdk.TraceSourceEvent | None = None
+    acquisition_fields: dict[str, str | None] = field(default_factory=dict)
+    waveforms: dict[int, zelos_sdk.TraceSourceEvent] = field(default_factory=dict)
     warned: set[str] = field(default_factory=set)
 
 
@@ -91,8 +95,36 @@ class Emitter:
                     for key, unit in keys
                 ],
             )
+        acquisition = None
+        acquisition_fields = profile.instrument_fields
+        if acquisition_fields:
+            event_name = f"{name}/acquisition"
+            acquisition = self._source.add_event(
+                event_name, [_metadata(k, v) for k, v in acquisition_fields.items()]
+            )
+            for field_name in acquisition_fields:
+                if field_name in ENUM_FIELDS:
+                    self._source.add_value_table(
+                        event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
+                    )
+        waveforms: dict[int, zelos_sdk.TraceSourceEvent] = {}
+        if profile.scope is not None and profile.scope.waveform is not None:
+            for ch in range(1, channels + 1):
+                waveforms[ch] = self._source.add_event(
+                    f"{name}/ch{ch}/waveform",
+                    [zelos_sdk.TraceEventFieldMetadata("voltage", zelos_sdk.DataType.Float64, "V")],
+                )
         self._instruments[name] = _Instrument(
-            channel_events, functions, status, log, poll_event, poll_fields, dict(units)
+            channel_events,
+            functions,
+            status,
+            log,
+            poll_event,
+            poll_fields,
+            dict(units),
+            acquisition,
+            dict(acquisition_fields),
+            waveforms,
         )
 
     def row(self, name: str, ch: int, values: dict[str, Any], time_ns: int) -> None:
@@ -101,19 +133,26 @@ class Emitter:
         event = inst.channels.get(ch)
         if event is None or not values:
             return
-        row: dict[str, Any] = {}
-        for field_name, value in values.items():
-            if field_name not in inst.fields:
-                continue
-            if field_name in ENUM_FIELDS:
-                labels = ENUM_FIELDS[field_name]
-                row[field_name] = labels.index(value) if value in labels else len(labels) - 1
-            elif field_name in BOOL_FIELDS:
-                row[field_name] = bool(value)
-            else:
-                row[field_name] = float(value) if value is not None else math.nan
+        row = _typed(values, inst.fields)
         if row:
             event.log_at(time_ns, **row)
+
+    def acquisition_row(self, name: str, values: dict[str, Any], time_ns: int) -> None:
+        """Write the instrument-wide fields read at `time_ns`."""
+        inst = self._instruments[name]
+        if inst.acquisition is None:
+            return
+        row = _typed(values, inst.acquisition_fields)
+        if row:
+            inst.acquisition.log_at(time_ns, **row)
+
+    def waveform(self, name: str, ch: int, samples: list[tuple[int, float]]) -> None:
+        """One capture of a channel: (time_ns, value) per sample."""
+        event = self._instruments[name].waveforms.get(ch)
+        if event is None:
+            return
+        for time_ns, value in samples:
+            event.log_at(time_ns, voltage=value)
 
     def reading(self, name: str, function: str, value: float, time_ns: int) -> None:
         """A DMM reading, under the active function's event."""
@@ -151,6 +190,22 @@ class Emitter:
 
     def fields(self, name: str) -> dict[str, str | None]:
         return dict(self._instruments[name].fields)
+
+
+def _typed(values: dict[str, Any], fields: dict[str, str | None]) -> dict[str, Any]:
+    """The values of known fields as the event stores them; labels become their table index."""
+    row: dict[str, Any] = {}
+    for field_name, value in values.items():
+        if field_name not in fields:
+            continue
+        if field_name in ENUM_FIELDS:
+            labels = ENUM_FIELDS[field_name]
+            row[field_name] = labels.index(value) if value in labels else len(labels) - 1
+        elif field_name in BOOL_FIELDS:
+            row[field_name] = bool(value)
+        else:
+            row[field_name] = float(value) if value is not None else math.nan
+    return row
 
 
 def _metadata(field_name: str, unit: str | None) -> zelos_sdk.TraceEventFieldMetadata:

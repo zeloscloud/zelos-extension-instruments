@@ -7,6 +7,7 @@ import time
 from contextlib import suppress
 from typing import Any
 
+from ..waveform import BlockError
 from . import (
     CONNECT_TIMEOUT_S,
     Lines,
@@ -19,6 +20,10 @@ from . import (
 )
 
 _CHUNK = 4096
+# Silence that means a late reply has finished arriving.
+_QUIET_S = 0.1
+# A waveform arrives in megabytes; read it in large pieces.
+_BLOCK_CHUNK = 1 << 20
 _TCP_USER_TIMEOUT = 18  # Linux; Python only exposes the constant from 3.12
 _KEEPALIVE_IDLE_S = 10
 _KEEPALIVE_INTERVAL_S = 5
@@ -179,34 +184,68 @@ class TcpLink:
             raise self._broken(exc) from exc
         self._pacer.mark()
 
-    def read(self) -> str:
-        deadline = time.monotonic() + self._settings.timeout_s
+    def read(self, timeout_s: float | None = None) -> str:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
         while True:
             line = self._lines.pop()
             if line is not None:
                 return line
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise self._no_reply()
-            try:
-                self._sock.settimeout(remaining)
-                chunk = self._sock.recv(_CHUNK)
-            except TimeoutError as exc:
-                raise self._no_reply() from exc
-            except OSError as exc:
-                raise self._broken(exc) from exc
-            if not chunk:
-                raise self._broken(None)
-            self._lines.feed(chunk)
+            self._receive(deadline, _CHUNK)
 
     def query(self, command: str) -> str:
         self.write(command)
         return self.read()
 
+    def read_block(self, timeout_s: float | None = None) -> bytes:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
+        while True:
+            block = self._pop_block()
+            if block is not None:
+                return block
+            self._receive(deadline, _BLOCK_CHUNK)
+
+    def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
+        while True:
+            kind = self._lines.starts_block()
+            if kind is True:
+                block = self._pop_block()
+                if block is not None:
+                    return block
+            elif kind is False:
+                line = self._lines.pop()
+                if line is not None:
+                    return line
+            self._receive(deadline, _BLOCK_CHUNK)
+
+    def _pop_block(self) -> bytes | None:
+        try:
+            return self._lines.pop_block()
+        except BlockError as exc:
+            self._lines.clear()
+            raise LinkError(f"{self.where} did not answer with a block: {exc}", "other") from exc
+
+    def _receive(self, deadline: float, size: int) -> None:
+        """One more chunk into the line buffer, or the timeout."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise self._no_reply()
+        try:
+            self._sock.settimeout(remaining)
+            chunk = self._sock.recv(size)
+        except TimeoutError as exc:
+            raise self._no_reply() from exc
+        except OSError as exc:
+            raise self._broken(exc) from exc
+        if not chunk:
+            raise self._broken(None)
+        self._lines.feed(chunk)
+
     def clear(self) -> None:
+        """Drop what has arrived and what still arrives until the line is quiet."""
         self._lines.clear()
         try:
-            self._sock.settimeout(0)
+            self._sock.settimeout(_QUIET_S)
             while self._sock.recv(_CHUNK):
                 pass
         except OSError:

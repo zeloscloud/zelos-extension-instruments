@@ -1,0 +1,235 @@
+schema = 1
+id = "siglent-sds"
+name = "Siglent SDS series oscilloscopes"
+category = "scope"
+notes = """The series the SDS Series Programming Guide EN11G covers: SDS800X HD, SDS1000X HD, \
+SDS2000X HD, SDS2000X Plus, SDS3000X HD, SDS5000X, SDS6000A, SDS6000 Pro, SDS6000L and SDS7000A. \
+The measurements recorded are the ones the scope's own measurement slots show, in Advanced mode; \
+the Measure action puts one there. Older SDS1000X-E and SDS2000X units speak the legacy command \
+set and do not match. The guide documents no error queue; the SDS824X HD answers \
+:SYSTem:ERRor? all the same. Its raw socket (port 5025) serves one client and stays held when a \
+client vanishes; VXI-11 (TCPIP::<host>::INSTR) does not."""
+
+[evidence]
+badge = "transcript"
+source = "Siglent SDS Series Digital Oscilloscope Programming Guide EN11G, 2024, and SDS800X HD data sheet EN01B; transcript from an SDS824X HD"
+firmware = "3.8.11.1.1.3.3"
+url = "https://www.siglenteu.com/wp-content/uploads/dlm_uploads/2024/09/SDS800XHD_Series_ProgrammingGuide_EN11G.pdf"
+date = "2026-10-21"
+
+[match]
+manufacturer = '(?i)^siglent'
+model = '(?i)^SDS\d{3,4}X(\s*(HD|Plus|PLUS))?$|^SDS[67]\d{3}(A|L|\s*Pro|\s*PRO)$'
+channels = 4
+
+# The digit before the X, A or L suffix is the channel count (SDS802X HD, SDS2102X Plus, SDS6202A).
+[[match.models]]
+model = '(?i)^SDS\d{2}2(X|A|L)\b'
+channels = 2
+
+[link]
+lan_port = 5025
+timeout_s = 3
+
+[errors]
+query = ":SYSTem:ERRor?"
+
+[ranges]
+scale = { min = 0.0005, max = 10, digits = 4 }
+timebase = { min = 1e-9, max = 1000, digits = 9 }
+
+[state.visible]
+query = ":CHANnel{ch}:SWITch?"
+parse = "bool"
+
+[state.scale]
+query = ":CHANnel{ch}:SCALe?"
+parse = "float"
+
+[state.offset]
+query = ":CHANnel{ch}:OFFSet?"
+parse = "float"
+
+[state.coupling]
+query = ":CHANnel{ch}:COUPling?"
+parse = "map"
+map = { DC = "dc", AC = "ac", GND = "gnd" }
+
+[state.bandwidth_limit]
+query = ":CHANnel{ch}:BWLimit?"
+parse = "map"
+map = { FULL = "full", "20M" = "20mhz", "200M" = "200mhz" }
+
+[state.probe]
+query = ":CHANnel{ch}:PROBe?"
+parse = "float"
+
+[state.timebase]
+query = ":TIMebase:SCALe?"
+parse = "float"
+
+[state.delay]
+query = ":TIMebase:DELay?"
+parse = "float"
+
+[state.sample_rate]
+query = ":ACQuire:SRATe?"
+parse = "float"
+
+[state.memory_depth]
+query = ":ACQuire:MDEPth?"
+parse = "float"
+
+[state.points]
+query = ":ACQuire:POINts?"
+parse = "float"
+
+[state.acquisitions]
+query = ":ACQuire:NUMACq?"
+parse = "int"
+
+[state.trigger_status]
+query = ":TRIGger:STATus?"
+parse = "map"
+map = { Arm = "armed", Ready = "ready", Auto = "auto", "Trig'd" = "triggered", Stop = "stopped", Roll = "roll" }
+
+[state.trigger_mode]
+query = ":TRIGger:MODE?"
+parse = "map"
+map = { AUTO = "auto", NORMal = "normal", SINGle = "single", FTRIG = "forced" }
+
+[state.trigger_source]
+query = ":TRIGger:EDGE:SOURce?"
+parse = "map"
+map = { C1 = "ch1", C2 = "ch2", C3 = "ch3", C4 = "ch4", C5 = "ch5", C6 = "ch6", C7 = "ch7", C8 = "ch8", LINE = "line", EX = "external", EX5 = "external" }
+
+[state.trigger_level]
+query = ":TRIGger:EDGE:LEVel?"
+parse = "float"
+
+[state.trigger_slope]
+query = ":TRIGger:EDGE:SLOPe?"
+parse = "map"
+map = { RISing = "rising", FALLing = "falling", ALTernate = "either" }
+
+[state.trigger_frequency]
+query = ":TRIGger:FREQuency?"
+parse = "float"
+
+[setters.visible]
+command = ":CHANnel{ch}:SWITch {on}"
+
+[setters.scale]
+command = ":CHANnel{ch}:SCALe {value}"
+
+[setters.offset]
+command = ":CHANnel{ch}:OFFSet {value}"
+
+[setters.coupling]
+command = ":CHANnel{ch}:COUPling {value}"
+map = { dc = "DC", ac = "AC", gnd = "GND" }
+
+[setters.probe]
+command = ":CHANnel{ch}:PROBe VALue,{value}"
+
+[setters.timebase]
+command = ":TIMebase:SCALe {value}"
+channel = false
+
+[setters.delay]
+command = ":TIMebase:DELay {value}"
+channel = false
+
+[setters.trigger_level]
+command = ":TRIGger:EDGE:LEVel {value}"
+channel = false
+
+[setters.trigger_source]
+command = ":TRIGger:EDGE:SOURce {value}"
+channel = false
+map = { ch1 = "C1", ch2 = "C2", ch3 = "C3", ch4 = "C4", ch5 = "C5", ch6 = "C6", ch7 = "C7", ch8 = "C8", line = "LINE", external = "EX" }
+
+[setters.trigger_slope]
+command = ":TRIGger:EDGE:SLOPe {value}"
+channel = false
+map = { rising = "RISing", falling = "FALLing", either = "ALTernate" }
+
+[setters.trigger_mode]
+command = ":TRIGger:MODE {value}"
+channel = false
+map = { auto = "AUTO", normal = "NORMal", single = "SINGle", forced = "FTRIG" }
+
+[setters.run]
+command = ":TRIGger:RUN"
+channel = false
+
+[setters.stop]
+command = ":TRIGger:STOP"
+channel = false
+
+[setters.single]
+command = ":TRIGger:MODE SINGle"
+channel = false
+
+[setters.autoset]
+command = ":AUToset"
+channel = false
+
+[scope]
+grid = 10
+
+[scope.slots]
+count = 12
+enabled = ":MEASure:ADVanced:P{slot}?"
+type = ":MEASure:ADVanced:P{slot}:TYPE?"
+source = ":MEASure:ADVanced:P{slot}:SOURce1?"
+source_pattern = '^C(?P<ch>\d+)$'
+value = ":MEASure:ADVanced:P{slot}:VALue?"
+ready = { query = ":MEASure:MODE?", value = "ADVanced" }
+
+[scope.slots.types]
+PKPK = "pkpk"
+MAX = "maximum"
+MIN = "minimum"
+AMPL = "amplitude"
+TOP = "top"
+BASE = "base"
+MEAN = "mean"
+CMEAN = "cycle_mean"
+RMS = "rms"
+CRMS = "cycle_rms"
+STDEV = "stdev"
+OVSP = "overshoot"
+RPRE = "preshoot"
+PER = "period"
+FREQ = "frequency"
+PWID = "positive_width"
+NWID = "negative_width"
+DUTY = "duty"
+RISE = "rise_time"
+FALL = "fall_time"
+
+[scope.measure]
+commands = [
+  ":MEASure ON",
+  ":MEASure:MODE ADVanced",
+  ":MEASure:ADVanced:P{slot}:TYPE {type}",
+  ":MEASure:ADVanced:P{slot}:SOURce1 C{ch}",
+  ":MEASure:ADVanced:P{slot} ON",
+]
+off = ":MEASure:ADVanced:P{slot} OFF"
+
+[scope.waveform]
+format = "wavedesc"
+setup = [
+  ":WAVeform:SOURce C{ch}",
+  ":WAVeform:STARt 0",
+  ":WAVeform:POINt {points}",
+  ":WAVeform:INTerval {interval}",
+  ":WAVeform:WIDTh WORD",
+  ":WAVeform:BYTeorder LSB",
+]
+preamble = ":WAVeform:PREamble?"
+data = ":WAVeform:DATA?"
+max_points = ":WAVeform:MAXPoint?"
+points = ":ACQuire:POINts?"

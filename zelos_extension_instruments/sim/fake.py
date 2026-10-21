@@ -9,6 +9,7 @@ import importlib
 import math
 import random
 import re
+import struct
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -34,6 +35,10 @@ _CAPTURES = {
     "value": r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?",
     "on": "ON|OFF",
     "bit": "[01]",
+    "slot": r"\d+",
+    "type": r"[A-Za-z0-9]+",
+    "points": r"\d+",
+    "interval": r"\d+",
 }
 _NO_ERROR = '0,"No error"'
 _UNDEFINED_HEADER = (-113, "Undefined header")
@@ -83,12 +88,26 @@ class _Channel:
     trip: str = "none"
     load_ohms: float = 10.0
     source_volts: float = 12.0
+    # The newer state fields: protection enables, sense, tracking, a load's range, a meter's
+    # range, auto-range and integration time.
+    extras: dict[str, Any] = field(
+        default_factory=lambda: {
+            "ovp_on": False,
+            "ocp_on": False,
+            "remote_sense": False,
+            "tracking": "independent",
+            "current_range": "high",
+            "range": 10.0,
+            "autorange": True,
+            "nplc": 1.0,
+        }
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class _Route:
     pattern: re.Pattern[str]
-    act: Callable[[re.Match[str]], str | None]
+    act: Callable[[re.Match[str]], str | bytes | None]
 
 
 class FakeInstrument:
@@ -122,10 +141,19 @@ class FakeInstrument:
         self._errors: deque[tuple[int, str]] = deque()
         self._selected = 1
         self._state = [_Channel(self._default_function()) for _ in range(self.channels)]
+        self.scope = FakeScope(profile, self.channels) if profile.category == "scope" else None
         self._routes = self._routes_for(profile)
 
-    def handle(self, line: str) -> str | None:
-        """The reply to one command, without terminators; None when the command has none."""
+    def handle_text(self, line: str) -> str | None:
+        """`handle` for a command whose reply is text, never a block."""
+        reply = self.handle(line)
+        if isinstance(reply, bytes):
+            raise TypeError(f"{line!r} answered with a block")
+        return reply
+
+    def handle(self, line: str) -> str | bytes | None:
+        """The reply to one command, without terminators; None when the command has none. A
+        waveform block comes back as bytes."""
         command = line.strip()
         if not command:
             return None
@@ -141,7 +169,9 @@ class FakeInstrument:
         if reply is None and ack is not None and not command.endswith("?"):
             # An instrument that acknowledges every command answers a set with its ack word.
             reply = ack
-        self.transcript.append((command, reply))
+        self.transcript.append(
+            (command, f"<block {len(reply)} bytes>" if isinstance(reply, bytes) else reply)
+        )
         return reply
 
     def set_load_ohms(self, ch: int, ohms: float) -> None:
@@ -188,7 +218,9 @@ class FakeInstrument:
         routes: list[_Route] = []
 
         def add(
-            template: str, act: Callable[[re.Match[str]], str | None], words: Iterable[str] = ()
+            template: str,
+            act: Callable[[re.Match[str]], str | bytes | None],
+            words: Iterable[str] = (),
         ) -> None:
             routes.append(_Route(_pattern(template, words), act))
 
@@ -209,6 +241,9 @@ class FakeInstrument:
         for command in (profile.link.remote, profile.link.local, *profile.link.init):
             if command is not None:
                 add(command, lambda _: None)
+        if self.scope is not None:
+            for template, act in self.scope.routes():
+                add(template, act)
         add("*OPC?", lambda _: "1")
         add("*CLS", self._clear_errors)
         add("*RST", self._reset)
@@ -278,7 +313,20 @@ class FakeInstrument:
         else:
             targets = list(range(1, self.channels + 1))
         groups = match.groupdict()
-        if setter.name in VALUE_SETTERS:
+        if self.scope is not None and setter.name in self.scope.names | {
+            "run",
+            "stop",
+            "single",
+            "autoset",
+        }:
+            key = self.profile.range_key(setter) if setter.name in VALUE_SETTERS else None
+            if key is not None:
+                low, high = self.bounds(key, targets[0])
+                if not low <= float(groups["value"]) <= high:
+                    self._push_error(*_OUT_OF_RANGE)
+                    return
+            self.scope.set(setter, groups, targets)
+        elif setter.name in VALUE_SETTERS:
             value = float(groups["value"])
             key = self.profile.range_key(setter)
             for ch in targets:
@@ -292,6 +340,10 @@ class FakeInstrument:
             on = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
             for ch in targets:
                 self._state[ch - 1].output = on
+        elif setter.name in ("ovp_on", "ocp_on"):
+            on = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
+            for ch in targets:
+                self._state[ch - 1].extras[setter.name] = on
         elif setter.name == "function":
             word = groups["function"].casefold()
             label = next(k for k, v in setter.map.items() if v.casefold() == word)
@@ -368,14 +420,27 @@ class FakeInstrument:
 
     def _verify_parts(self, setter: Setter, ch: int) -> list[Part]:
         state = self._state[ch - 1]
+        if self.scope is not None and setter.name in self.scope.names:
+            value = self.scope.value(setter.name, ch)
+            if isinstance(value, bool):
+                return [(0, "1" if value else "0", False)]
+            if isinstance(value, str):
+                return [(0, setter.map.get(value, value), False)]
+            return [(0, _number(value), False)]
         if setter.name in VALUE_SETTERS:
             return [(0, _number(state.setpoints[setter.name]), False)]
         if setter.name == "output":
             return [(0, "1" if state.output else "0", False)]
+        if setter.name in state.extras:
+            return [(0, "1" if state.extras[setter.name] else "0", False)]
         return [(0, setter.map.get(state.function or "", ""), False)]
 
     def _value(self, name: str, ch: int) -> float | bool | str:
         state = self._state[ch - 1]
+        if self.scope is not None and name in self.scope.names:
+            return self.scope.value(name, ch)
+        if name in state.extras:
+            return state.extras[name]
         if name.endswith("_set"):
             return state.setpoints[name.removesuffix("_set")]
         if name == "output":
@@ -443,10 +508,280 @@ class FakeInstrument:
         }
 
 
+class FakeScope:
+    """A scope's settings, measurement slots and a synthetic waveform on every channel.
+
+    Every channel sees the same 1 kHz, 2 V peak-to-peak sine about 0.5 V; the measurements are
+    computed from it, so a transcript and a capture agree.
+    """
+
+    names = frozenset(
+        {
+            "visible",
+            "scale",
+            "offset",
+            "coupling",
+            "bandwidth_limit",
+            "probe",
+            "timebase",
+            "delay",
+            "sample_rate",
+            "memory_depth",
+            "points",
+            "acquisitions",
+            "trigger_status",
+            "trigger_mode",
+            "trigger_source",
+            "trigger_level",
+            "trigger_slope",
+            "trigger_frequency",
+        }
+    )
+
+    def __init__(self, profile: Profile, channels: int) -> None:
+        self.profile = profile
+        self.channels = channels
+        self.per_channel: dict[int, dict[str, Any]] = {
+            ch: {
+                "visible": True,
+                "scale": 0.5,
+                "offset": 0.0,
+                "coupling": "dc",
+                "bandwidth_limit": "full",
+                "probe": 1.0,
+            }
+            for ch in range(1, channels + 1)
+        }
+        self.shared: dict[str, Any] = {
+            "timebase": 0.0005,
+            "delay": 0.0,
+            "sample_rate": 2e6,
+            "memory_depth": 10_000.0,
+            "points": 10_000.0,
+            "acquisitions": 0,
+            "trigger_status": "auto",
+            "trigger_mode": "auto",
+            "trigger_source": "ch1",
+            "trigger_level": 0.5,
+            "trigger_slope": "rising",
+            "trigger_frequency": 1000.0,
+        }
+        scope = profile.scope
+        count = scope.slots.count if scope is not None and scope.slots is not None else 0
+        # slot -> (on, type word, source text)
+        self.slots: dict[int, tuple[bool, str, str]] = dict.fromkeys(
+            range(1, count + 1), (False, "", "C1")
+        )
+        if count:
+            self.slots[1] = (True, "PKPK", "C1")
+        self.mode_ready = True
+        self.waveform_source = 1
+        self.waveform_points = 0
+        self.waveform_interval = 1
+        self.running = True
+
+    # 1 kHz sine, 2 Vpp about 0.5 V.
+    amplitude = 1.0
+    mid = 0.5
+    frequency = 1000.0
+
+    def value(self, name: str, ch: int) -> float | bool | str:
+        if name in self.per_channel[ch]:
+            return self.per_channel[ch][name]
+        if name == "acquisitions":
+            self.shared["acquisitions"] += 1
+        return self.shared[name]
+
+    def set(self, setter: Setter, groups: dict[str, str | None], targets: list[int]) -> None:
+        name = setter.name
+        if name in ("run", "stop", "single", "autoset"):
+            self.running = name != "stop"
+            self.shared["trigger_status"] = "stopped" if name == "stop" else "auto"
+            if name == "single":
+                self.shared["trigger_mode"] = "single"
+            return
+        if name == "visible":
+            on = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
+            for ch in targets:
+                self.per_channel[ch]["visible"] = on
+            return
+        raw = groups.get("value")
+        if raw is None:
+            return
+        if setter.map:
+            label = next((k for k, v in setter.map.items() if v.casefold() == raw.casefold()), None)
+            if label is None:
+                return
+            value: Any = label
+        else:
+            value = float(raw)
+        if name in self.shared:
+            self.shared[name] = value
+        else:
+            for ch in targets:
+                self.per_channel[ch][name] = value
+
+    def measurement(self, word: str, source: str) -> float | None:
+        """What the slot shows for the synthetic sine, by the profile's measurement field."""
+        scope = self.profile.scope
+        assert scope is not None and scope.slots is not None
+        field_name = scope.slots.types.get(word.casefold())
+        if field_name is None or not re.fullmatch(r"C\d+", source):
+            return None
+        a, mid, f = self.amplitude, self.mid, self.frequency
+        table: dict[str, float] = {
+            "pkpk": 2 * a,
+            "maximum": mid + a,
+            "minimum": mid - a,
+            "amplitude": 2 * a,
+            "top": mid + a,
+            "base": mid - a,
+            "mean": mid,
+            "cycle_mean": mid,
+            "rms": math.sqrt(mid**2 + a**2 / 2),
+            "cycle_rms": math.sqrt(mid**2 + a**2 / 2),
+            "stdev": a / math.sqrt(2),
+            "overshoot": 0.0,
+            "preshoot": 0.0,
+            "period": 1 / f,
+            "frequency": f,
+            "positive_width": 0.5 / f,
+            "negative_width": 0.5 / f,
+            "duty": 50.0,
+            "rise_time": 0.8 / (math.pi * f),
+            "fall_time": 0.8 / (math.pi * f),
+        }
+        return table[field_name]
+
+    def routes(self) -> list[tuple[str, Callable[[re.Match[str]], str | bytes | None]]]:
+        scope = self.profile.scope
+        assert scope is not None
+        out: list[tuple[str, Callable[[re.Match[str]], str | bytes | None]]] = []
+        slots = scope.slots
+        if slots is not None:
+            out.append((slots.enabled, lambda m: "ON" if self.slots[int(m["slot"])][0] else "OFF"))
+            out.append((slots.type, lambda m: self.slots[int(m["slot"])][1]))
+            out.append((slots.source, lambda m: self.slots[int(m["slot"])][2]))
+            out.append((slots.value, self._slot_value))
+            if slots.ready_query is not None:
+                out.append((slots.ready_query, lambda _: str(slots.ready_value)))
+        measure = scope.measure
+        if measure is not None:
+            for command in measure.commands:
+                out.append((command, self._measure_command))
+            if measure.off is not None:
+                out.append((measure.off, self._slot_off))
+        wf = scope.waveform
+        if wf is not None:
+            for command in wf.setup:
+                out.append((command, self._waveform_setup))
+            out.append((wf.preamble, lambda _: _block(self._wavedesc())))
+            out.append((wf.data, lambda _: _block(self._wave_data()) + b"\n"))
+            if wf.max_points is not None:
+                out.append((wf.max_points, lambda _: "5000000"))
+        return out
+
+    def _slot_value(self, m: re.Match[str]) -> str | None:
+        on, word, source = self.slots[int(m["slot"])]
+        if not on:
+            return None
+        value = self.measurement(word, source)
+        return _number(_OVERFLOW if value is None else value)
+
+    def _measure_command(self, m: re.Match[str]) -> None:
+        groups = m.groupdict()
+        slot = groups.get("slot")
+        if slot is None:
+            return
+        on, word, source = self.slots[int(slot)]
+        if groups.get("type") is not None:
+            word = str(groups["type"]).upper()
+        if groups.get("ch") is not None:
+            source = f"C{groups['ch']}"
+        if "ON" in m.group(0).upper().split():
+            on = True
+        self.slots[int(slot)] = (on, word, source)
+
+    def _slot_off(self, m: re.Match[str]) -> None:
+        on, word, source = self.slots[int(m["slot"])]
+        self.slots[int(m["slot"])] = (False, word, source)
+
+    def _waveform_setup(self, m: re.Match[str]) -> None:
+        groups = m.groupdict()
+        if groups.get("ch") is not None:
+            self.waveform_source = int(groups["ch"] or 1)
+        if groups.get("points") is not None:
+            self.waveform_points = int(groups["points"] or 0)
+        if groups.get("interval") is not None:
+            self.waveform_interval = max(1, int(groups["interval"] or 1))
+
+    # 12-bit codes left-aligned in 16-bit words, as the SDS800X HD sends them.
+    code_per_div = 7680.0
+
+    def _count(self) -> int:
+        total = int(self.shared["points"])
+        step = self.waveform_interval
+        available = max(1, total // step)
+        return min(available, self.waveform_points) if self.waveform_points else available
+
+    def _wavedesc(self) -> bytes:
+        ch = self.waveform_source
+        settings = self.per_channel[ch]
+        desc = bytearray(346)
+        desc[0:8] = b"WAVEDESC"
+        desc[16:23] = b"WAVEACE"
+        struct.pack_into("<h", desc, 32, 1)
+        struct.pack_into("<h", desc, 34, 0)
+        struct.pack_into("<i", desc, 36, 346)
+        count = self._count()
+        struct.pack_into("<i", desc, 60, count * 2)
+        struct.pack_into("<i", desc, 116, count)
+        struct.pack_into("<i", desc, 132, 0)
+        struct.pack_into("<i", desc, 136, self.waveform_interval)
+        probe = float(settings["probe"])
+        struct.pack_into("<f", desc, 156, float(settings["scale"]) / probe)
+        struct.pack_into("<f", desc, 160, float(settings["offset"]) / probe)
+        struct.pack_into("<f", desc, 164, self.code_per_div)
+        struct.pack_into("<h", desc, 172, 16)
+        struct.pack_into("<f", desc, 176, 1 / float(self.shared["sample_rate"]))
+        struct.pack_into("<d", desc, 180, float(self.shared["delay"]))
+        struct.pack_into("<f", desc, 328, probe)
+        return bytes(desc)
+
+    def _wave_data(self) -> bytes:
+        ch = self.waveform_source
+        settings = self.per_channel[ch]
+        scale = float(settings["scale"]) / float(settings["probe"])
+        offset = float(settings["offset"]) / float(settings["probe"])
+        count = self._count()
+        pitch = self.waveform_interval / float(self.shared["sample_rate"])
+        start = float(self.shared["delay"]) - float(self.shared["timebase"]) * 5
+        gain = self.code_per_div / scale
+        codes = []
+        for i in range(count):
+            t = start + i * pitch
+            volts = (
+                self.mid + self.amplitude * math.sin(2 * math.pi * self.frequency * t)
+            ) / float(settings["probe"])
+            code = round((volts + offset) * gain)
+            codes.append(max(-32768, min(32767, code)))
+        return struct.pack(f"<{count}h", *codes)
+
+
+def _block(payload: bytes) -> bytes:
+    """An IEEE 488.2 definite-length block."""
+    length = str(len(payload))
+    return f"#{len(length)}{length}".encode() + payload
+
+
 def _pattern(template: str, words: Iterable[str] = ()) -> re.Pattern[str]:
     """The anchored pattern a template's commands match; placeholders become captures."""
     alternatives = sorted(words, key=len, reverse=True)
-    captures = {**_CAPTURES, "function": "|".join(map(re.escape, alternatives)) or "(?!)"}
+    spelled = "|".join(map(re.escape, alternatives)) or "(?!)"
+    captures = {**_CAPTURES, "function": spelled}
+    if alternatives and "{function}" not in template:
+        # A label setter sends the instrument's word where a value setter sends a number.
+        captures["value"] = spelled
     text = template.strip().removeprefix(":")
     out = [":?"]
     seen: set[str] = set()

@@ -6,23 +6,24 @@ Record bench instruments on the same timeline as the device under test, and set 
 - 🎛️ **Setpoints, output and mode too**: what the instrument was told to do sits beside what it measured, and a knob turned at the bench shows up as a change.
 - 🔁 **Same names on every vendor**: `psu/ch1.voltage` is the measured voltage on a Rigol, a Keysight or a Siglent, so a notebook written for one bench works on the next.
 - 💬 **Set from the app, a notebook or Zelos AI**: voltage, current limit, a load's function, an output switch. Each set is checked against the instrument's range and your limits, and confirmed by the readback.
-- 🧩 **One file per instrument**: profiles written from the programming manuals ship for the most used supplies, loads, meters and AC sources. Add your own as one TOML file, no code.
+- 🧩 **One file per instrument**: profiles written from the programming manuals ship for the most used supplies, loads, meters, AC sources and Siglent scopes. Add your own as one TOML file, no code.
+- 🔬 **Scopes too**: whatever measurements a scope shows become signals, a Measure action puts one on screen, and Capture Waveform drops a channel's samples into the trace as a burst.
 - 🔎 **Auto-configure finds the bench**: instruments on the network, on USB and on the serial ports of known instrument vendors, each matched to its profile by its identity.
 - 🔌 **Any connection**: a raw LAN socket, USB-TMC, a serial port, or any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), on Linux, macOS and Windows, with nothing to install.
 
 ![The signal tree with Instruments, demo psu and ch1 open, beside live plots of the supply's voltage falling as the battery charges, its current held at 2 A, and its 14.4 V setpoint.](assets/readme/overview.png)
 
-![The signal tree with Instruments, scope and poll open, beside live plots from a Siglent SDS824X HD: its channel 1 peak-to-peak measurement around 3.58 V, 0.5 V per division, and 500 MSa/s.](assets/readme/scope.png)
+![The signal tree with Instruments, scope and ch1 open, listing the scope's measurements and settings, beside live plots from a Siglent SDS824X HD: the channel 1 frequency near 999.905 Hz and its peak-to-peak value near 2.43 V, read from the scope's own measurement slots.](assets/readme/scope.png)
 
-The second capture is a Siglent SDS824X HD on the office switch, read over VXI-11 with the generic profile and four Extra readings; the demo bench supplies the others.
+The second capture is a Siglent SDS824X HD on the office switch, read over VXI-11 with the `siglent-sds` profile; the demo bench supplies the others.
 
 ## What it records
 
 | | |
 |---|---|
-| **Instruments** | DC power supplies (including bidirectional), electronic loads, multimeters, AC sources |
+| **Instruments** | DC power supplies (including bidirectional), electronic loads, multimeters, AC sources, oscilloscopes |
 | **Connections** | LAN raw socket, USB-TMC, serial (COM, `/dev/tty*`), any VISA resource string, and a built-in demo bench |
-| **Profiles** | One per instrument family, shipped for Keysight, Rigol, Siglent, Keithley, Rohde & Schwarz, B&K Precision, GW Instek, ITECH, Chroma, Kikusui, EA, TDK-Lambda, Fluke and more; generic profiles for any instrument that follows SCPI |
+| **Profiles** | One per instrument family, shipped for Keysight, Rigol, Siglent, Keithley, Rohde & Schwarz, B&K Precision, GW Instek, ITECH, Chroma, Kikusui, EA, TDK-Lambda, Fluke and more; the Siglent SDS scopes; generic profiles for any instrument that follows SCPI |
 | **Runs on** | Linux, macOS and Windows, with Zelos 26.0.10 or later |
 
 ## Quick start
@@ -146,6 +147,12 @@ Every action except List Instruments, List Profiles and Auto-configure takes `in
 | Auto-configure | `Instruments/auto_config` | Keeps the configured instruments and adds one for each instrument found, or the demo bench when there are none. Probes a serial port only when its USB vendor is a known instrument maker. | yes |
 | Set | `Instruments/set_values` | Sets any of voltage, current, power, resistance, frequency, OVP, OCP and function on a channel. Each value is checked against the profile's range and your limits, sent, checked against the instrument's error queue, and read back. | no |
 | Output | `Instruments/output` | Switches a channel's output, or a load's input, on or off. | no |
+| Set Channel | `Instruments/set_channel` | A scope channel's volts per division, offset, coupling, probe factor and visibility. | no |
+| Set Timebase | `Instruments/set_timebase` | A scope's seconds per division and trigger delay. | no |
+| Set Trigger | `Instruments/set_trigger` | A scope's edge trigger: source, level, slope and mode. | no |
+| Run Control | `Instruments/run_control` | Run, stop, arm a single acquisition or autoset a scope. | no |
+| Measure | `Instruments/measure` | Shows a measurement of a scope channel in one of the scope's measurement slots; it is recorded from then on. Reuses the slot that already shows it, else the lowest free one. | no |
+| Capture Waveform | `Instruments/capture_waveform` | Fetches a scope channel's samples on screen into `<name>/ch<n>/waveform` as one burst, `points` samples spread over the screen (10,000 by default). The trigger instant is placed at the moment of the capture; the samples keep the scope's spacing. | no |
 | Read | `Instruments/read` | A fresh measurement of every signal on a channel, now. | yes |
 | Get State | `Instruments/get_state` | Health, identity, profile, channels with their ranges and last values, counters, and the last commands. | yes |
 | SCPI | `Instruments/scpi` | Sends any command and returns the reply for a query. Logged. Nothing is checked. | no |
@@ -206,7 +213,8 @@ When an instrument stops answering or the link fails, the extension closes it an
 
 ## Limits
 
-- Oscilloscopes and waveform generators have no profiles: their data are waveforms, not readings. Their scalar readings (a measurement, the vertical scale, the sample rate) can still be recorded through the generic `ieee488` profile with Extra readings, which is how the scope in the second capture is read.
+- Scopes: the profile covers the Siglent SDS families the EN11G programming guide describes and was run on an SDS824X HD. What is recorded is what the scope's own measurement slots show, in Advanced measurement mode; the extension never turns a measurement on by itself, the Measure action does. Other scope brands have no profile yet. Waveform generators have none either.
+- A scope's raw socket (port 5025 on a Siglent) serves one client and stays held when a client vanishes; VXI-11 (`TCPIP::<host>::INSTR`) does not. Two programs on the same instrument at once lose replies; the extension is one of them.
 - Instruments that speak a reverse-engineered protocol instead of SCPI (Korad and Tenma supplies, among others) have no profile.
 - A profile marked `manual` was written from the manual and has not been run against a unit. If yours answers differently, Get State shows the last commands and replies, and a transcript recorded with `just record` makes the fix a test.
 - USB-TMC through the built-in library has open issues with some Rigol and Siglent units; use LAN where the instrument has it, or a vendor VISA.

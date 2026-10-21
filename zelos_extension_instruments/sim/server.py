@@ -180,13 +180,13 @@ class FakeServer:
             return True
         return self._send(sock, reply)
 
-    def _send(self, sock: socket.socket, reply: str) -> bool:
+    def _send(self, sock: socket.socket, reply: str | bytes) -> bool:
         fault = self.faults.next_reply()
         if fault.stall > 0 and self._stopping.wait(fault.stall):
             return False
         if fault.close_before:
             return False
-        data = reply.encode()
+        data = bytes(reply) if isinstance(reply, bytes) else reply.encode()
         try:
             if fault.half:
                 sock.sendall(data[: len(data) // 2])

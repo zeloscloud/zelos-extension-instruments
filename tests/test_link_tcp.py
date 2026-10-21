@@ -193,14 +193,15 @@ def test_write_to_a_dropped_connection_is_a_link_error(instrument: FakeInstrumen
         link.close()
 
 
-def test_clear_drops_pending_bytes_without_blocking(instrument: FakeInstrument) -> None:
+def test_clear_drops_pending_bytes_and_waits_only_for_quiet(instrument: FakeInstrument) -> None:
+    """A late reply still arriving is dropped too: clear ends after 0.1 s of silence."""
     link = connect(instrument)
     try:
         link.write("TWO?")
         time.sleep(0.2)
         started = time.monotonic()
         link.clear()
-        assert time.monotonic() - started < 0.1
+        assert 0.05 < time.monotonic() - started < 0.5
         assert link.query("*IDN?") == IDN
     finally:
         link.close()

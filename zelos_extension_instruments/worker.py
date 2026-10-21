@@ -4,6 +4,7 @@ Everything the thread sends comes from the profile; everything it records goes t
 emitter. Requests from actions arrive on a queue and are served between poll steps.
 """
 
+import base64
 import concurrent.futures
 import dataclasses
 import logging
@@ -12,9 +13,10 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any, Literal
 
-from . import engine
+from . import engine, scope_ops
 from .clock import HostClock
 from .config import InstrumentConfig, Settings, poll_key
 from .emitter import Emitter
@@ -33,7 +35,12 @@ from .link import (
     Settings as LinkSettings,
 )
 from .profile import (
+    COMMAND_SETTERS,
     ENUM_FIELDS,
+    INSTRUMENT_FIELDS,
+    LABEL_SETTERS,
+    SWITCH_SETTERS,
+    VALUE_SETTERS,
     VERIFY_FIELD,
     Idn,
     Profile,
@@ -65,10 +72,25 @@ _KEPT = 50
 _RESYNC_READS = 8
 
 RequestKind = Literal[
-    "set", "output", "function", "read", "state", "scpi", "clear", "local", "release", "acquire"
+    "set",
+    "output",
+    "function",
+    "read",
+    "state",
+    "scpi",
+    "clear",
+    "local",
+    "release",
+    "acquire",
+    "measure",
+    "waveform",
+    "command",
 ]
 _State = Literal["connecting", "open", "released", "failed", "stopped"]
 _Future = concurrent.futures.Future[dict[str, Any]]
+_WRITE_KINDS = frozenset({"set", "output", "function", "clear", "local", "measure", "command"})
+# A block reply the SCPI action returns whole, as base64; longer ones return their size.
+_BLOCK_RETURN_MAX = 65536
 
 Opener = Callable[[Address, LinkSettings], Link]
 
@@ -162,6 +184,9 @@ class InstrumentWorker(threading.Thread):
         self._next_fast_ns = 0
         self._next_poll_ns: dict[str, int] = {}
         self._poll_values: dict[str, float] = {}
+        # A scope's live measurement slots, and the instrument-wide values last read.
+        self._slots: dict[int, tuple[int, str]] = {}
+        self._acquisition: dict[str, Any] = {}
         self._interval_ns = int(_S / cfg.rate_hz)
 
     # -- threads other than the worker's --------------------------------------------------------
@@ -178,6 +203,7 @@ class InstrumentWorker(threading.Thread):
         """Ask the worker to end; closes a link blocked in a read."""
         self._stopping.set()
         self._wake.set()
+        self._hand_back()
         link = self._link
         if link is not None:
             link.close()
@@ -237,6 +263,8 @@ class InstrumentWorker(threading.Thread):
             return False
         self._link = link
         self._selector = Selector(profile.link.select)
+        # A banner, or bytes a previous client left behind, must not become the identity.
+        link.clear()
         try:
             idn = self._identify(link, profile)
         except LinkError as e:
@@ -257,6 +285,8 @@ class InstrumentWorker(threading.Thread):
                 self._send(command)
             channels = self.cfg.channels or self._channel_count(profile, idn)
             self._install(profile, idn, channels)
+            # Errors another program or a power cycle left in the queue are not this session's.
+            self._drain_errors(quiet=True)
             self._read_ranges()
             self._probe_optional()
         except LinkError as e:
@@ -318,6 +348,7 @@ class InstrumentWorker(threading.Thread):
             read_terminator=cfg.line_ending or link.read_terminator,
             timeout_s=cfg.timeout_s or link.timeout_s,
             delay_ms=link.delay_ms if cfg.delay_ms is None else cfg.delay_ms,
+            device_clear=link.device_clear,
         )
 
     def _identify(self, link: Link, profile: Profile) -> Idn | None:
@@ -478,6 +509,8 @@ class InstrumentWorker(threading.Thread):
             at = self._now()
             for ch, values in slow_rows.items():
                 self._record(ch, values, at, fast=False)
+            if self.profile.scope is not None and self.profile.scope.slots is not None:
+                self._slots = scope_ops.scan_slots(self)
             self._drain_errors()
             self._keep_panel()
         fast_rows: dict[int | None, dict[str, Any]] = {}
@@ -486,6 +519,10 @@ class InstrumentWorker(threading.Thread):
             if self._stopping.is_set() or self._link is None:
                 return
             self._run_step(step, fast_rows)
+        if self._slots and self._link is not None:
+            sent = self._now()
+            scope_ops.read_slots(self, fast_rows)
+            self._rtt_ms = (self._now() - sent) / _MS / max(1, len(self._slots))
         now = self._now()
         for ch, values in fast_rows.items():
             self._record(ch, values, now, fast=True)
@@ -521,7 +558,11 @@ class InstrumentWorker(threading.Thread):
             self._log_once(f"timeout {step.key}", f"{step.query}: {e}")
             if self._timeouts >= _TIMEOUTS_BEFORE_RECONNECT:
                 raise LinkError(f"{self._timeouts} queries in a row got no reply") from e
-            self._clear_link()
+            # The reply may still come; it must not land under the next query's field.
+            try:
+                self._resync(f"{step.query} got no reply")
+            except LinkError:
+                self._clear_link()
             return
         self._timeouts = 0
         rtt = self._now() - sent
@@ -551,6 +592,16 @@ class InstrumentWorker(threading.Thread):
         """Write one channel's values, stamped half a round trip before `at`, and note changes."""
         assert self.profile is not None
         time_ns = self._clock.epoch_ns(at - int(self._rtt_ms * _MS / 2) if fast else at)
+        shared = INSTRUMENT_FIELDS[self.profile.category]
+        if ch is None and shared:
+            wide = {k: v for k, v in values.items() if k in shared}
+            if wide:
+                self._note_acquisition_changes(wide)
+                self._acquisition.update(wide)
+                self._emitter.acquisition_row(self.cfg.name, wide, time_ns)
+            values = {k: v for k, v in values.items() if k not in shared}
+            if not values:
+                return
         targets = [ch] if ch is not None else list(self._channel)
         for target in targets:
             state = self._channel.get(target)
@@ -567,6 +618,14 @@ class InstrumentWorker(threading.Thread):
             self._note_changes(target, state, row, at)
             state.values.update(row)
             self._emitter.row(self.cfg.name, target, row, time_ns)
+
+    def _note_acquisition_changes(self, row: dict[str, Any]) -> None:
+        for name, value in row.items():
+            old = self._acquisition.get(name)
+            if old is None or old == value or (isinstance(value, float) and _same(old, value)):
+                continue
+            if name in ("trigger_mode", "trigger_source", "trigger_slope", "timebase"):
+                self._note("info", f"{name} {_fmt(old)} -> {_fmt(value)}")
 
     def _note_changes(self, ch: int, state: _Channel, row: dict[str, Any], at: int) -> None:
         for name, value in row.items():
@@ -643,14 +702,34 @@ class InstrumentWorker(threading.Thread):
                 f"{error.code},{error.text}" if error.code is not None else error.text
             )
             if not quiet:
-                self._note("warn", f"instrument error {self._last_error}", source="instrument")
+                self._log_once(
+                    f"instrument error {error.code}",
+                    f"instrument error {self._last_error}",
+                    source="instrument",
+                )
         return found
 
     def _keep_panel(self) -> None:
         assert self.profile is not None
         link = self.profile.link
-        if self.cfg.keep_panel and link.locks_panel and link.local and not self._requests:
+        if (
+            self.cfg.keep_panel
+            and link.locks_panel
+            and link.local
+            and not link.needs_remote
+            and not self._requests
+        ):
             self._send(link.local)
+
+    def _hand_back(self) -> None:
+        """Give the front panel back when the extension stops holding the instrument."""
+        link = self._link
+        profile = self.profile
+        if link is None or profile is None or self.state != "open":
+            return
+        if profile.link.local and profile.link.locks_panel:
+            with suppress(Exception):
+                link.write(profile.link.local)
 
     def _emit_status(self, *, connected: bool) -> None:
         if not self._registered:
@@ -712,11 +791,17 @@ class InstrumentWorker(threading.Thread):
                 reply = self._link.read()
             except LinkTimeout:
                 break
-            if "," in reply or (self.idn is not None and self.idn.model in reply):
+            if self._is_identity(reply):
                 self._recent.append((self._now(), idn, reply))
                 self._note("warn", f"replies were out of step ({reason}); back in step")
                 return
         raise LinkError(f"replies stayed out of step ({reason})")
+
+    def _is_identity(self, reply: str) -> bool:
+        """Whether a reply is the identity, not some other comma-separated answer."""
+        if self.idn is not None:
+            return parse_idn(reply) == self.idn
+        return reply.count(",") >= 3
 
     # -- requests ----------------------------------------------------------------------------
 
@@ -744,6 +829,7 @@ class InstrumentWorker(threading.Thread):
         if kind == "state":
             return self._state_report()
         if kind == "release":
+            self._hand_back()
             self._close()
             self.state = "released"
             self.health = f"Released {self.where}; run Acquire to take it back."
@@ -760,6 +846,9 @@ class InstrumentWorker(threading.Thread):
             return {"ok": True}
         if self._link is None or self.profile is None:
             raise RangeError(self.health)
+        if kind in _WRITE_KINDS:
+            # An error a poll query raised must not be pinned on this request.
+            self._drain_errors(quiet=True)
         if kind == "scpi":
             return self._scpi(args["command"], args.get("timeout_s"))
         if kind == "local":
@@ -782,6 +871,12 @@ class InstrumentWorker(threading.Thread):
             return self._set_output(ch, bool(args["on"]))
         if kind == "function":
             return self._set_function(ch, str(args["function"]))
+        if kind == "measure":
+            return scope_ops.measure(self, ch, args)
+        if kind == "waveform":
+            return scope_ops.capture(self, ch, args)
+        if kind == "command":
+            return self._command(str(args["name"]))
         raise RangeError(f"unknown request {kind}")
 
     def _setter(self, name: str) -> Setter:
@@ -793,24 +888,66 @@ class InstrumentWorker(threading.Thread):
 
     def _set_many(self, ch: int, args: dict[str, Any]) -> dict[str, Any]:
         results: dict[str, Any] = {}
-        for name in ("voltage", "current", "power", "resistance", "frequency", "ovp", "ocp"):
-            if args.get(name) is None:
+        for name, value in args.items():
+            if value is None or name == "channel":
                 continue
-            results[name] = self._set_value(ch, name, float(args[name]))
-        if args.get("function"):
-            results["function"] = self._set_function(ch, str(args["function"]))["function"]
-        if args.get("output") is not None:
-            results["output"] = self._set_output(ch, bool(args["output"]))["output"]
+            if name in VALUE_SETTERS:
+                results[name] = self._set_value(ch, name, float(value))
+            elif name == "function":
+                results[name] = self._set_function(ch, str(value))["function"]
+            elif name in SWITCH_SETTERS:
+                results[name] = self._set_switch(ch, name, bool(value))[name]
+            elif name in LABEL_SETTERS:
+                results[name] = self._set_label(ch, name, str(value))[name]
+            else:
+                raise RangeError(f"{name} is not something that can be set")
         if not results:
             raise RangeError("give at least one value to set")
         return results
+
+    def _set_label(self, ch: int, name: str, label: str) -> dict[str, Any]:
+        """Set an enumerated setting by its label; the readback must agree."""
+        assert self.profile is not None
+        setter = self._setter(name)
+        word = setter.map.get(label)
+        if word is None:
+            raise RangeError(f"{name} must be one of {', '.join(setter.map)}")
+        self._select(ch if setter.per_channel else None)
+        self._send(engine.render(setter.command, ch=ch if setter.per_channel else None, value=word))
+        self._after_write(f"set ch{ch} {name} {label}")
+        field_name = VERIFY_FIELD[name]
+        reader = self.profile.reader(field_name)
+        verify = self.profile.verify_query(setter)
+        if verify is not None and reader is not None and reader.query == verify:
+            reply = self._query(engine.render(verify, ch=ch if reader.per_channel else None))
+            readback = engine.parse_reply(reader, reply, ch)[field_name]
+            if readback != label:
+                raise RangeError(f"{name} reads back {readback}")
+            self._mark_own(ch, field_name, readback)
+        return {name: label}
+
+    def _command(self, name: str) -> dict[str, Any]:
+        """Send a setter that is a bare command, such as a scope's run or stop."""
+        if name not in COMMAND_SETTERS or name == "clear":
+            raise RangeError(f"{name} is not a command of this instrument")
+        setter = self._setter(name)
+        self._select(None)
+        for command in setter.commands:
+            self._send(engine.render(command, ch=None))
+        self._after_write(name)
+        return {"ok": True, "command": name}
 
     def _set_value(self, ch: int, name: str, value: float) -> dict[str, Any]:
         assert self.profile is not None
         setter = self._setter(name)
         key = self.profile.range_key(setter)
         range_ = self._channel[ch].ranges.get(key) if key else None
-        engine.check_range(value, range_, self.cfg.limits.for_key(key or ""), name)
+        limit = self.cfg.limits.for_key(key or "")
+        if range_ is not None or limit is not None or self.profile.category != "scope":
+            # A scope setting without a range (an offset, a trigger level) harms nothing; the
+            # readback still has to agree. An output's level must be bounded.
+            engine.check_range(value, range_, limit, name)
+        engine.check_resolution(value, range_, name)
         self._select(ch if setter.per_channel else None)
         self._send(engine.setter_command(setter, ch=ch, value=value, range_=range_))
         self._after_write(f"set ch{ch} {name} {engine.format_value(value, range_)}")
@@ -829,25 +966,28 @@ class InstrumentWorker(threading.Thread):
         return {"set": value, "readback": readback}
 
     def _set_output(self, ch: int, on: bool) -> dict[str, Any]:
+        return self._set_switch(ch, "output", on)
+
+    def _set_switch(self, ch: int, name: str, on: bool) -> dict[str, Any]:
         assert self.profile is not None
-        setter = self._setter("output")
+        setter = self._setter(name)
         self._select(ch if setter.per_channel else None)
         self._send(engine.setter_command(setter, ch=ch, on=on))
-        self._after_write(f"set ch{ch} output {'on' if on else 'off'}")
+        self._after_write(f"set ch{ch} {name} {'on' if on else 'off'}")
         verify = self.profile.verify_query(setter)
         readback: bool | None = None
         if verify is not None:
-            reader = self.profile.reader("output")
+            reader = self.profile.reader(name)
             reply = self._query(engine.render(verify, ch=ch))
             readback = (
-                bool(engine.parse_reply(reader, reply, ch)["output"])
+                bool(engine.parse_reply(reader, reply, ch)[name])
                 if reader is not None and reader.query == verify
                 else engine.parse_bool(reply)
             )
             if readback != on:
-                raise RangeError(f"output reads back {'on' if readback else 'off'}")
-            self._mark_own(ch, "output", readback)
-        return {"output": on if readback is None else readback}
+                raise RangeError(f"{name} reads back {'on' if readback else 'off'}")
+            self._mark_own(ch, name, readback)
+        return {name: on if readback is None else readback}
 
     def _set_function(self, ch: int, function: str) -> dict[str, Any]:
         assert self.profile is not None
@@ -897,6 +1037,10 @@ class InstrumentWorker(threading.Thread):
             values.update(engine.parse_reply(step.reader, self._query(step.query), step.channel))
         if self.profile.category == "dmm" and "value" in values:
             values["function"] = self._function
+        if self._slots:
+            rows: dict[int | None, dict[str, Any]] = {}
+            scope_ops.read_slots(self, rows)
+            values.update(rows.get(ch, {}))
         for row in self.cfg.poll:
             key = poll_key(row.name, ch if "{ch}" in row.query else None)
             if key in self._poll_values:
@@ -913,9 +1057,19 @@ class InstrumentWorker(threading.Thread):
         is_query = "?" in command
         self._note("info", f"> {command}", source="tx")
         if is_query:
-            reply = self._query(command)
-            self._note("info", f"< {reply}", source="rx")
-            return {"reply": reply}
+            self._queries += 1
+            self._link.write(command)
+            answer = self._link.read_any(timeout_s)
+            if isinstance(answer, bytes):
+                self._recent.append((self._now(), command, f"<block {len(answer)} bytes>"))
+                self._note("info", f"< <block {len(answer)} bytes>", source="rx")
+                result: dict[str, Any] = {"block_bytes": len(answer)}
+                if len(answer) <= _BLOCK_RETURN_MAX:
+                    result["base64"] = base64.b64encode(answer).decode()
+                return result
+            self._recent.append((self._now(), command, answer))
+            self._note("info", f"< {answer}", source="rx")
+            return {"reply": answer}
         self._send(command)
         self._after_write(command, log=False)
         return {"ok": True}
@@ -933,12 +1087,17 @@ class InstrumentWorker(threading.Thread):
                 reply = self._query(errors.query)
                 error = engine.read_error(errors, reply)
             if error is not None:
-                self._errors += 1
-                self._last_error = (
-                    f"{error.code},{error.text}" if error.code is not None else error.text
-                )
-                self._note("warn", f"{what}: instrument error {self._last_error}", source="action")
-                raise RangeError(f"the instrument reported {self._last_error}")
+                reported = [error]
+                for _ in range(errors.drain - 1):
+                    more = engine.read_error(errors, self._query(errors.query))
+                    if more is None:
+                        break
+                    reported.append(more)
+                self._errors += len(reported)
+                texts = [f"{e.code},{e.text}" if e.code is not None else e.text for e in reported]
+                self._last_error = texts[-1]
+                self._note("warn", f"{what}: instrument error {'; '.join(texts)}", source="action")
+                raise RangeError(f"the instrument reported {'; '.join(texts)}")
         if log:
             self._note("info", what, source="action")
 
@@ -962,6 +1121,13 @@ class InstrumentWorker(threading.Thread):
         return {
             "state": self.state,
             "health": self.health,
+            "acquisition": dict(self._acquisition) if self._acquisition else None,
+            "slots": {
+                str(slot): {"channel": ch, "type": field_name}
+                for slot, (ch, field_name) in sorted(self._slots.items())
+            }
+            if self._slots
+            else None,
             "where": self.where,
             "identity": self.idn.text if self.idn else None,
             "profile": None
@@ -1024,13 +1190,13 @@ class InstrumentWorker(threading.Thread):
                 message,
             )
 
-    def _log_once(self, key: str, message: str) -> None:
+    def _log_once(self, key: str, message: str, source: str = "instruments") -> None:
         throttle = self._parse_throttle.setdefault(key, _Throttle())
         held = throttle.tally(self._now())
         if held is None:
             return
         suffix = f" ({held} more since the last note)" if held else ""
-        self._note("warn", message + suffix)
+        self._note("warn", message + suffix, source=source)
 
     def _fail_pending(self, reason: str) -> None:
         with self._lock:

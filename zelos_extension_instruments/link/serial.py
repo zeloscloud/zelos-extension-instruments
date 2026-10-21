@@ -7,6 +7,7 @@ from contextlib import suppress
 
 import serialx
 
+from ..waveform import BlockError
 from . import Lines, Link, LinkError, LinkTimeout, Pacer, SerialAddress, Settings
 
 _WRITE_TIMEOUT_S = 1.0
@@ -50,6 +51,7 @@ def open_serial(address: SerialAddress, settings: Settings) -> Link:
             stopbits=address.stop_bits,
             rtscts=address.flow_control == "rts/cts",
             xonxoff=address.flow_control == "xon/xoff",
+            dsrdtr=address.flow_control == "dtr/dsr",
             exclusive=True,
             write_timeout=_WRITE_TIMEOUT_S,
         )
@@ -82,27 +84,59 @@ class SerialLink:
             raise self._broken(exc) from exc
         self._pacer.mark()
 
-    def read(self) -> str:
-        deadline = time.monotonic() + self._settings.timeout_s
-        chunk = bytearray(_CHUNK)
+    def read(self, timeout_s: float | None = None) -> str:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
         while True:
             line = self._lines.pop()
             if line is not None:
                 return line
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise self._no_reply()
-            try:
-                count = self._port.readinto(chunk, timeout=remaining)
-            except Exception as exc:
-                raise self._broken(exc) from exc
-            if self._closed:
-                raise self._broken(None)
-            self._lines.feed(bytes(chunk[:count]))
+            self._receive(deadline)
 
     def query(self, command: str) -> str:
         self.write(command)
         return self.read()
+
+    def read_block(self, timeout_s: float | None = None) -> bytes:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
+        while True:
+            block = self._pop_block()
+            if block is not None:
+                return block
+            self._receive(deadline)
+
+    def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
+        while True:
+            kind = self._lines.starts_block()
+            if kind is True:
+                block = self._pop_block()
+                if block is not None:
+                    return block
+            elif kind is False:
+                line = self._lines.pop()
+                if line is not None:
+                    return line
+            self._receive(deadline)
+
+    def _pop_block(self) -> bytes | None:
+        try:
+            return self._lines.pop_block()
+        except BlockError as exc:
+            self._lines.clear()
+            raise LinkError(f"{self.where} did not answer with a block: {exc}", "other") from exc
+
+    def _receive(self, deadline: float) -> None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise self._no_reply()
+        chunk = bytearray(_CHUNK)
+        try:
+            count = self._port.readinto(chunk, timeout=remaining)
+        except Exception as exc:
+            raise self._broken(exc) from exc
+        if self._closed:
+            raise self._broken(None)
+        self._lines.feed(bytes(chunk[:count]))
 
     def clear(self) -> None:
         self._lines.clear()

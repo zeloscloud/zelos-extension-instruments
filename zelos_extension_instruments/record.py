@@ -131,6 +131,26 @@ class Recorder:
             except engine.ParseError as e:
                 self.lines.append(f"# cannot parse: {e}")
                 self.failures.append(f"{step.query}: {e}")
+        scope = profile.scope
+        if scope is not None and scope.slots is not None:
+            # What the slots show now; the waveform block is not a transcript line.
+            self.lines.append("# measurement slots")
+            slots = scope.slots
+            if slots.ready_query is not None:
+                self.query(slots.ready_query)
+            for slot in range(1, slots.count + 1):
+                reply = self.query(engine.render(slots.enabled, slot=slot))
+                try:
+                    on = reply is not None and engine.parse_bool(reply)
+                except engine.ParseError:
+                    on = False
+                if not on:
+                    continue
+                self.query(engine.render(slots.type, slot=slot))
+                self.query(engine.render(slots.source, slot=slot))
+                self.query(engine.render(slots.value, slot=slot))
+            if scope.waveform is not None and scope.waveform.max_points is not None:
+                self.query(scope.waveform.max_points)
         if profile.errors is not None:
             self.lines.append("# error queue")
             for _ in range(profile.errors.drain):

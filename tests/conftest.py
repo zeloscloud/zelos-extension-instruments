@@ -18,6 +18,7 @@ from zelos_extension_instruments.config import InstrumentConfig, Settings
 from zelos_extension_instruments.link import Address, Link, LinkError, LinkTimeout
 from zelos_extension_instruments.link import Settings as LinkSettings
 from zelos_extension_instruments.profile import Profile, load_file, shipped
+from zelos_extension_instruments.waveform import BlockError, block_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Not reader.time_range(): it raises on a trace that holds no rows.
@@ -91,14 +92,16 @@ class ScriptedLink:
     LinkTimeout/LinkError to fake a silent or broken instrument.
     """
 
-    def __init__(self, handler: Callable[[str], str | None], where: str = "fake") -> None:
+    def __init__(self, handler: Callable[[str], str | bytes | None], where: str = "fake") -> None:
         self._handler = handler
         self.where = where
         self.commands: list[str] = []
         self.closed = False
         self.cleared = 0
-        self._pending: list[str] = []
-        self.lock = threading.Lock()
+        self._pending: list[str | bytes] = []
+        self.timeouts_asked: list[float | None] = []
+        # Re-entrant: a handler may push a reply while the lock is held for its own write.
+        self.lock = threading.RLock()
 
     def write(self, command: str) -> None:
         with self.lock:
@@ -109,13 +112,40 @@ class ScriptedLink:
             if reply is not None:
                 self._pending.append(reply)
 
-    def read(self) -> str:
+    def read(self, timeout_s: float | None = None) -> str:
         with self.lock:
             if self.closed:
                 raise LinkError(f"{self.where} is closed")
             if not self._pending:
                 raise LinkTimeout(f"no reply from {self.where}")
-            return self._pending.pop(0)
+            self.timeouts_asked.append(timeout_s)
+            reply = self._pending.pop(0)
+            return reply.decode("utf-8", errors="replace") if isinstance(reply, bytes) else reply
+
+    def push(self, reply: str | bytes) -> None:
+        """Queue a reply as if the instrument sent it unasked, as a late reply arrives."""
+        with self.lock:
+            self._pending.append(reply)
+
+    def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        with self.lock:
+            if not self._pending:
+                raise LinkTimeout(f"no reply from {self.where}")
+            block = isinstance(self._pending[0], bytes) and self._pending[0][:1] == b"#"
+        return self.read_block(timeout_s) if block else self.read(timeout_s)
+
+    def read_block(self, timeout_s: float | None = None) -> bytes:
+        with self.lock:
+            if self.closed:
+                raise LinkError(f"{self.where} is closed")
+            if not self._pending:
+                raise LinkTimeout(f"no reply from {self.where}")
+            reply = self._pending.pop(0)
+        raw = reply if isinstance(reply, bytes) else reply.encode()
+        try:
+            return block_payload(raw)
+        except BlockError as exc:
+            raise LinkError(f"{self.where} did not answer with a block: {exc}") from exc
 
     def query(self, command: str) -> str:
         self.write(command)

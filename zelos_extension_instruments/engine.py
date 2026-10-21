@@ -74,8 +74,14 @@ def compile_plan(
     profile: Profile, channels: int, dropped: frozenset[str] | set[str] = frozenset()
 ) -> Plan:
     """Every step for `channels` channels, minus the keys in `dropped`."""
-    fast = _steps("fast", profile.signals, channels, dropped)
-    slow = _steps("slow", profile.state, channels, dropped)
+    # A meter's function is read with every reading, so a knob turned at the bench never
+    # labels a reading with the old function.
+    fast_state = tuple(
+        r for r in profile.state if profile.category == "dmm" and "function" in r.fields
+    )
+    slow_state = tuple(r for r in profile.state if r not in fast_state)
+    fast = _steps("fast", (*fast_state, *profile.signals), channels, dropped)
+    slow = _steps("slow", slow_state, channels, dropped)
     return Plan(tuple(fast), tuple(slow))
 
 
@@ -104,11 +110,18 @@ def render(
     value: str | None = None,
     on: bool | None = None,
     function: str | None = None,
+    slot: int | None = None,
+    type: str | None = None,
+    points: int | None = None,
+    interval: int | None = None,
 ) -> str:
     """Fill a command template's placeholders."""
     values: dict[str, Any] = {}
     if ch is not None:
         values["ch"] = ch
+    for key, extra in (("slot", slot), ("type", type), ("points", points), ("interval", interval)):
+        if extra is not None:
+            values[key] = extra
     if value is not None:
         values["value"] = value
     if on is not None:
@@ -122,13 +135,27 @@ def render(
         raise ValueError(f"cannot render '{template}': missing {e}") from None
 
 
+_METRIC = {"k": 1e3, "M": 1e6, "G": 1e9, "m": 1e-3, "u": 1e-6, "n": 1e-9}
+_UNITS = frozenset({"V", "A", "W", "Hz", "Sa/s", "S", "s", "Ohm", "pts", "F", "H"})
+_UNIT = re.compile(r"[A-Za-z%/]+")
+
+
 def parse_float(text: str) -> float:
     """A number in any SCPI form; the overflow sentinels read as not-a-number."""
     cleaned = text.strip().strip('"')
     found = _NUMBER.search(cleaned)
     if found is None or cleaned.lower().startswith(("0x", "#h")):
         raise ParseError(f"expected a number, got {text.strip()!r}")
+    if found.start() != 0:
+        # Text before the number is a header (`C1:VDIV 5.00E-01V`), never part of the value.
+        raise ParseError(f"expected a number, got {text.strip()!r}")
     number = float(found.group())
+    suffix = cleaned[found.end() :].strip()
+    if suffix and not _UNIT.fullmatch(suffix):
+        raise ParseError(f"expected a number, got {text.strip()!r}")
+    if suffix in _METRIC or (suffix[:1] in _METRIC and suffix[1:] in _UNITS):
+        # A metric prefix, as a memory depth (10M) or a sample rate (1.00GSa/s) reads.
+        number *= _METRIC[suffix[0]]
     if abs(number) >= _NAN_FROM:
         return math.nan
     return number
@@ -240,6 +267,18 @@ def unknown_label(field: str) -> str:
 def format_value(value: float, range_: Range | None) -> str:
     digits = range_.digits if range_ is not None else 3
     return f"{value:.{digits}f}"
+
+
+def check_resolution(value: float, range_: Range | None, name: str) -> None:
+    """Refuse a value the instrument's digits would round away."""
+    if range_ is None or range_.step is not None:
+        return
+    sent = float(format_value(value, range_))
+    if abs(sent - value) > 1e-9 * max(1.0, abs(value)):
+        raise RangeError(
+            f"{name} {value:g} is finer than the instrument's {range_.digits} decimals; "
+            f"it would be sent as {sent:g}"
+        )
 
 
 def check_range(value: float, range_: Range | None, limit: float | None, name: str) -> None:
