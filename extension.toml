@@ -9,7 +9,7 @@ homepage = "https://github.com/zeloscloud/zelos-extension-instruments"
 keywords = ["scpi", "visa", "lxi", "usbtmc", "vxi-11", "hislip", "gpib", "power supply", "electronic load", "multimeter", "dmm", "ac source", "oscilloscope", "test equipment", "keysight", "rigol", "siglent", "keithley", "rohde schwarz", "instrument"]
 categories = ["Test & Measurement", "Embedded", "Industrial"]
 
-icon = "assets/icon.svg"
+icon = "assets/icon.png"
 readme = "README.md"
 
 [zelos]
