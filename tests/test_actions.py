@@ -280,3 +280,60 @@ def test_list_instruments_keeps_a_port_the_instrument_needs(
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: found)
     values = [c["value"] for c in run("list_instruments", connection="lan")["choices"]]
     assert values == ["192.168.1.40:5555", "192.168.1.41"]
+
+
+def test_list_instruments_for_visa_offers_resources(monkeypatch: pytest.MonkeyPatch) -> None:
+    found = [
+        _found(
+            VisaAddress("TCPIP::10.0.0.5::INSTR"),
+            "Siglent Technologies,SDS824X HD,SN1,3.8",
+            None,
+            "vxi11",
+        ),
+        _found(
+            TcpAddress("10.0.0.6", 5025), "RIGOL TECHNOLOGIES,DP832A,X,1", "rigol-dp800", "scan"
+        ),
+    ]
+    asked: dict[str, Any] = {}
+
+    def discover(*args: Any, **kwargs: Any) -> list[Any]:
+        asked.update(kwargs)
+        return found
+
+    monkeypatch.setattr(discovery, "discover", discover)
+    result = run("list_instruments", connection="visa")
+    assert asked["lan"] is True and asked["usb"] is False and asked["prefer"] == "visa"
+    assert [c["value"] for c in result["choices"]] == [
+        "TCPIP::10.0.0.5::INSTR",
+        "TCPIP::10.0.0.6::5025::SOCKET",
+    ]
+    assert result["choices"][0]["label"] == (
+        "Siglent Technologies SDS824X HD (TCPIP::10.0.0.5::INSTR)"
+    )
+
+
+def test_list_instruments_names_an_instrument_a_worker_holds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held = _found(TcpAddress("10.0.0.5", 5025), None, None, "scan", discovery.IN_USE)
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: [held])
+
+    class Holder:
+        where = "10.0.0.5:5025"
+        idn = parse_idn("RIGOL TECHNOLOGIES,DP832A,X,1")
+
+    monkeypatch.setitem(actions.workers, "psu", Holder())  # type: ignore[arg-type]
+    choice = run("list_instruments", connection="lan")["choices"][0]
+    assert choice["label"] == "RIGOL TECHNOLOGIES DP832A (10.0.0.5:5025)"
+    assert choice["detail"] == "in use by this extension"
+
+
+def test_auto_config_reports_an_instrument_already_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held = _found(TcpAddress("10.0.0.5", 5025), None, None, "scan", discovery.IN_USE)
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: [held])
+    result = run("auto_config", config={"instruments": [{"connection": "demo", "category": "psu"}]})
+    assert result["config"]["instruments"] == [{"connection": "demo", "category": "psu"}]
+    assert result["message"].startswith("No new instruments found.")
+    assert result["message"].endswith(" Already running in this extension: 10.0.0.5:5025.")

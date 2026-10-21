@@ -108,6 +108,13 @@ def _fake_visa(monkeypatch: pytest.MonkeyPatch, **managers: FakeManager | Except
     monkeypatch.setattr(pyvisa, "ResourceManager", resource_manager)
 
 
+@pytest.fixture(autouse=True)
+def _no_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The listing tests never probe the real network."""
+    monkeypatch.setattr(discovery, "scan_lan", lambda subnets=None: [])
+    monkeypatch.setattr(discovery, "local_subnets", list)
+
+
 def test_list_lan_picks_the_best_address_per_host_and_dedupes_by_ip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -154,7 +161,7 @@ def test_list_lan_picks_the_best_address_per_host_and_dedupes_by_ip(
     assert not any("10.0.0.5" in where and where != "10.0.0.5:5555" for where in found)
     assert len(found) == 6
     assert vxi.queries == ["TCPIP?*INSTR"]
-    assert vxi.closed
+    assert not vxi.closed
 
 
 def test_list_lan_returns_vxi11_when_zeroconf_cannot_open_and_logs_once(
@@ -265,7 +272,7 @@ def test_list_usb_falls_back_to_system_visa_when_libusb_finds_nothing(
 
     assert [f.address for f in found] == [VisaAddress("USB0::0x1AB1::0x0E11::DP8A123456::INSTR")]
     assert visa.queries == ["USB?*INSTR"]
-    assert visa.closed
+    assert not visa.closed
 
 
 def test_list_usb_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -593,3 +600,42 @@ def test_default_name_is_at_most_64_bytes() -> None:
     name = discovery.default_name(found)
 
     assert 0 < len(name.encode()) <= 64
+
+
+def test_discover_keeps_one_address_per_instrument(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    """A host reached by VXI-11 and by raw socket is one instrument: the address that
+    identified wins, then the kind the caller prefers. Two sockets on one host stay two."""
+    sock = Found(TcpAddress("10.0.0.5", 5025), None, None, None, "scan", "5025", None)
+    vxi = Found(VisaAddress("TCPIP::10.0.0.5::INSTR"), None, None, None, "vxi11", "v", None)
+    other = Found(TcpAddress("10.0.0.5", 5555), None, None, None, "scan", "5555", None)
+    monkeypatch.setattr(discovery, "list_lan", lambda budget_s, tried=None: [sock, vxi, other])
+    answers: dict[str, bool] = {}
+
+    def identify(found: Found, profiles: list[profile.Profile], timeout_s: float = 2.0) -> Found:
+        if answers.get(found.address.where, True):
+            return dataclasses.replace(found, idn=profile.parse_idn(DP832_REPLY))
+        return dataclasses.replace(found, error="no reply")
+
+    monkeypatch.setattr(discovery, "identify", identify)
+
+    def run(prefer: str = "socket") -> list[str]:
+        found = discovery.discover(profiles, usb=False, budget_s=0.01, prefer=prefer)  # type: ignore[arg-type]
+        return [f.address.where for f in found]
+
+    assert run() == ["10.0.0.5:5025", "10.0.0.5:5555"]
+    assert run("visa") == ["TCPIP::10.0.0.5::INSTR"]
+    answers["10.0.0.5:5025"] = False
+    answers["10.0.0.5:5555"] = False
+    assert run() == ["TCPIP::10.0.0.5::INSTR"]
+
+
+def test_vxi11_broadcast_leaves_the_shared_manager_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """pyvisa shares one manager per library with every open link: closing it here closed the
+    worker's live session."""
+    vxi = FakeManager(["TCPIP0::10.0.0.9::inst0::INSTR"])
+    _fake_visa(monkeypatch, py=vxi)
+    found = discovery.list_lan(budget_s=0.01)
+    assert [f.address.where for f in found] == ["TCPIP0::10.0.0.9::inst0::INSTR"]
+    assert not vxi.closed

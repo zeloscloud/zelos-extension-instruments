@@ -11,8 +11,6 @@ from pyvisa.resources import MessageBasedResource
 from . import CONNECT_TIMEOUT_S, Link, LinkError, LinkTimeout, Pacer, Settings, VisaAddress
 from .tcp import tune_socket
 
-_managers: dict[str, pyvisa.ResourceManager] = {}
-
 _MISSING_DRIVER = {
     "USB": "USB needs the pyusb package and a libusb library",
     "GPIB": "GPIB needs a vendor VISA library such as NI-VISA or Keysight VISA",
@@ -25,12 +23,10 @@ def _seconds(value: float) -> str:
 
 
 def _manager(backend: str) -> pyvisa.ResourceManager:
-    manager = _managers.get(backend)
-    if manager is None:
-        # A bare ResourceManager() falls back to pyvisa-py; "@ivi" fails when no VISA is installed.
-        manager = pyvisa.ResourceManager("@py" if backend == "py" else "@ivi")
-        _managers[backend] = manager
-    return manager
+    # pyvisa keeps one open manager per library and makes a new one after a close, so this is
+    # never cached here: a cached manager that was closed elsewhere fails every open.
+    # A bare ResourceManager() falls back to pyvisa-py; "@ivi" fails when no VISA is installed.
+    return pyvisa.ResourceManager("@py" if backend == "py" else "@ivi")
 
 
 def _backend(address: VisaAddress) -> str:

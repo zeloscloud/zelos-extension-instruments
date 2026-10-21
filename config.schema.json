@@ -38,7 +38,7 @@
                 "required": ["port"] },
               { "properties": {
                   "connection": { "enum": ["visa"] },
-                  "resource": { "type": "string", "title": "Resource", "minLength": 1, "description": "A VISA resource string, such as TCPIP0::192.168.1.40::inst0::INSTR, TCPIP0::192.168.1.40::hislip0::INSTR or GPIB0::5::INSTR." },
+                  "resource": { "type": "string", "title": "Resource", "minLength": 1, "description": "A VXI-11 or HiSLIP instrument from the list, or a VISA resource string such as TCPIP0::192.168.1.40::inst0::INSTR, TCPIP0::192.168.1.40::hislip0::INSTR or GPIB0::5::INSTR.", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_instruments", "params": { "connection": "visa" } } },
                   "backend": { "type": "string", "title": "VISA library", "enum": ["auto", "py", "ivi"], "ui:enumNames": ["Automatic", "Built in", "System VISA (NI, Keysight, R&S)"], "default": "auto", "description": "Automatic uses the system VISA for USB and GPIB when one is installed, and the built-in library otherwise." },
                   "advanced": { "$ref": "#/definitions/advanced" } },
                 "required": ["resource"] },

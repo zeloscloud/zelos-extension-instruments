@@ -6,8 +6,9 @@ from typing import Any
 from zelos_sdk.actions import SelectField, action, register_field_type
 
 from . import profile as profiles_module
-from .link import TcpAddress
+from .link import Address, TcpAddress
 from .naming import NAME_BYTES, unique_name
+from .profile import Idn
 from .worker import InstrumentWorker, RequestKind
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ _channel = action.integer(
 @action.select(
     "connection",
     title="Connection",
-    choices=["lan", "usb", "serial"],
+    choices=["lan", "usb", "serial", "visa"],
     required=False,
     default="lan",
 )
@@ -87,18 +88,25 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
     tried: list[str] = []
     found = discovery.discover(
         profiles_module.shipped(),
-        lan=connection == "lan",
+        lan=connection in ("lan", "visa"),
         usb=connection == "usb",
         serial=False,
         budget_s=1.0,
         identify_timeout_s=2.0,
         skip=held,
         tried=tried,
+        prefer="visa" if connection == "visa" else "socket",
     )
     choices = []
     for f in found:
-        value = _lan_value(f.address) if isinstance(f.address, TcpAddress) else f.address.where
-        who = f"{f.idn.manufacturer} {f.idn.model}".strip() if f.idn else ""
+        if connection == "visa":
+            value = _visa_value(f.address)
+        elif isinstance(f.address, TcpAddress):
+            value = _lan_value(f.address)
+        else:
+            value = f.address.where
+        idn = f.idn or _held_identity(f.address.where)
+        who = f"{idn.manufacturer} {idn.model}".strip() if idn else ""
         label = f"{who} ({f.address.where})" if who else f.address.where
         detail = f.error or (f.profile_id and f"profile {f.profile_id}") or None
         choices.append({"value": value, "label": label, "detail": detail})
@@ -166,7 +174,11 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     )
     added: list[str] = []
     unidentified: list[str] = []
+    in_use: list[str] = []
     for f in found:
+        if f.error == discovery.IN_USE:
+            in_use.append(f.address.where)
+            continue
         if f.error and f.idn is None:
             unidentified.append(f"{f.address.where}: {f.error}")
             continue
@@ -186,6 +198,8 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
             {"connection": "demo", "category": c} for c in ("psu", "load", "dmm", "acsource")
         ]
         message = f"{_nothing_found(tried)} Added the demo bench."
+    if in_use:
+        message += " Already running in this extension: " + ", ".join(in_use) + "."
     if unidentified:
         message += " Not identified: " + "; ".join(unidentified[:5]) + "."
     return {"status": "success", "config": {"instruments": instruments}, "message": message}
@@ -324,6 +338,18 @@ def _nothing_found(tried: list[str]) -> str:
         f"No instruments found. Searched: {searched}. An instrument on another subnet does not "
         "answer these searches: type its address."
     )
+
+
+def _held_identity(where: str) -> Idn | None:
+    """What the worker that holds an address learned about it."""
+    return next((w.idn for w in workers.values() if w.where == where), None)
+
+
+def _visa_value(address: Address) -> str:
+    """A found address as a VISA resource: a raw socket becomes its SOCKET form."""
+    if isinstance(address, TcpAddress):
+        return f"TCPIP::{address.host}::{address.port}::SOCKET"
+    return address.where
 
 
 def _lan_value(address: TcpAddress) -> str:

@@ -14,3 +14,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Instrument knowledge in profile files, one per family, checked at start; your own profile files load the same way.
 - A raw SCPI action, a poll table for any extra reading, Release and Acquire, Local, Clear and Get State.
 - A transcript recorder and a fake instrument served from any profile, for tests and the demo.
+- Get State names a SCPI port that another client holds, and gives the VISA resource when the instrument also answers VXI-11; the VISA resource list offers what answers VXI-11 or HiSLIP.

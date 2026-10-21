@@ -10,7 +10,15 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 Kind = Literal[
-    "not_found", "refused", "unresolved", "busy", "permission", "timeout", "config", "other"
+    "not_found",
+    "refused",
+    "unresolved",
+    "busy",
+    "held",
+    "permission",
+    "timeout",
+    "config",
+    "other",
 ]
 
 # Short, because a blocked connect holds the worker's thread: Get State and stop wait behind it.
