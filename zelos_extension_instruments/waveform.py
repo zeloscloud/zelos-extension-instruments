@@ -8,6 +8,9 @@ import math
 import struct
 from dataclasses import dataclass
 
+import numpy as np
+import numpy.typing as npt
+
 
 class BlockError(ValueError):
     """A reply that is not the block it should be."""
@@ -124,25 +127,23 @@ def decode_wavedesc(payload: bytes) -> WaveDesc:
     return desc
 
 
-def samples(desc: WaveDesc, payload: bytes) -> list[float]:
+def samples(desc: WaveDesc, payload: bytes) -> npt.NDArray[np.float64]:
     """The data block's samples in the channel's unit, probe factor applied."""
     size = desc.bytes_per_sample
-    usable = len(payload) - len(payload) % size
-    fmt = desc.sample_format
-    codes = struct.unpack(
-        f"{fmt[0] if len(fmt) > 1 else '<'}{usable // size}{fmt[-1]}", payload[:usable]
-    )
+    codes = np.frombuffer(payload, dtype=np.dtype(desc.sample_format), count=len(payload) // size)
     gain = desc.vertical_gain / desc.code_per_div * desc.probe
     offset = desc.vertical_offset * desc.probe
-    return [code * gain - offset for code in codes]
+    return codes * gain - offset
 
 
-def sample_times_s(desc: WaveDesc, count: int, timebase_s: float, grid: int) -> list[float]:
-    """Seconds from the trigger for each of `count` transferred samples.
+def sample_offsets_ns(
+    desc: WaveDesc, count: int, timebase_s: float, grid: int
+) -> npt.NDArray[np.int64]:
+    """Nanoseconds from the trigger for each of `count` transferred samples.
 
     The first sample sits at the left of the screen: the trigger delay minus half the sweep.
     Transferred samples are `step` acquisition samples apart.
     """
     first = desc.horizontal_offset - timebase_s * grid / 2
     pitch = desc.horizontal_interval * desc.step
-    return [first + i * pitch for i in range(count)]
+    return np.rint((first + np.arange(count) * pitch) * 1e9).astype(np.int64)

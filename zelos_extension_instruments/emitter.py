@@ -5,6 +5,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+import numpy.typing as npt
+import pyarrow as pa
 import zelos_sdk
 from zelos_sdk import schemas
 
@@ -29,7 +32,8 @@ class _Instrument:
     # One event for settings the whole instrument shares, such as a scope's timebase.
     acquisition: zelos_sdk.TraceSourceEvent | None = None
     acquisition_fields: dict[str, str | None] = field(default_factory=dict)
-    waveforms: dict[int, zelos_sdk.TraceSourceEvent] = field(default_factory=dict)
+    # The waveform event's name per channel; a capture is written as one batch.
+    waveforms: dict[int, str] = field(default_factory=dict)
     warned: set[str] = field(default_factory=set)
 
 
@@ -107,11 +111,12 @@ class Emitter:
                     self._source.add_value_table(
                         event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
                     )
-        waveforms: dict[int, zelos_sdk.TraceSourceEvent] = {}
+        waveforms: dict[int, str] = {}
         if profile.scope is not None and profile.scope.waveform is not None:
             for ch in range(1, channels + 1):
-                waveforms[ch] = self._source.add_event(
-                    f"{name}/ch{ch}/waveform",
+                waveforms[ch] = f"{name}/ch{ch}/waveform"
+                self._source.add_event(
+                    waveforms[ch],
                     [zelos_sdk.TraceEventFieldMetadata("voltage", zelos_sdk.DataType.Float64, "V")],
                 )
         self._instruments[name] = _Instrument(
@@ -146,13 +151,24 @@ class Emitter:
         if row:
             inst.acquisition.log_at(time_ns, **row)
 
-    def waveform(self, name: str, ch: int, samples: list[tuple[int, float]]) -> None:
-        """One capture of a channel: (time_ns, value) per sample."""
+    def waveform(
+        self,
+        name: str,
+        ch: int,
+        time_ns: npt.NDArray[np.int64],
+        volts: npt.NDArray[np.float64],
+    ) -> None:
+        """One capture of a channel, written as a single Arrow batch."""
         event = self._instruments[name].waveforms.get(ch)
         if event is None:
             return
-        for time_ns, value in samples:
-            event.log_at(time_ns, voltage=value)
+        batch = pa.record_batch(
+            {
+                "time_ns": pa.array(time_ns, type=pa.timestamp("ns", tz="UTC")),
+                "voltage": pa.array(volts, type=pa.float64()),
+            }
+        )
+        self._source.log_batch(event, batch)
 
     def reading(self, name: str, function: str, value: float, time_ns: int) -> None:
         """A DMM reading, under the active function's event."""

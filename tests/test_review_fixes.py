@@ -278,7 +278,7 @@ def test_the_recorded_sds824x_descriptor_places_the_trigger_at_zero() -> None:
     values = waveform.samples(desc, payload)
     codes = struct.unpack(f"<{len(payload) // 2}h", payload)
     assert len(values) == len(codes) == 1000
-    times = waveform.sample_times_s(desc, len(values), timebase, 10)
+    times = (waveform.sample_offsets_ns(desc, len(values), timebase, 10) / 1e9).tolist()
     pitch = desc.horizontal_interval * desc.step
     assert pitch == pytest.approx(5e-6)
     assert times[0] == pytest.approx(delay - timebase * 5)

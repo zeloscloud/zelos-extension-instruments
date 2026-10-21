@@ -153,8 +153,8 @@ class RecordingEmitter(Emitter):
     def acquisition_row(self, name: str, values: dict[str, Any], time_ns: int) -> None:
         self.acquisitions.append((name, dict(values), time_ns))
 
-    def waveform(self, name: str, ch: int, samples: list[tuple[int, float]]) -> None:
-        self.waveforms.append((name, ch, list(samples)))
+    def waveform(self, name: str, ch: int, time_ns: Any, volts: Any) -> None:
+        self.waveforms.append((name, ch, list(zip(time_ns.tolist(), volts.tolist(), strict=True))))
 
     def status(
         self, name: str, rtt_ms: float, rate_hz: float, errors: int, connected: bool, time_ns: int
