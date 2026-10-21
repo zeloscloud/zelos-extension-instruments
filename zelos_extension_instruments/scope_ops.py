@@ -15,7 +15,7 @@ from . import engine
 from .engine import ParseError, RangeError
 from .link import LinkTimeout
 from .profile_scope import MEASUREMENT_FIELDS
-from .waveform import BlockError, decode_wavedesc, sample_times_s, samples
+from .waveform import BlockError, decode_wavedesc, sample_offsets_ns, samples
 
 if TYPE_CHECKING:
     from .worker import InstrumentWorker
@@ -190,10 +190,8 @@ def capture(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str
         raise RangeError(f"the waveform could not be read: {e}") from e
     done = worker._now()
     values = samples(desc, payload)
-    times = sample_times_s(desc, len(values), timebase, scope.grid)
-    anchor = worker._clock.epoch_ns(sent)
-    burst = [(anchor + round(t * _S), v) for t, v in zip(times, values, strict=True)]
-    worker._emitter.waveform(worker.cfg.name, ch, burst)
+    offsets = sample_offsets_ns(desc, len(values), timebase, scope.grid)
+    worker._emitter.waveform(worker.cfg.name, ch, offsets + worker._clock.epoch_ns(sent), values)
     worker._after_write(f"captured {len(values)} samples of ch{ch}", log=False)
     worker._note(
         "info",
@@ -205,10 +203,10 @@ def capture(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str
         "channel": ch,
         "samples": len(values),
         "sample_interval_s": desc.horizontal_interval * desc.step,
-        "first_s": times[0] if times else None,
-        "last_s": times[-1] if times else None,
-        "minimum": min(values) if values else None,
-        "maximum": max(values) if values else None,
+        "first_s": float(offsets[0]) / _S if len(offsets) else None,
+        "last_s": float(offsets[-1]) / _S if len(offsets) else None,
+        "minimum": float(values.min()) if len(values) else None,
+        "maximum": float(values.max()) if len(values) else None,
         "volts_per_div": desc.vertical_gain * desc.probe,
         "fetched_in_s": round((done - sent) / _S, 3),
     }

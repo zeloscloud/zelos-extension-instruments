@@ -202,7 +202,9 @@ class VisaLink:
         if timeout_s is not None:
             inst.timeout = max(1, round(timeout_s * 1000))
         try:
-            return inst.read_bytes(count, break_on_termchar=False)
+            # One request for the whole count: pyvisa's 20 KB default cost a VXI-11 round trip per
+            # piece and nearly halved a scope's waveform transfer rate.
+            return inst.read_bytes(count, chunk_size=max(1, count), break_on_termchar=False)
         except Exception as exc:
             raise self._failure(exc, reading=True, timeout_s=timeout_s) from exc
         finally:

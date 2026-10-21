@@ -28,6 +28,7 @@ class FakeResource(MessageBasedResource):
         self.write_error: Exception | None = None
         self.closed = 0
         self.fail_clear = False
+        self.chunk_sizes: list[int | None] = []
 
     @property
     def read_termination(self) -> str:
@@ -64,6 +65,7 @@ class FakeResource(MessageBasedResource):
         self, count: int, chunk_size: int | None = None, break_on_termchar: bool = False
     ) -> bytes:
         """Exactly `count` bytes, drawn from the replies in order, as pyvisa reads by count."""
+        self.chunk_sizes.append(chunk_size)
         while len(self.pending) < count:
             self.pending += self._next()
         data, self.pending = self.pending[:count], self.pending[count:]
@@ -194,6 +196,15 @@ def test_query_strips_the_terminator_and_replaces_bad_bytes(fake_visa: FakeVisa)
     assert link.query("*IDN?") == "OK"
     assert fake_visa.resource.written == ["*IDN?"]
     assert link.read() == "�A"
+
+
+def test_a_block_payload_is_one_read_of_its_whole_length(fake_visa: FakeVisa) -> None:
+    """pyvisa's 20 KB default made a VXI-11 round trip per piece: 1.8 times slower on a scope."""
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), Settings())
+    payload = bytes(range(256)) * 400
+    fake_visa.resource.replies = [b"#6102400" + payload + b"\n"]
+    assert link.read_block() == payload
+    assert fake_visa.resource.chunk_sizes[-1] == len(payload)
 
 
 def test_delay_spaces_consecutive_writes(fake_visa: FakeVisa) -> None:

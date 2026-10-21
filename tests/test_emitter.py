@@ -1,6 +1,8 @@
 import logging
 from typing import Any, cast
 
+import numpy as np
+import pyarrow as pa
 import pytest
 import zelos_sdk
 
@@ -20,6 +22,7 @@ class SpySource:
         self._source = source
         self.fields: dict[str, dict[str, tuple[Any, str | None]]] = {}
         self.tables: dict[tuple[str, str], dict[int, str]] = {}
+        self.batches: list[tuple[str, pa.RecordBatch]] = []
 
     def add_event(self, name: str, schema: Any, *args: Any) -> zelos_sdk.TraceSourceEvent:
         if isinstance(schema, list):
@@ -29,6 +32,10 @@ class SpySource:
     def add_value_table(self, name: str, field_name: str, data: dict[int, str]) -> None:
         self.tables[(name, field_name)] = dict(data)
         self._source.add_value_table(name, field_name, data)
+
+    def log_batch(self, name: str, batch: pa.RecordBatch) -> None:
+        self.batches.append((name, batch))
+        self._source.log_batch(name, batch)
 
     def source(self) -> zelos_sdk.TraceSource:
         return cast(zelos_sdk.TraceSource, self)
@@ -396,3 +403,33 @@ def test_value_tables_read_back_from_the_trace(trace_file: Recording, dp800: Pro
 def test_the_status_event_has_no_value_tables(spy: SpySource, dp800: Profile) -> None:
     emitter_for(spy).add_instrument("psu", dp800, 1)
     assert [key for key in spy.tables if key[0] == "psu/status"] == []
+
+
+def test_a_waveform_is_one_batch_at_exact_nanoseconds(
+    trace_file: Recording, spy: SpySource, profiles: list[Profile]
+) -> None:
+    """Samples 2 ns apart near today's epoch: float seconds would round them 256 ns apart."""
+    scope = next(p for p in profiles if p.id == "siglent-sds")
+    emitter = emitter_for(spy)
+    emitter.add_instrument("scope", scope, 2)
+    times = 1_790_000_000_123_456_789 + np.arange(5, dtype=np.int64) * 2
+    volts = np.array([0.1, 0.2, -0.3, 0.4, 0.5])
+    emitter.waveform("scope", 2, times, volts)
+    [(name, batch)] = spy.batches
+    assert name == "scope/ch2/waveform"
+    assert batch.column("time_ns").cast(pa.int64()).to_pylist() == times.tolist()
+    assert spy.fields[name] == {"voltage": (zelos_sdk.DataType.Float64, "V")}
+    rows = trace_file.events()[name]
+    # The reader orders rows by float seconds, which cannot tell these samples apart.
+    assert sorted(r["voltage"] for r in rows) == sorted(volts.tolist())
+    assert [r[TIME] for r in rows] == pytest.approx(times / 1e9, abs=1e-6)
+
+
+def test_a_waveform_for_a_channel_without_one_is_dropped(
+    spy: SpySource, profiles: list[Profile]
+) -> None:
+    scope = next(p for p in profiles if p.id == "siglent-sds")
+    emitter = emitter_for(spy)
+    emitter.add_instrument("scope", scope, 1)
+    emitter.waveform("scope", 3, np.zeros(2, dtype=np.int64), np.zeros(2))
+    assert spy.batches == []

@@ -25,6 +25,8 @@ dependencies = [
     "zeroconf>=0.130",
     "psutil>=5.9",
     "jsonschema>=4",
+    "numpy>=1.26",
+    "pyarrow>=18",
 ]
 
 [project.urls]
@@ -39,7 +41,6 @@ dev = [
     "hypothesis>=6",
     "ruff>=0.16.10",
     "pyright>=1.1.400",
-    "pyarrow>=14",
     "pre-commit>=4.6.2",
 ]
 
