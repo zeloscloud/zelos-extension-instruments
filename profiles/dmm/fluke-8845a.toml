@@ -20,6 +20,7 @@ baud = 9600
 remote = "SYST:REM"
 local = "SYST:LOC"
 locks_panel = true
+needs_remote = true
 
 [errors]
 query = "SYST:ERR?"

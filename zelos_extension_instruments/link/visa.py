@@ -1,6 +1,7 @@
 """A VISA resource through pyvisa: pyvisa-py by default, a system VISA library when one is there."""
 
 import socket
+import sys
 from contextlib import suppress
 from typing import Any, cast
 
@@ -8,6 +9,7 @@ import pyvisa
 from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
 
+from ..waveform import BlockError, block_payload
 from . import CONNECT_TIMEOUT_S, Link, LinkError, LinkTimeout, Pacer, Settings, VisaAddress
 from .tcp import tune_socket
 
@@ -41,6 +43,23 @@ def _backend(address: VisaAddress) -> str:
     return "py"
 
 
+def _usb_advice(where: str) -> str:
+    """How to make a USB-TMC device openable through the built-in library, by platform."""
+    if not where.upper().startswith("USB"):
+        return ""
+    if sys.platform == "win32":
+        return (
+            " On Windows the device keeps its vendor driver: install NI-VISA or Keysight IO "
+            "Libraries, which the extension then uses, or bind the device to WinUSB with Zadig."
+        )
+    if sys.platform == "linux":
+        return (
+            " On Linux give this user access to the device: a udev rule for its vendor id "
+            '(MODE="0666" or a group this user is in) for /dev/bus/usb and /dev/usbtmc*.'
+        )
+    return ""
+
+
 def _open_failure(address: VisaAddress, backend: str, exc: Exception) -> LinkError:
     where = address.resource
     message = str(exc)
@@ -62,7 +81,7 @@ def _open_failure(address: VisaAddress, backend: str, exc: Exception) -> LinkErr
             )
         return LinkError(f"Cannot open {where}: {exc.description}.", "other")
     if "no device found" in lowered:
-        return LinkError(f"No instrument answers at {where}.", "not_found")
+        return LinkError(f"No instrument answers at {where}.{_usb_advice(where)}", "not_found")
     if "could not connect" in lowered:
         return LinkError(f"No answer from {where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout")
     if isinstance(exc, ConnectionRefusedError):
@@ -83,7 +102,7 @@ def _open_failure(address: VisaAddress, backend: str, exc: Exception) -> LinkErr
         return LinkError(f"{need}, and it is missing: {where} cannot be opened.", "config")
     code = getattr(exc, "errno", None)
     if code == 13:
-        return LinkError(f"This account may not open {where}.", "permission")
+        return LinkError(f"This account may not open {where}.{_usb_advice(where)}", "permission")
     if code == 16:
         return LinkError(f"{where} is in use by another program.", "busy")
     if isinstance(exc, ValueError):
@@ -136,37 +155,79 @@ class VisaLink:
             raise self._failure(exc, reading=False) from exc
         self._pacer.mark()
 
-    def read(self) -> str:
-        try:
-            raw = self._inst.read_raw()
-        except Exception as exc:
-            raise self._failure(exc, reading=True) from exc
-        text = raw.decode("utf-8", errors="replace")
-        terminator = self._settings.read_terminator
-        return text.removesuffix(terminator) if terminator else text
+    def read(self, timeout_s: float | None = None) -> str:
+        return self._text(self._read_raw(timeout_s, terminated=True), timeout_s)
 
     def query(self, command: str) -> str:
         self.write(command)
         return self.read()
 
+    def read_block(self, timeout_s: float | None = None) -> bytes:
+        # A block holds every byte value, so the termination character must not end the read;
+        # VISA then reads to the message's END.
+        try:
+            return block_payload(self._read_raw(timeout_s, terminated=False))
+        except BlockError as exc:
+            raise LinkError(f"{self.where} did not answer with a block: {exc}", "other") from exc
+
+    def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        raw = self._read_raw(timeout_s, terminated=True)
+        if raw[:1] != b"#":
+            return self._text(raw, timeout_s)
+        # The terminator may have ended the read inside the block: read on until it is whole.
+        buffer = bytearray(raw)
+        while True:
+            try:
+                return block_payload(bytes(buffer))
+            except BlockError as exc:
+                if "holds" not in str(exc) and "incomplete" not in str(exc):
+                    return self._text(bytes(buffer), timeout_s)
+            buffer += self._read_raw(timeout_s, terminated=False)
+
+    def _read_raw(self, timeout_s: float | None, *, terminated: bool) -> bytes:
+        inst = self._inst
+        termination = inst.read_termination
+        timeout = inst.timeout
+        if not terminated:
+            inst.read_termination = None
+        if timeout_s is not None:
+            inst.timeout = max(1, round(timeout_s * 1000))
+        try:
+            return inst.read_raw()
+        except Exception as exc:
+            raise self._failure(exc, reading=True, timeout_s=timeout_s) from exc
+        finally:
+            inst.read_termination = termination
+            inst.timeout = timeout
+
+    def _text(self, raw: bytes, timeout_s: float | None) -> str:
+        text = raw.decode("utf-8", errors="replace")
+        terminator = self._settings.read_terminator
+        return text.removesuffix(terminator) if terminator else text
+
     def clear(self) -> None:
+        """A device clear where the profile allows one, else only the read buffer."""
         with suppress(Exception):
-            self._inst.clear()
+            if self._settings.device_clear:
+                self._inst.clear()
+            else:
+                self._inst.flush(constants.BufferOperation.discard_read_buffer)
 
     def close(self) -> None:
         self._closed = True
         with suppress(Exception):
             self._inst.close()
 
-    def _failure(self, exc: Exception, *, reading: bool) -> LinkError:
+    def _failure(
+        self, exc: Exception, *, reading: bool, timeout_s: float | None = None
+    ) -> LinkError:
         if self._closed:
             return LinkError(f"The link to {self.where} was closed.", "other")
         if isinstance(exc, errors.VisaIOError):
             if exc.error_code == constants.StatusCode.error_timeout:
                 if reading:
-                    return LinkTimeout(
-                        f"no reply from {self.where} within {_seconds(self._settings.timeout_s)}"
-                    )
+                    waited = timeout_s or self._settings.timeout_s
+                    return LinkTimeout(f"no reply from {self.where} within {_seconds(waited)}")
                 return LinkError(f"{self.where} did not accept a command in time.", "timeout")
             return LinkError(f"The connection to {self.where} failed: {exc.description}.", "other")
         return LinkError(f"The connection to {self.where} failed: {exc}.", "other")

@@ -256,7 +256,17 @@ def test_list_usb_reads_usbtmc_devices_and_skips_unreadable_serials(
             "usb",
             "DP832",
             None,
-        )
+        ),
+        # A USB-TMC device whose serial cannot be read is listed with the fix, never hidden.
+        Found(
+            VisaAddress("USB0::0x2A8D::0x1234::?::INSTR"),
+            None,
+            None,
+            None,
+            "usb",
+            "Model",
+            discovery.USB_UNREADABLE,
+        ),
     ]
     assert len([r for r in caplog.records if "serial cannot be read" in r.message]) == 1
 

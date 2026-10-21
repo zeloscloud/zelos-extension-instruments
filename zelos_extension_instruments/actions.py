@@ -9,6 +9,14 @@ from . import profile as profiles_module
 from .link import Address, TcpAddress
 from .naming import NAME_BYTES, unique_name
 from .profile import Idn
+from .profile_scope import (
+    COUPLING_LABELS,
+    MEASUREMENT_FIELDS,
+    SCOPE_COMMAND_SETTERS,
+    TRIGGER_MODE_LABELS,
+    TRIGGER_SLOPE_LABELS,
+    TRIGGER_SOURCE_LABELS,
+)
 from .worker import InstrumentWorker, RequestKind
 
 logger = logging.getLogger(__name__)
@@ -19,6 +27,8 @@ workers: dict[str, InstrumentWorker] = {}
 _TIMEOUT_S = 10.0
 _SCPI_TIMEOUT_S = 35.0
 _ACQUIRE_TIMEOUT_S = 15.0
+# A capture of millions of samples over VXI-11 takes seconds.
+_CAPTURE_TIMEOUT_S = 60.0
 # A wait ends this much before the action's own timeout, so the caller gets the reason.
 _MARGIN_S = 0.5
 # The app's choices list gives up after 10 s; Auto-configure waits longer.
@@ -304,6 +314,142 @@ def get_state(instrument: str | None = None) -> dict[str, Any]:
 def scpi(instrument: str | None = None, *, command: str, timeout_s: float = 2.0) -> dict[str, Any]:
     _check_range("timeout_s", timeout_s, _MIN_SCPI_S, _MAX_SCPI_S)
     return _ask(instrument, "scpi", _SCPI_TIMEOUT_S, command=command, timeout_s=timeout_s)
+
+
+@action(
+    "Set Channel",
+    "Set a scope channel's vertical scale, offset, coupling, probe factor or visibility.",
+    timeout=_TIMEOUT_S,
+)
+@_instrument
+@_channel
+@action.number("scale", title="Volts per division (V)", required=False)
+@action.number("offset", title="Offset (V)", required=False)
+@action.select("coupling", title="Coupling", choices=list(COUPLING_LABELS[:-1]), required=False)
+@action.number("probe", title="Probe factor", required=False)
+@action.boolean("visible", title="Visible", required=False)
+def set_channel(
+    instrument: str | None = None,
+    channel: int = 1,
+    scale: float | None = None,
+    offset: float | None = None,
+    coupling: str | None = None,
+    probe: float | None = None,
+    visible: bool | None = None,
+) -> dict[str, Any]:
+    return _ask(
+        instrument,
+        "set",
+        _TIMEOUT_S,
+        channel=channel,
+        scale=scale,
+        offset=offset,
+        coupling=coupling or None,
+        probe=probe,
+        visible=visible,
+    )
+
+
+@action(
+    "Set Timebase",
+    "Set a scope's seconds per division and trigger delay.",
+    timeout=_TIMEOUT_S,
+)
+@_instrument
+@action.number("timebase", title="Seconds per division (s)", required=False)
+@action.number("delay", title="Delay (s)", required=False)
+def set_timebase(
+    instrument: str | None = None, timebase: float | None = None, delay: float | None = None
+) -> dict[str, Any]:
+    return _ask(instrument, "set", _TIMEOUT_S, channel=1, timebase=timebase, delay=delay)
+
+
+@action(
+    "Set Trigger",
+    "Set a scope's edge trigger: source, level, slope and mode.",
+    timeout=_TIMEOUT_S,
+)
+@_instrument
+@action.select("source", title="Source", choices=list(TRIGGER_SOURCE_LABELS[:-1]), required=False)
+@action.number("level", title="Level (V)", required=False)
+@action.select("slope", title="Slope", choices=list(TRIGGER_SLOPE_LABELS[:-1]), required=False)
+@action.select("mode", title="Mode", choices=list(TRIGGER_MODE_LABELS[:-1]), required=False)
+def set_trigger(
+    instrument: str | None = None,
+    source: str | None = None,
+    level: float | None = None,
+    slope: str | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    return _ask(
+        instrument,
+        "set",
+        _TIMEOUT_S,
+        channel=1,
+        trigger_source=source or None,
+        trigger_level=level,
+        trigger_slope=slope or None,
+        trigger_mode=mode or None,
+    )
+
+
+@action(
+    "Run Control", "Run, stop, arm a single acquisition, or autoset a scope.", timeout=_TIMEOUT_S
+)
+@_instrument
+@action.select("command", title="Command", choices=list(SCOPE_COMMAND_SETTERS), default="run")
+def run_control(instrument: str | None = None, *, command: str = "run") -> dict[str, Any]:
+    return _ask(instrument, "command", _TIMEOUT_S, name=command)
+
+
+@action(
+    "Measure",
+    "Show a measurement of a scope channel in a measurement slot; it is recorded from then on.",
+    timeout=_TIMEOUT_S,
+)
+@_instrument
+@_channel
+@action.select("type", title="Measurement", choices=list(MEASUREMENT_FIELDS), default="pkpk")
+@action.integer(
+    "slot",
+    title="Slot",
+    description="Empty reuses the slot that already shows it, or the lowest free one.",
+    minimum=1,
+    maximum=64,
+    required=False,
+)
+@action.boolean("off", title="Turn the slot off instead", default=False, required=False)
+def measure(
+    instrument: str | None = None,
+    channel: int = 1,
+    *,
+    type: str = "pkpk",
+    slot: int | None = None,
+    off: bool = False,
+) -> dict[str, Any]:
+    return _ask(instrument, "measure", _TIMEOUT_S, channel=channel, type=type, slot=slot, off=off)
+
+
+@action(
+    "Capture Waveform",
+    "Fetch the samples of a scope channel on screen into the trace as one burst.",
+    timeout=_CAPTURE_TIMEOUT_S,
+)
+@_instrument
+@_channel
+@action.integer(
+    "points",
+    title="Points",
+    description="At most this many samples, spread over the screen.",
+    minimum=1,
+    maximum=100_000_000,
+    default=10_000,
+    required=False,
+)
+def capture_waveform(
+    instrument: str | None = None, channel: int = 1, points: int = 10_000
+) -> dict[str, Any]:
+    return _ask(instrument, "waveform", _CAPTURE_TIMEOUT_S, channel=channel, points=points)
 
 
 @action("Clear", "Clear a channel's latched protection and the error queue.", timeout=_TIMEOUT_S)

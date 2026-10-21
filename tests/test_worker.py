@@ -31,6 +31,8 @@ class Dp832:
         self.errors: list[str] = []
         self.ovp_tripped = {1: False, 2: False, 3: False}
         self.silent = False
+        # An error the next command (not a query) queues, as a refused setting does.
+        self.fail_next_set: str | None = None
         self.calls: list[str] = []
 
     def measured(self, ch: int) -> tuple[float, float, float]:
@@ -47,6 +49,9 @@ class Dp832:
 
     def __call__(self, command: str) -> str | None:
         self.calls.append(command)
+        if self.fail_next_set is not None and not command.endswith("?"):
+            self.errors.append(self.fail_next_set)
+            self.fail_next_set = None
         if self.silent:
             raise LinkTimeout("no reply from dp832")
         head, _, arg = command.partition(" ")
@@ -104,6 +109,8 @@ class RecordingEmitter(Emitter):
         self.rows: list[tuple[str, int, dict[str, Any], int]] = []
         self.readings: list[tuple[str, str, float, int]] = []
         self.polls: list[tuple[str, str, float, int]] = []
+        self.acquisitions: list[tuple[str, dict[str, Any], int]] = []
+        self.waveforms: list[tuple[str, int, list[tuple[int, float]]]] = []
         self.statuses: list[dict[str, Any]] = []
         self.notes: list[tuple[str, str, str]] = []
         self._fields: dict[str, dict[str, str | None]] = {}
@@ -120,6 +127,12 @@ class RecordingEmitter(Emitter):
 
     def poll_value(self, name: str, row_name: str, value: float, time_ns: int) -> None:
         self.polls.append((name, row_name, value, time_ns))
+
+    def acquisition_row(self, name: str, values: dict[str, Any], time_ns: int) -> None:
+        self.acquisitions.append((name, dict(values), time_ns))
+
+    def waveform(self, name: str, ch: int, samples: list[tuple[int, float]]) -> None:
+        self.waveforms.append((name, ch, list(samples)))
 
     def status(
         self, name: str, rtt_ms: float, rate_hz: float, errors: int, connected: bool, time_ns: int
@@ -208,8 +221,13 @@ def test_timestamps_increase_and_status_reports_rate(running) -> None:
 
 def test_set_voltage_verifies_by_readback_and_logs(running) -> None:
     worker, link, emitter, dp832 = running
-    result = ask(worker, "set", channel=2, voltage=12.3456)
-    assert result == {"voltage": {"set": 12.3456, "readback": 12.346}}
+    # A value the supply's three digits would round away is refused, never sent rounded.
+    assert ask(worker, "set", channel=2, voltage=12.3456) == {
+        "error": "voltage 12.3456 is finer than the instrument's 3 decimals; "
+        "it would be sent as 12.346"
+    }
+    result = ask(worker, "set", channel=2, voltage=12.346)
+    assert result == {"voltage": {"set": 12.346, "readback": 12.346}}
     assert dp832.volt[2] == 12.346
     assert ":SOUR2:VOLT 12.346" in link.commands
     assert ("info", "set ch2 voltage 12.346", "action") in emitter.notes
@@ -252,7 +270,7 @@ def test_channel_3_uses_its_own_range(running) -> None:
 
 def test_set_reports_the_instruments_own_error(running) -> None:
     worker, link, emitter, dp832 = running
-    dp832.errors.append('-221,"Settings conflict"')
+    dp832.fail_next_set = '-221,"Settings conflict"'
     result = ask(worker, "set", channel=1, voltage=7.0)
     assert result == {"error": "the instrument reported -221,Settings conflict"}
     assert any("Settings conflict" in m for m in emitter.messages())

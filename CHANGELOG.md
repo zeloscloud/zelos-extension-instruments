@@ -15,3 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A raw SCPI action, a poll table for any extra reading, Release and Acquire, Local, Clear and Get State.
 - A transcript recorder and a fake instrument served from any profile, for tests and the demo.
 - Get State names a SCPI port that another client holds, and gives the VISA resource when the instrument also answers VXI-11; the VISA resource list offers what answers VXI-11 or HiSLIP.
+- Oscilloscopes: a `scope` category, a Siglent SDS profile recorded from an SDS824X HD, the measurements a scope shows as per-channel signals, its channel, timebase and trigger settings as state, and the Set Channel, Set Timebase, Set Trigger, Run Control, Measure and Capture Waveform actions.
+- Protection enables, remote sense and tracking on supplies; slew rate and current range on loads; range, auto-range and integration time on meters; a meter's function read with every reading.
+- A late reply never lands under the next query: the worker resynchronizes after any silent query, and only the identity ends a resynchronization. The error queue is drained at connect and before every request, and every entry a request raises is reported. A value finer than the instrument's digits is refused instead of rounded. The SCPI action waits its own timeout and returns a block reply as base64.
+- A USB-TMC device this user cannot read is listed with the driver or permission fix for the platform.

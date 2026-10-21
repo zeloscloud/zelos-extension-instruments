@@ -12,6 +12,7 @@ from .config import InstrumentConfig
 from .link import Address, Link, Settings
 from .profile import Profile, by_id, shipped
 from .sim import FakeInstrument
+from .waveform import block_payload
 from .worker import Opener
 
 #: Channels per demo instrument; the supply has two so the bench shows a second rail.
@@ -31,7 +32,7 @@ class InProcessLink:
     def __init__(self, fake: FakeInstrument, where: str) -> None:
         self._fake = fake
         self.where = where
-        self._pending: list[str] = []
+        self._pending: list[str | bytes] = []
         self._closed = False
 
     def write(self, command: str) -> None:
@@ -39,10 +40,22 @@ class InProcessLink:
         if reply is not None:
             self._pending.append(reply)
 
-    def read(self) -> str:
+    def read(self, timeout_s: float | None = None) -> str:
         if not self._pending:
             raise _NoReply(f"no reply from {self.where}")
-        return self._pending.pop(0)
+        reply = self._pending.pop(0)
+        return reply.decode("utf-8", errors="replace") if isinstance(reply, bytes) else reply
+
+    def read_block(self, timeout_s: float | None = None) -> bytes:
+        if not self._pending:
+            raise _NoReply(f"no reply from {self.where}")
+        reply = self._pending.pop(0)
+        return block_payload(reply if isinstance(reply, bytes) else reply.encode())
+
+    def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        if self._pending and isinstance(self._pending[0], bytes):
+            return self.read_block(timeout_s)
+        return self.read(timeout_s)
 
     def query(self, command: str) -> str:
         self.write(command)

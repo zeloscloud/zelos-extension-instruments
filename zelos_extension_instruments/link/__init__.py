@@ -9,6 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from ..waveform import block_header
+
 Kind = Literal[
     "not_found",
     "refused",
@@ -49,6 +51,8 @@ class Settings:
     timeout_s: float = 2.0
     # A pause the vendor documents between commands; the link waits it out before each write.
     delay_ms: int = 0
+    # Whether clear() may send a VISA device clear; some scopes hang on one.
+    device_clear: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +73,7 @@ class SerialAddress:
     data_bits: int = 8
     parity: Literal["none", "even", "odd", "mark", "space"] = "none"
     stop_bits: float = 1.0
-    flow_control: Literal["none", "rts/cts", "xon/xoff"] = "none"
+    flow_control: Literal["none", "rts/cts", "xon/xoff", "dtr/dsr"] = "none"
 
     @property
     def where(self) -> str:
@@ -99,12 +103,22 @@ class Link(Protocol):
         """Send a command with the write terminator; raise LinkError when the link is gone."""
         ...
 
-    def read(self) -> str:
-        """One reply without its terminator; raise LinkTimeout when none arrives in time."""
+    def read(self, timeout_s: float | None = None) -> str:
+        """One reply without its terminator; raise LinkTimeout when none arrives in time.
+        `timeout_s` replaces the settings' timeout for this read."""
         ...
 
     def query(self, command: str) -> str:
         """Send a command and return its reply."""
+        ...
+
+    def read_block(self, timeout_s: float | None = None) -> bytes:
+        """One definite-length block reply (`#<n><length><bytes>`) with its payload only; raise
+        LinkTimeout when none arrives in time and LinkError when the reply is not a block."""
+        ...
+
+    def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        """A line, or a block's payload when the reply is a definite-length block."""
         ...
 
     def clear(self) -> None:
@@ -134,6 +148,9 @@ class Pacer:
         self._last = time.monotonic()
 
 
+_LINE_ENDS = (b"\n", b"\r")
+
+
 class Lines:
     """Bytes received so far, handed out one terminated line at a time."""
 
@@ -152,6 +169,28 @@ class Lines:
         line = bytes(self._buffer[:end])
         del self._buffer[: end + len(self._terminator)]
         return line.decode("utf-8", errors="replace")
+
+    def starts_block(self) -> bool | None:
+        """True when the buffered reply is a block, False when a line, None while empty."""
+        if not self._buffer:
+            return None
+        return self._buffer[:1] == b"#"
+
+    def pop_block(self) -> bytes | None:
+        """The payload of the next complete definite-length block, or None until it has arrived;
+        raises BlockError when the buffer does not start with a block. The terminator bytes an
+        instrument sends after a block are dropped with it."""
+        header = block_header(bytes(self._buffer[:12]))
+        if header is None:
+            return None
+        start, length = header
+        if len(self._buffer) < start + length:
+            return None
+        payload = bytes(self._buffer[start : start + length])
+        del self._buffer[: start + length]
+        while self._buffer[:1] in _LINE_ENDS:
+            del self._buffer[:1]
+        return payload
 
     def clear(self) -> None:
         self._buffer.clear()

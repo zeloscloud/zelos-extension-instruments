@@ -70,6 +70,12 @@ def test_the_registry_holds_every_action_with_its_read_only_flag() -> None:
         "local": False,
         "release": False,
         "acquire": False,
+        "set_channel": False,
+        "set_timebase": False,
+        "set_trigger": False,
+        "run_control": False,
+        "measure": False,
+        "capture_waveform": False,
     }
 
 
@@ -137,7 +143,9 @@ def test_list_profiles_offers_auto_then_every_shipped_profile(profiles: list[Pro
     result = run("list_profiles")
     assert result["choices"][0]["value"] == "auto"
     assert {c["value"] for c in result["choices"][1:]} == {p.id for p in profiles}
-    assert all(c["detail"].endswith("manual") for c in result["choices"][1:])
+    badges = {c["value"]: c["detail"].rsplit(", ", 1)[1] for c in result["choices"][1:]}
+    assert badges == {p.id: p.evidence.badge for p in profiles}
+    assert badges["siglent-sds"] == "transcript"
 
 
 def _found(

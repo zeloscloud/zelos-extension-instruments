@@ -208,6 +208,7 @@ def test_address_becomes_serialx_settings(monkeypatch: pytest.MonkeyPatch) -> No
         "stopbits": 2,
         "rtscts": True,
         "xonxoff": False,
+        "dsrdtr": False,
         "exclusive": True,
         "write_timeout": 1.0,
     }

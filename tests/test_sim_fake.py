@@ -195,7 +195,7 @@ def drain(fake: FakeInstrument) -> list[engine.InstrumentError]:
     errors = fake.profile.errors
     assert errors is not None
     found: list[engine.InstrumentError] = []
-    while (error := engine.read_error(errors, fake.handle(errors.query) or "")) is not None:
+    while (error := engine.read_error(errors, fake.handle_text(errors.query) or "")) is not None:
         found.append(error)
     return found
 
@@ -205,8 +205,8 @@ def send(
 ) -> str | None:
     select = selector.command_for(ch)
     if select is not None:
-        assert fake.handle(select) is None
-    return fake.handle(command)
+        assert fake.handle_text(select) is None
+    return fake.handle_text(command)
 
 
 def set_value(
@@ -250,14 +250,14 @@ def poll(
 def read(fake: FakeInstrument, field: str, ch: int = 1) -> Any:
     reader = fake.profile.reader(field)
     assert reader is not None and reader.query is not None
-    reply = fake.handle(engine.render(reader.query, ch=ch))
+    reply = fake.handle_text(engine.render(reader.query, ch=ch))
     assert reply is not None
     return engine.parse_reply(reader, reply)[field]
 
 
 def test_default_model_is_one_the_profile_matches(rigol):
     fake = FakeInstrument(rigol)
-    idn = fake.handle("*IDN?")
+    idn = fake.handle_text("*IDN?")
     assert idn == fake.idn
     assert idn is not None and rigol.matches(parse_idn(idn))
     assert fake.channels == rigol.channels_for(fake.model)
@@ -267,7 +267,7 @@ def test_model_and_channels_can_be_given(rigol):
     assert FakeInstrument(rigol, "DP832").channels == 3
     assert FakeInstrument(rigol, "DP832", channels=2).channels == 2
     fake = FakeInstrument(rigol, "DP821", idn="RIGOL TECHNOLOGIES,DP821,DP8A000001,00.01.16")
-    assert fake.handle("*IDN?") == "RIGOL TECHNOLOGIES,DP821,DP8A000001,00.01.16"
+    assert fake.handle_text("*IDN?") == "RIGOL TECHNOLOGIES,DP821,DP8A000001,00.01.16"
 
 
 def test_a_model_pattern_it_cannot_spell_needs_an_explicit_model(rigol):
@@ -313,62 +313,62 @@ def test_rigol_setters_verify_by_readback(rigol):
     for name, value in (("voltage", 4.321), ("current", 2.5)):
         setter = rigol.setters[name]
         range_ = rigol.range_for(name, fake.model, 2)
-        fake.handle(engine.setter_command(setter, ch=2, value=value, range_=range_))
+        fake.handle_text(engine.setter_command(setter, ch=2, value=value, range_=range_))
         query = rigol.verify_query(setter)
         reader = rigol.reader(VERIFY_FIELD[name])
         assert query is not None and reader is not None
-        readback = engine.parse_reply(reader, fake.handle(engine.render(query, ch=2)) or "")
+        readback = engine.parse_reply(reader, fake.handle_text(engine.render(query, ch=2)) or "")
         assert engine.verified(value, readback[VERIFY_FIELD[name]], range_)
     for on in (True, False, True):
         set_output(fake, 2, on)
         assert read(fake, "output", 2) is on
     fake.trip(2, "ovp")
     assert read(fake, "output", 2) is False
-    fake.handle(engine.setter_command(rigol.setters["clear"], ch=2))
+    fake.handle_text(engine.setter_command(rigol.setters["clear"], ch=2))
     assert poll(fake)[("ovp", 2)] is False
     assert drain(fake) == []
 
 
 def test_scpi_spelling_is_tolerated(rigol):
     fake = FakeInstrument(rigol, "DP832")
-    assert fake.handle("sour1:volt 2.5") is None
-    assert fake.handle("SOUR1:VOLT?") == "2.5"
-    assert fake.handle("  :sour1:volt?  ") == "2.5"
-    assert fake.handle(":OUTP   CH1,on") is None
+    assert fake.handle_text("sour1:volt 2.5") is None
+    assert fake.handle_text("SOUR1:VOLT?") == "2.5"
+    assert fake.handle_text("  :sour1:volt?  ") == "2.5"
+    assert fake.handle_text(":OUTP   CH1,on") is None
     assert read(fake, "output") is True
-    assert fake.handle("SYST:REMOTE") is None
+    assert fake.handle_text("SYST:REMOTE") is None
     assert drain(fake) == []
 
 
 def test_out_of_range_values_are_refused(rigol):
     fake = FakeInstrument(rigol, "DP832")
-    assert fake.handle(":SOUR3:VOLT 6.000") is None
+    assert fake.handle_text(":SOUR3:VOLT 6.000") is None
     assert read(fake, "voltage_set", 3) == 0.0
-    assert fake.handle(":SOUR1:VOLT 6.000") is None
+    assert fake.handle_text(":SOUR1:VOLT 6.000") is None
     assert read(fake, "voltage_set", 1) == 6.0
-    fake.handle(":SOUR1:CURR -0.100")
-    fake.handle(":SOUR4:VOLT?")
+    fake.handle_text(":SOUR1:CURR -0.100")
+    fake.handle_text(":SOUR4:VOLT?")
     assert [(e.code, e.text) for e in drain(fake)] == [(-222, "Data out of range")] * 3
 
 
 def test_unknown_command_queues_undefined_header(rigol):
     fake = FakeInstrument(rigol)
-    assert fake.handle("FOO:BAR?") is None
-    assert fake.handle("SYST:ERR?") == '-113,"Undefined header"'
-    assert fake.handle("SYST:ERR?") == '0,"No error"'
+    assert fake.handle_text("FOO:BAR?") is None
+    assert fake.handle_text("SYST:ERR?") == '-113,"Undefined header"'
+    assert fake.handle_text("SYST:ERR?") == '0,"No error"'
     assert fake.transcript[0] == ("FOO:BAR?", None)
 
 
 def test_error_queue_is_first_in_first_out_and_bounded(rigol):
     fake = FakeInstrument(rigol)
-    fake.handle("NOPE")
-    fake.handle(":SOUR1:VOLT 99")
+    fake.handle_text("NOPE")
+    fake.handle_text(":SOUR1:VOLT 99")
     assert [e.code for e in drain(fake)] == [-113, -222]
-    fake.handle("NOPE")
-    assert fake.handle("*CLS") is None
+    fake.handle_text("NOPE")
+    assert fake.handle_text("*CLS") is None
     assert drain(fake) == []
     for _ in range(30):
-        fake.handle("NOPE")
+        fake.handle_text("NOPE")
     codes = [e.code for e in drain(fake)]
     assert len(codes) == 20
     assert codes[-1] == -350
@@ -377,11 +377,11 @@ def test_error_queue_is_first_in_first_out_and_bounded(rigol):
 
 def test_common_commands(rigol):
     fake = FakeInstrument(rigol, "DP832")
-    assert fake.handle("*OPC?") == "1"
+    assert fake.handle_text("*OPC?") == "1"
     set_value(fake, "voltage", 1, 5.0)
     set_value(fake, "current", 1, 1.0)
     set_output(fake, 1, True)
-    assert fake.handle("*RST") is None
+    assert fake.handle_text("*RST") is None
     assert fake.transcript[-1] == ("*RST", None)
     assert read(fake, "voltage_set") == 0.0
     assert read(fake, "current_set") == 0.0
@@ -418,26 +418,26 @@ def test_select_style_resolves_channel_less_commands():
     assert readings[("ocp", 2)] is True
     assert readings[("ovp", 2)] is False
     assert readings[("ocp", 1)] is False
-    assert fake.handle("STAT:QUES?") == "20"
+    assert fake.handle_text("STAT:QUES?") == "20"
     assert drain(fake) == []
 
 
 def test_select_style_queries_and_limits():
     profile = build(SELECT_PSU)
     fake = FakeInstrument(profile, "PS20", channels=2)
-    assert fake.handle("SYST:CHAN?") == "2"
-    assert fake.handle("SYST:REM") is None
-    assert engine.parse_float(fake.handle("VOLT? MIN") or "") == 0.0
-    maximum = engine.parse_float(fake.handle("VOLT? MAX") or "")
+    assert fake.handle_text("SYST:CHAN?") == "2"
+    assert fake.handle_text("SYST:REM") is None
+    assert engine.parse_float(fake.handle_text("VOLT? MIN") or "") == 0.0
+    maximum = engine.parse_float(fake.handle_text("VOLT? MAX") or "")
     assert maximum > 0
-    assert fake.handle(f"VOLT {maximum + 1:.2f}") is None
-    assert fake.handle(f"VOLT {maximum:.2f}") is None
-    assert fake.handle("CURR 5.001") is None
-    assert fake.handle("INST:NSEL 3") is None
+    assert fake.handle_text(f"VOLT {maximum + 1:.2f}") is None
+    assert fake.handle_text(f"VOLT {maximum:.2f}") is None
+    assert fake.handle_text("CURR 5.001") is None
+    assert fake.handle_text("INST:NSEL 3") is None
     assert [e.code for e in drain(fake)] == [-222, -222, -222]
-    assert fake.handle("APPL?") == f"0,{maximum:g},0"
-    assert fake.handle("INST:NSEL 2") is None
-    assert fake.handle("APPL?") == "0,0,0"
+    assert fake.handle_text("APPL?") == f"0,{maximum:g},0"
+    assert fake.handle_text("INST:NSEL 2") is None
+    assert fake.handle_text("APPL?") == "0,0,0"
 
 
 def test_dmm_switches_function_and_reads_the_active_one(tmp_path: Path):
@@ -445,21 +445,21 @@ def test_dmm_switches_function_and_reads_the_active_one(tmp_path: Path):
     path.write_text(DMM_TOML, encoding="utf-8")
     profile = load_file(path)
     fake = FakeInstrument(profile)
-    assert fake.handle("FUNC?") == '"VOLT"'
+    assert fake.handle_text("FUNC?") == '"VOLT"'
     assert read(fake, "function") == "dc_voltage"
     fake.set_reading("dc_voltage", 3.3)
     fake.set_reading("ac_voltage", 230.0)
     assert read(fake, "value") == pytest.approx(3.3, rel=1e-3)
 
     command = engine.setter_command(profile.setters["function"], ch=1, function="ac_voltage")
-    assert fake.handle(command) is None
-    assert fake.handle("FUNC?") == '"VOLT:AC"'
+    assert fake.handle_text(command) is None
+    assert fake.handle_text("FUNC?") == '"VOLT:AC"'
     assert read(fake, "function") == "ac_voltage"
     values = {read(fake, "value") for _ in range(5)}
     assert all(v == pytest.approx(230.0, rel=1e-3) for v in values)
     assert len(values) > 1
 
-    assert fake.handle('FUNC "BOGUS"') is None
+    assert fake.handle_text('FUNC "BOGUS"') is None
     assert [e.code for e in drain(fake)] == [-113]
     with pytest.raises(ValueError):
         fake.set_reading("bogus", 1.0)
@@ -478,15 +478,17 @@ def test_load_current_follows_the_function():
     assert math.isnan(read(fake, "resistance"))
     set_output(fake, 1, True)
     for function in ("cc", "cr", "cp"):
-        fake.handle(engine.setter_command(profile.setters["function"], ch=1, function=function))
+        fake.handle_text(
+            engine.setter_command(profile.setters["function"], ch=1, function=function)
+        )
         assert read(fake, "mode") == function
         assert read(fake, "current") == pytest.approx(2.0)
         assert read(fake, "resistance") == pytest.approx(6.0)
-    fake.handle(engine.setter_command(profile.setters["function"], ch=1, function="cv"))
+    fake.handle_text(engine.setter_command(profile.setters["function"], ch=1, function="cv"))
     fake.set_load_ohms(1, 1.0)
     assert read(fake, "voltage") == pytest.approx(10.0)
     assert read(fake, "current") == pytest.approx(2.0)
-    fake.handle(engine.setter_command(profile.setters["function"], ch=1, function="cr"))
+    fake.handle_text(engine.setter_command(profile.setters["function"], ch=1, function="cr"))
     fake.set_source_volts(1, 24.0)
     assert read(fake, "current") == pytest.approx(4.0)
     assert read(fake, "power") == pytest.approx(96.0)
@@ -508,8 +510,8 @@ def test_ac_source_drives_its_load():
     assert readings[("power_factor", 1)] == 1.0
     assert readings[("frequency", 1)] == 50.0
     assert readings[("frequency_set", 1)] == 50.0
-    assert fake.handle("FREQ 30.0") is None
-    assert fake.handle("FREQ?") == "50"
+    assert fake.handle_text("FREQ 30.0") is None
+    assert fake.handle_text("FREQ?") == "50"
 
 
 def test_scenario_arguments_are_checked(rigol):

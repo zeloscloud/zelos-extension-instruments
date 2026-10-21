@@ -5,10 +5,12 @@ Libraries do the protocol work: zeroconf (mDNS), pyvisa-py (VXI-11 portmapper br
 with libusb-package (USB-TMC) and serialx (serial ports).
 """
 
+import asyncio
 import dataclasses
 import ipaddress
 import logging
 import socket
+import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -68,6 +70,10 @@ INSTRUMENT_VENDORS = frozenset(
 SERIAL_BAUDS = (9600, 115200)
 
 IN_USE = "in use by this extension"
+USB_UNREADABLE = (
+    "a USB-TMC device this user cannot read: on Windows install NI-VISA or bind it to WinUSB "
+    "with Zadig; on Linux add a udev rule for it"
+)
 NOT_AN_INSTRUMENT = "did not answer *IDN? as an instrument"
 # An attempt that outlives this multiple of its timeout is abandoned, whatever the link is doing.
 DEADLINE_FACTOR = 1.5
@@ -198,6 +204,8 @@ SCAN_PORTS = (5025, 5555, 2268, 3490)
 # The largest subnet the scan covers; a /22 at 0.3 s per host, 512 at a time, takes about 3 s.
 SCAN_MAX_HOSTS = 1024
 _SCAN_TIMEOUT_S = 0.3
+# Handshakes in flight at once; one batch covers a /22 at every port in one timeout.
+_SCAN_PARALLEL = 2048
 
 
 def local_subnets() -> list[ipaddress.IPv4Network]:
@@ -220,16 +228,45 @@ def local_subnets() -> list[ipaddress.IPv4Network]:
     return subnets
 
 
-def _port_open(ip: str, port: int) -> tuple[str, int] | None:
-    sock = socket.socket()
-    sock.settimeout(_SCAN_TIMEOUT_S)
+def _scan_parallel() -> int:
+    """Handshakes in flight at once, within the process's open-file limit where there is one."""
+    if sys.platform == "win32":
+        return _SCAN_PARALLEL
     try:
-        sock.connect((ip, port))
-        return ip, port
-    except OSError:
-        return None
-    finally:
-        sock.close()
+        import resource
+
+        soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (ImportError, OSError, ValueError):
+        return _SCAN_PARALLEL
+    # Leave room for the links, the log and the agent's own files.
+    return max(16, min(_SCAN_PARALLEL, soft - 64))
+
+
+async def _open_ports(targets: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    """The targets that complete a TCP handshake within the scan timeout."""
+    gate = asyncio.Semaphore(_scan_parallel())
+    hits: list[tuple[str, int]] = []
+
+    loop = asyncio.get_running_loop()
+
+    async def probe(ip: str, port: int) -> None:
+        async with gate:
+            # A plain socket and a numeric address: open_connection resolves every host on a
+            # small thread pool, which made a /22 take seconds.
+            sock = None
+            try:
+                sock = socket.socket()
+                sock.setblocking(False)
+                await asyncio.wait_for(loop.sock_connect(sock, (ip, port)), _SCAN_TIMEOUT_S)
+            except (TimeoutError, OSError):
+                return
+            finally:
+                if sock is not None:
+                    sock.close()
+            hits.append((ip, port))
+
+    await asyncio.gather(*(probe(ip, port) for ip, port in targets))
+    return hits
 
 
 def scan_lan(subnets: list[ipaddress.IPv4Network] | None = None) -> list[Found]:
@@ -242,14 +279,12 @@ def scan_lan(subnets: list[ipaddress.IPv4Network] | None = None) -> list[Found]:
         for host in network.hosts()
         for port in SCAN_PORTS
     ]
-    found: dict[str, Found] = {}
     if not targets:
         return []
-    with ThreadPoolExecutor(max_workers=512) as pool:
-        for hit in pool.map(lambda t: _port_open(*t), targets):
-            if hit is not None and hit[0] not in found:
-                ip, port = hit
-                found[ip] = _candidate(TcpAddress(ip, port), "scan", f"{ip}:{port}")
+    found: dict[str, Found] = {}
+    for ip, port in sorted(asyncio.run(_open_ports(targets)), key=lambda t: SCAN_PORTS.index(t[1])):
+        if ip not in found:
+            found[ip] = _candidate(TcpAddress(ip, port), "scan", f"{ip}:{port}")
     return list(found.values())
 
 
@@ -264,7 +299,12 @@ def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Foun
             found = _browse(budget_s)
             for ip, candidate in broadcast.result().items():
                 found.setdefault(ip, candidate)
-            for candidate in scan.result():
+            try:
+                hits = scan.result()
+            except Exception as e:
+                log.warning("the port scan failed: %s", e)
+                hits = []
+            for candidate in hits:
                 ip = candidate.address.where.rsplit(":", 1)[0]
                 # A host found by VXI-11 keeps that address beside the raw socket: `discover`
                 # picks the one that identifies.
@@ -316,16 +356,19 @@ def _libusb_devices() -> list[Found]:
             if not _is_usbtmc(dev):
                 continue
             serial = _usb_serial(dev)
-            if serial is None:
-                continue
             vid, pid = dev.idVendor, dev.idProduct
             try:
                 product = dev.product
             except Exception:
                 product = None
-            resource = f"USB0::0x{vid:04X}::0x{pid:04X}::{serial}::INSTR"
+            resource = f"USB0::0x{vid:04X}::0x{pid:04X}::{serial or '?'}::INSTR"
             detail = product or f"{vid:04X}:{pid:04X}"
-            found.append(_candidate(VisaAddress(resource), "usb", detail))
+            candidate = _candidate(VisaAddress(resource), "usb", detail)
+            if serial is None:
+                # The device is there but its descriptors cannot be read: a driver or a
+                # permission stands in the way, and no open will get past it either.
+                candidate = dataclasses.replace(candidate, error=USB_UNREADABLE)
+            found.append(candidate)
         except Exception as e:
             log.info("Skipping a USB device that cannot be read: %s", e)
     return found
@@ -511,8 +554,9 @@ def discover(
         candidates += list_usb()
         if tried is not None:
             tried.append("USB-TMC devices")
-    free = [f for f in candidates if f.address.where not in skip]
+    free = [f for f in candidates if f.address.where not in skip and f.error is None]
     held = [dataclasses.replace(f, error=IN_USE) for f in candidates if f.address.where in skip]
+    held += [f for f in candidates if f.error is not None and f.address.where not in skip]
     with ThreadPoolExecutor(max_workers=8) as pool:
         identified = list(
             pool.map(lambda f: _identify_safely(f, profiles, identify_timeout_s), free)

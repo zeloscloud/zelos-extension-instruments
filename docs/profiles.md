@@ -36,6 +36,7 @@ lan_port = 5555
 baud = 9600
 remote = "SYST:REMOTE"
 local = "SYST:LOCAL"
+locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
@@ -97,7 +98,7 @@ command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]
 | `schema` | yes | The profile format version. `1`. |
 | `id` | yes | Lower-case letters, digits and hyphens; the file name without `.toml`. The config's Profile field stores it. |
 | `name` | yes | What the app shows. |
-| `category` | yes | `psu`, `load`, `dmm` or `acsource`. It fixes which field names are allowed. |
+| `category` | yes | `psu`, `load`, `dmm`, `acsource` or `scope`. It fixes which field names are allowed. |
 | `notes` | no | Free text shown in Get State: traps, what is not supported, what was not tested. |
 
 ## `[evidence]`
@@ -140,6 +141,8 @@ Connection defaults for this family. The config can override each.
 | `remote` | none | Sent once after connect, for instruments that need it before they accept commands (`SYST:REM`, `SYST:LOCK 1`). |
 | `local` | none | Returns front-panel control. The Local action sends it, and so does keep-panel. |
 | `locks_panel` | `false` | Remote control locks the front panel, so keep-panel is offered for this family. |
+| `needs_remote` | `false` | Queries fail unless the instrument is in remote mode (some meters refuse `READ?` in local), so the panel is never handed back while the extension runs. |
+| `device_clear` | `true` | `false` when a VISA device clear hangs the instrument; the extension then only drops its read buffer. |
 | `select` | none | Sent before a channel's commands when the selected channel changes, for the select-then-command style (`INST:NSEL {ch}`). |
 | `init` | `[]` | Commands sent once after connect. They may not change an output: the lint refuses `*RST`, `SYST:PRES`, `OUTP`, `INP` and anything that writes a level. |
 | `single_client` | `false` | The instrument accepts one connection at a time. Shown in Get State. |
@@ -178,34 +181,63 @@ A setter with no range known refuses to set until the config names a limit for i
 | `format` | For `parse = "bits"` and `"int"`: `"int"` (default) or `"hex"`. |
 | `flags` | For `protection`: a list of `{ query, parse, value }`; the first that reads true sets the field, else `none`. |
 | `optional` | `true` lets a generic profile probe: a query the instrument rejects at start is dropped with one log line. |
-| `channel` | `false` for a query that is per instrument, not per channel (an over-temperature flag). Default `true`. |
+| `channel` | `false` for a query that is per instrument, not per channel (an over-temperature flag). Default `true`. A reader of an instrument-wide field (a scope's `timebase`) is per instrument whatever this says. |
 
 ### Fields by category
 
 | Category | `[signals]` | `[state]` |
 |---|---|---|
-| `psu` | `voltage` V, `current` A, `power` W | `voltage_set` V, `current_set` A, `ovp_set` V, `ocp_set` A, `output`, `mode`, `protection` |
-| `load` | `voltage` V, `current` A, `power` W, `resistance` Ω | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ω, `output` (input on), `mode`, `protection` |
+| `psu` | `voltage` V, `current` A, `power` W | `voltage_set` V, `current_set` A, `ovp_set` V, `ocp_set` A, `ovp_on`, `ocp_on`, `output`, `mode`, `protection`, `remote_sense`, `tracking` |
+| `load` | `voltage` V, `current` A, `power` W, `resistance` Ω | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ω, `slew_set` A/s, `current_range`, `output` (input on), `mode`, `protection` |
 | `acsource` | `voltage` V rms, `current` A rms, `power` W, `apparent_power` VA, `power_factor`, `frequency` Hz | `voltage_set` V, `frequency_set` Hz, `current_set` A, `output`, `protection` |
-| `dmm` | `value` (the reading, in the active function's unit) | `function` |
+| `dmm` | `value` (the reading, in the active function's unit) | `function`, `range`, `autorange`, `nplc` |
+| `scope` | the measurements: `pkpk`, `maximum`, `minimum`, `amplitude`, `top`, `base`, `mean`, `cycle_mean`, `rms`, `cycle_rms`, `stdev` V, `overshoot`, `preshoot`, `duty` %, `period`, `positive_width`, `negative_width`, `rise_time`, `fall_time` s, `frequency` Hz | per channel: `visible`, `scale` V, `offset` V, `coupling`, `bandwidth_limit`, `probe`; per instrument: `timebase` s, `delay` s, `sample_rate` Sa/s, `memory_depth` pts, `points` pts, `acquisitions`, `trigger_status`, `trigger_mode`, `trigger_source`, `trigger_level` V, `trigger_slope`, `trigger_frequency` Hz |
 
 `mode` labels: `off`, `cv`, `cc`, `cp`, `cr`, `unregulated`, `unknown`. For a load, `mode` is the configured function.
 `protection` labels: `none`, `ovp`, `ocp`, `opp`, `otp`, `other`.
 `function` labels (DMM): `dc_voltage`, `ac_voltage`, `dc_current`, `ac_current`, `resistance`, `resistance_4w`, `frequency`, `period`, `temperature`, `capacitance`, `diode`, `continuity`, `other`.
+`tracking` labels: `independent`, `series`, `parallel`, `unknown`. `current_range` labels: `low`, `mid`, `high`, `auto`, `unknown`.
+Scope labels: `coupling` `dc`, `ac`, `gnd`; `bandwidth_limit` `full`, `20mhz`, `25mhz`, `100mhz`, `200mhz`, `250mhz`, `other`; `trigger_status` `armed`, `ready`, `auto`, `triggered`, `stopped`, `roll`; `trigger_mode` `auto`, `normal`, `single`, `forced`; `trigger_source` `ch1`…`ch8`, `line`, `external`, `digital`; `trigger_slope` `rising`, `falling`, `either`. Each list ends in `unknown` for a reply the map lacks.
+
+A scope's measurements are not read with fixed queries: the profile's `[scope.slots]` says how the instrument's own measurement slots are read, and whatever a slot shows lands under its source channel. The instrument-wide fields land in `<name>/acquisition`.
 
 A DMM's `value` lands in the event named after the active function (`<name>/dc_voltage`), so each keeps its unit.
 
 ## `[setters]`
 
-Keyed by what the Set, Output and Clear actions change: `voltage`, `current`, `power`, `resistance`, `frequency`, `ovp`, `ocp`, `output`, `function`, `clear`.
+Keyed by what the actions change. Values: `voltage`, `current`, `power`, `resistance`, `frequency`, `ovp`, `ocp`, `slew`, and for a scope `scale`, `offset`, `probe`, `timebase`, `delay`, `trigger_level`. Switches: `output`, `ovp_on`, `ocp_on`, `visible`. Labels: `function`, and for a scope `coupling`, `trigger_source`, `trigger_slope`, `trigger_mode`. Commands: `clear`, and for a scope `run`, `stop`, `single`, `autoset`.
 
 | Key | Meaning |
 |---|---|
 | `command` | The command. Placeholders: `{ch}`, `{value}` (formatted with the range's digits), `{on}` (`ON`/`OFF`), `{bit}` (`1`/`0`), `{function}` (through `map`). `clear` may give a list of commands, sent in order. |
 | `verify` | The readback query. Defaults to the matching `[state]` entry's query (`voltage` verifies with `state.voltage_set`). A set fails when the readback differs by more than one step. |
 | `range` | Which `[ranges]` key bounds the value. Defaults to the setter's name. |
-| `map` | For `function`: our label to the instrument's word (`cc = "CURR"`). |
+| `map` | For `function` and the label setters: our label to the instrument's word (`cc = "CURR"`, `rising = "RISing"`). A label setter's command carries the word as `{value}`. |
 | `channel` | `false` for an instrument-wide command. |
+
+## `[scope]`
+
+Only for `category = "scope"`. `grid` is the number of horizontal divisions (10 on most scopes), which places a capture's samples in time.
+
+### `[scope.slots]`
+
+How the instrument's measurement slots are read. Which slots are on, what each measures and from which channel is read from the instrument every second; the extension never turns a measurement on by itself.
+
+| Key | Meaning |
+|---|---|
+| `count` | How many slots the instrument has. |
+| `enabled`, `type`, `source`, `value` | The queries for one slot, with `{slot}`: whether it is on (`bool`), what it measures (the instrument's word), its source, and its value (`float`). |
+| `source_pattern` | A regular expression on the source reply that captures the channel number as `(?P<ch>…)`. A source it does not match (a math trace) is not recorded. |
+| `types` | The instrument's measurement word to our field (`PKPK = "pkpk"`). A word not listed is not recorded. |
+| `ready` | Optional `{ query, value }`: the slots are read only while the query answers `value` (a measurement mode). |
+
+### `[scope.measure]`
+
+The Measure action. `commands` is the list sent to show a measurement, with `{slot}`, `{ch}` and `{type}` (the word from `types`); `off` turns a slot off.
+
+### `[scope.waveform]`
+
+The Capture Waveform action. `setup` is the list of commands that select the source and the transfer (`{ch}`, `{points}`, `{interval}`), `preamble` and `data` are the two block queries, `max_points` and `points` the optional queries for the largest transfer and the points on screen. `format` names the descriptor: `wavedesc`, the LeCroy-style block Siglent SDS scopes return, decoded as the programming guide's table says (vertical gain, offset and code-per-division at bytes 156, 160 and 164, the sample interval at 176, the trigger delay at 180, the probe factor at 328). A sample's time is `delay - timebase * grid / 2 + index * interval`, placed around the moment of the capture.
 
 ## `[dmm]`
 
@@ -219,7 +251,7 @@ Keyed by what the Set, Output and Clear actions change: `voltage`, `current`, `p
 
 | `parse` | Reply | Result |
 |---|---|---|
-| `float` | A number in any SCPI form: `12.000`, `+1.23456E-02`, `1.2e3`, with optional trailing unit letters. `9.9E+37` and larger read as not-a-number, as SCPI defines. | float |
+| `float` | A number in any SCPI form: `12.000`, `+1.23456E-02`, `1.2e3`, with optional trailing unit letters and a metric prefix (`10M`, `1.00GSa/s`, `5mV`). Text before the number (a header such as `C1:VDIV 5.00E-01V`) is a parse error, logged once. `9.9E+37` and larger read as not-a-number, as SCPI defines. | float |
 | `floats` | Comma-separated numbers. | one float per entry of `fields` |
 | `int` | A whole number, decimal or `0x` hex (`format = "hex"` reads bare hex). | int |
 | `bool` | `0`, `1`, `ON`, `OFF`, `TRUE`, `FALSE`, `YES`, `NO`, any case. | bool |

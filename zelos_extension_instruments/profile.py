@@ -4,6 +4,7 @@ A profile holds no code. Every command string in it comes from the instrument's 
 manual, and `docs/profiles.md` is the format's reference.
 """
 
+import dataclasses
 import re
 import sys
 import tomllib
@@ -12,10 +13,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from .profile_scope import (
+    ACQUISITION_FIELDS,
+    CHANNEL_STATE_FIELDS,
+    MEASUREMENT_FIELDS,
+    SCOPE_COMMAND_SETTERS,
+    SCOPE_ENUMS,
+    SCOPE_LABEL_SETTERS,
+    SCOPE_RANGE_KEYS,
+    SCOPE_SETTERS,
+    SCOPE_VALUE_SETTERS,
+    Scope,
+    load_scope,
+)
+
 SHIPPED_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
-Category = Literal["psu", "load", "dmm", "acsource"]
-CATEGORIES: tuple[Category, ...] = ("psu", "load", "dmm", "acsource")
+
+Category = Literal["psu", "load", "dmm", "acsource", "scope"]
+CATEGORIES: tuple[Category, ...] = ("psu", "load", "dmm", "acsource", "scope")
 Badge = Literal["manual", "transcript", "hardware"]
 BADGES: tuple[Badge, ...] = ("manual", "transcript", "hardware")
 Parse = Literal["float", "floats", "int", "bool", "map", "bits", "str"]
@@ -34,6 +50,7 @@ SIGNAL_FIELDS: dict[str, dict[str, str | None]] = {
         "frequency": "Hz",
     },
     "dmm": {"value": None},
+    "scope": MEASUREMENT_FIELDS,
 }
 STATE_FIELDS: dict[str, dict[str, str | None]] = {
     "psu": {
@@ -41,15 +58,21 @@ STATE_FIELDS: dict[str, dict[str, str | None]] = {
         "current_set": "A",
         "ovp_set": "V",
         "ocp_set": "A",
+        "ovp_on": None,
+        "ocp_on": None,
         "output": None,
         "mode": None,
         "protection": None,
+        "remote_sense": None,
+        "tracking": None,
     },
     "load": {
         "current_set": "A",
         "voltage_set": "V",
         "power_set": "W",
         "resistance_set": "Ohm",
+        "slew_set": "A/s",
+        "current_range": None,
         "output": None,
         "mode": None,
         "protection": None,
@@ -61,9 +84,18 @@ STATE_FIELDS: dict[str, dict[str, str | None]] = {
         "output": None,
         "protection": None,
     },
-    "dmm": {"function": None},
+    "dmm": {"function": None, "range": None, "autorange": None, "nplc": None},
+    "scope": CHANNEL_STATE_FIELDS,
 }
-BOOL_FIELDS = frozenset({"output"})
+# Fields read once for the whole instrument, not per channel.
+INSTRUMENT_FIELDS: dict[str, dict[str, str | None]] = {
+    "psu": {},
+    "load": {},
+    "acsource": {},
+    "dmm": {},
+    "scope": ACQUISITION_FIELDS,
+}
+BOOL_FIELDS = frozenset({"output", "visible", "ovp_on", "ocp_on", "remote_sense", "autorange"})
 # Enumerated fields and their labels, in value-table order.
 MODE_LABELS = ("off", "cv", "cc", "cp", "cr", "unregulated", "unknown")
 PROTECTION_LABELS = ("none", "ovp", "ocp", "opp", "otp", "other")
@@ -82,21 +114,55 @@ FUNCTION_LABELS = (
     "continuity",
     "other",
 )
+TRACKING_LABELS = ("independent", "series", "parallel", "unknown")
+CURRENT_RANGE_LABELS = ("low", "mid", "high", "auto", "unknown")
 ENUM_FIELDS: dict[str, tuple[str, ...]] = {
     "mode": MODE_LABELS,
     "protection": PROTECTION_LABELS,
     "function": FUNCTION_LABELS,
+    "tracking": TRACKING_LABELS,
+    "current_range": CURRENT_RANGE_LABELS,
+    **SCOPE_ENUMS,
 }
 SETTERS: dict[str, tuple[str, ...]] = {
-    "psu": ("voltage", "current", "ovp", "ocp", "output", "clear"),
-    "load": ("current", "voltage", "power", "resistance", "function", "output", "clear"),
+    "psu": ("voltage", "current", "ovp", "ocp", "ovp_on", "ocp_on", "output", "clear"),
+    "load": ("current", "voltage", "power", "resistance", "slew", "function", "output", "clear"),
     "acsource": ("voltage", "frequency", "current", "output", "clear"),
     "dmm": ("function",),
+    "scope": SCOPE_SETTERS,
 }
 # Which range key bounds a value setter, when the setter's own name is not a range key.
 SETTER_RANGE = {"ovp": "voltage", "ocp": "current"}
-RANGE_KEYS = ("voltage", "current", "power", "resistance", "frequency")
-VALUE_SETTERS = frozenset({"voltage", "current", "power", "resistance", "frequency", "ovp", "ocp"})
+RANGE_KEYS = (
+    "voltage",
+    "current",
+    "power",
+    "resistance",
+    "frequency",
+    "ovp",
+    "ocp",
+    "slew",
+    *SCOPE_RANGE_KEYS,
+)
+VALUE_SETTERS = frozenset(
+    {
+        "voltage",
+        "current",
+        "power",
+        "resistance",
+        "frequency",
+        "ovp",
+        "ocp",
+        "slew",
+        *SCOPE_VALUE_SETTERS,
+    }
+)
+# Setters that take one of a field's labels, sent as the instrument's word for it.
+LABEL_SETTERS = frozenset(SCOPE_LABEL_SETTERS)
+# Setters that switch something on or off.
+SWITCH_SETTERS = frozenset({"output", "visible", "ovp_on", "ocp_on"})
+# Setters that are a bare command.
+COMMAND_SETTERS = frozenset({"clear", *SCOPE_COMMAND_SETTERS})
 # The state field a value setter verifies with, by default.
 VERIFY_FIELD = {
     "voltage": "voltage_set",
@@ -108,8 +174,22 @@ VERIFY_FIELD = {
     "ocp": "ocp_set",
     "output": "output",
     "function": "mode",
+    "ovp_on": "ovp_on",
+    "ocp_on": "ocp_on",
+    "slew": "slew_set",
+    "visible": "visible",
+    "scale": "scale",
+    "offset": "offset",
+    "probe": "probe",
+    "coupling": "coupling",
+    "timebase": "timebase",
+    "delay": "delay",
+    "trigger_level": "trigger_level",
+    "trigger_source": "trigger_source",
+    "trigger_slope": "trigger_slope",
+    "trigger_mode": "trigger_mode",
 }
-PLACEHOLDERS = {"ch", "value", "on", "bit", "function"}
+PLACEHOLDERS = {"ch", "value", "on", "bit", "function", "slot", "type", "points", "interval"}
 # Commands that change what an output does; none may appear in `init`.
 _UNSAFE_HEADS = (
     r"(PRES(ET)?|OUTP(UT)?|INP(UT)?|SOUR(CE)?|VOLT(AGE)?|CURR(ENT)?|POW(ER)?|RES(ISTANCE)?"
@@ -126,7 +206,7 @@ _ID = re.compile(r"[a-z0-9][a-z0-9-]*")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 _PARITIES = ("none", "even", "odd", "mark", "space")
-_FLOW = ("none", "rts/cts", "xon/xoff")
+_FLOW = ("none", "rts/cts", "xon/xoff", "dtr/dsr")
 
 
 class ProfileError(Exception):
@@ -199,6 +279,10 @@ class LinkDefaults:
     remote: str | None
     local: str | None
     locks_panel: bool
+    # Queries fail unless the instrument is in remote mode, so the panel is never handed back.
+    needs_remote: bool
+    # Whether a VISA device clear is safe; some scopes hang on one.
+    device_clear: bool
     select: str | None
     init: tuple[str, ...]
     single_client: bool
@@ -303,6 +387,7 @@ class Profile:
     state: tuple[Reader, ...]
     setters: dict[str, Setter]
     dmm: Dmm | None
+    scope: Scope | None = None
     path: Path | None = field(default=None, compare=False)
 
     def matches(self, idn: Idn) -> bool:
@@ -344,18 +429,38 @@ class Profile:
         return reader.query if reader is not None else None
 
     def range_key(self, setter: Setter) -> str | None:
+        """The range that bounds a setter: its own, the profile's range of its name, else the
+        output range a protection level falls back to."""
         if setter.range is not None:
             return setter.range
-        if setter.name in RANGE_KEYS:
-            return setter.name
-        return SETTER_RANGE.get(setter.name)
+        name = setter.name
+        own = name in self.ranges or any(name in o.ranges for o in self.range_overrides)
+        if name in RANGE_KEYS and (own or name not in SETTER_RANGE):
+            return name
+        return SETTER_RANGE.get(name)
 
     @property
     def fields(self) -> dict[str, str | None]:
-        """Every field the profile reads, with its unit, signals first."""
+        """Every per-channel field the profile reads, with its unit, signals first. A scope's
+        measurements come from its slots, so every measurement the slots can name is a field."""
         units = {**SIGNAL_FIELDS[self.category], **STATE_FIELDS[self.category]}
+        found = {
+            name: units[name]
+            for reader in (*self.signals, *self.state)
+            for name in reader.fields
+            if name in units
+        }
+        if self.scope is not None and self.scope.slots is not None:
+            measured = {name: units[name] for name in self.scope.slots.types.values()}
+            found = {**measured, **found}
+        return found
+
+    @property
+    def instrument_fields(self) -> dict[str, str | None]:
+        """The instrument-wide fields the profile reads, with their units."""
+        units = INSTRUMENT_FIELDS[self.category]
         return {
-            name: units[name] for reader in (*self.signals, *self.state) for name in reader.fields
+            name: units[name] for reader in self.state for name in reader.fields if name in units
         }
 
 
@@ -507,6 +612,7 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
             "state",
             "setters",
             "dmm",
+            "scope",
         ),
         "",
     )
@@ -530,7 +636,26 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
     signal_units = SIGNAL_FIELDS[category]
     state_units = STATE_FIELDS[category]
     signals = _readers(c, c.table(raw.get("signals"), "signals"), "signals", signal_units)
-    state = _readers(c, c.table(raw.get("state"), "state"), "state", state_units)
+    state = _readers(
+        c,
+        c.table(raw.get("state"), "state"),
+        "state",
+        {**state_units, **INSTRUMENT_FIELDS[category]},
+    )
+    # An instrument-wide field is read once, whatever the reader's channel key says.
+    wide = INSTRUMENT_FIELDS[category]
+    state = tuple(
+        dataclasses.replace(reader, per_channel=False)
+        if any(f in wide for f in reader.fields)
+        else reader
+        for reader in state
+    )
+    for reader in state:
+        if not reader.per_channel and reader.query is not None and "{ch}" in reader.query:
+            c.fail(
+                f"state.{reader.name}",
+                "reads an instrument-wide field, so its query takes no {ch}.",
+            )
     seen: dict[str, str] = {}
     for reader in (*signals, *state):
         for name_ in reader.fields:
@@ -539,9 +664,10 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
             seen[name_] = reader.name
     setters = _setters(c, c.table(raw.get("setters"), "setters"), category, ranges, overrides)
     dmm = _dmm(c, raw.get("dmm"), category)
+    scope = load_scope(c, raw.get("scope"), category)
     if category == "dmm" and not any("value" in r.fields for r in signals):
         c.fail("signals.value", "missing: a DMM profile reads value.")
-    if not signals and not generic:
+    if not signals and not generic and category != "scope":
         c.fail("signals", "missing: a profile reads at least one signal.")
     if c.problems:
         raise ProfileError(path, c.problems)
@@ -561,6 +687,7 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
         state=state,
         setters=setters,
         dmm=dmm,
+        scope=scope,
         path=path,
     )
 
@@ -632,6 +759,8 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         "remote",
         "local",
         "locks_panel",
+        "needs_remote",
+        "device_clear",
         "select",
         "init",
         "single_client",
@@ -674,6 +803,8 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         remote=c.string(raw, "remote", None, "link"),
         local=c.string(raw, "local", None, "link"),
         locks_panel=c.boolean(raw, "locks_panel", False, "link"),
+        needs_remote=c.boolean(raw, "needs_remote", False, "link"),
+        device_clear=c.boolean(raw, "device_clear", True, "link"),
         select=select,
         init=tuple(init_raw),
         single_client=c.boolean(raw, "single_client", False, "link"),
@@ -966,10 +1097,20 @@ def _setters(
             c.template(command, {"ch", "value"}, f"{where}.command")
             if "{value}" not in command:
                 c.fail(f"{where}.command", "must contain {value}.")
-        elif key == "output":
+        elif key in SWITCH_SETTERS:
             c.template(command, {"ch", "on", "bit"}, f"{where}.command")
             if "{on}" not in command and "{bit}" not in command:
                 c.fail(f"{where}.command", "must contain {on} or {bit}.")
+        elif key in LABEL_SETTERS:
+            c.template(command, {"ch", "value"}, f"{where}.command")
+            if "{value}" not in command:
+                c.fail(f"{where}.command", "must contain {value}, the instrument's word.")
+            labels = ENUM_FIELDS[VERIFY_FIELD[key]]
+            if not mapping:
+                c.fail(f"{where}.map", f"missing: {key} needs a map of label to instrument word.")
+            for label in mapping:
+                if label not in labels:
+                    c.fail(f"{where}.map", f"'{label}' is not one of {', '.join(labels)}.")
         elif key == "function":
             c.template(command, {"ch", "function"}, f"{where}.command")
             if "{function}" not in command:

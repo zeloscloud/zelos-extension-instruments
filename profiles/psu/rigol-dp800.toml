@@ -27,6 +27,7 @@ lan_port = 5555
 baud = 9600
 remote = "SYST:REMOTE"
 local = "SYST:LOCAL"
+locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
