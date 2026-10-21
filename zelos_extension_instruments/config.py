@@ -4,7 +4,7 @@ import json
 import os
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -85,6 +85,8 @@ class InstrumentConfig:
     delay_ms: int | None
     line_ending: str | None
     poll: tuple[PollRow, ...]
+    # The entry as configured, to hand back to a form that lacks it.
+    entry: dict[str, Any] = field(compare=False)
 
     @property
     def where(self) -> str:
@@ -204,6 +206,7 @@ def _instrument(item: dict[str, Any]) -> InstrumentConfig:
         delay_ms=None if adv.get("delay_ms") is None else int(adv["delay_ms"]),
         line_ending=_LINE_ENDINGS[line_ending] if line_ending else None,
         poll=rows,
+        entry=item,
     )
 
 

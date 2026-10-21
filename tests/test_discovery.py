@@ -652,3 +652,95 @@ def test_vxi11_broadcast_leaves_the_shared_manager_open(monkeypatch: pytest.Monk
     found = discovery.list_lan(budget_s=0.01)
     assert [f.address.where for f in found] == ["TCPIP0::10.0.0.9::inst0::INSTR"]
     assert not vxi.closed
+
+
+def _held_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[float], threading.Event, threading.Event]:
+    """A LAN listing that blocks until released, counting the searches that ran."""
+    calls: list[float] = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def list_lan(budget_s: float, tried: list[str] | None = None) -> list[Found]:
+        calls.append(budget_s)
+        started.set()
+        release.wait(5)
+        if tried is not None:
+            tried.append("the LAN")
+        return [Found(TcpAddress("10.0.0.5", 5025), None, None, None, "scan", "s", None)]
+
+    monkeypatch.setattr(discovery, "list_lan", list_lan)
+    monkeypatch.setattr(
+        discovery,
+        "list_usb",
+        lambda: [Found(VisaAddress("USB0::1::2::S::INSTR"), None, None, None, "usb", "u", None)],
+    )
+    monkeypatch.setattr(
+        discovery,
+        "identify",
+        lambda found, profiles, timeout_s=2.0: dataclasses.replace(
+            found, idn=profile.parse_idn(DP832_REPLY)
+        ),
+    )
+    return calls, started, release
+
+
+def _in_thread(fn: Callable[[], Any]) -> tuple[threading.Thread, list[Any]]:
+    out: list[Any] = []
+    thread = threading.Thread(target=lambda: out.append(fn()))
+    thread.start()
+    return thread, out
+
+
+def test_a_caller_that_arrives_during_a_search_takes_its_result(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    """Two searches at once scanned every subnet twice and walked libusb from two threads."""
+    calls, started, release = _held_search(monkeypatch)
+    first_tried: list[str] = []
+    second_tried: list[str] = []
+    first, first_out = _in_thread(
+        lambda: discovery.discover(profiles, usb=True, budget_s=2.0, tried=first_tried)
+    )
+    assert started.wait(5)
+    second, second_out = _in_thread(
+        lambda: discovery.discover(profiles, usb=False, budget_s=1.0, tried=second_tried)
+    )
+    time.sleep(0.2)
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    assert calls == [2.0]
+    assert [f.address.where for f in first_out[0]] == ["10.0.0.5:5025", "USB0::1::2::S::INSTR"]
+    assert [f.address.where for f in second_out[0]] == ["10.0.0.5:5025"]
+    assert first_tried == ["the LAN", "USB-TMC devices"]
+    assert second_tried == ["the LAN"]
+
+
+def test_a_caller_asking_for_more_waits_and_searches_again(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    calls, started, release = _held_search(monkeypatch)
+    first, _ = _in_thread(lambda: discovery.discover(profiles, usb=False, budget_s=1.0))
+    assert started.wait(5)
+    second, second_out = _in_thread(lambda: discovery.discover(profiles, usb=True, budget_s=1.0))
+    time.sleep(0.2)
+    assert calls == [1.0]
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    assert calls == [1.0, 1.0]
+    assert [f.source for f in second_out[0]] == ["scan", "usb"]
+
+
+def test_a_caller_after_a_search_searches_again(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    calls, _, release = _held_search(monkeypatch)
+    release.set()
+    discovery.discover(profiles, usb=False)
+    discovery.discover(profiles, usb=False)
+    assert calls == [2.0, 2.0]
