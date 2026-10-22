@@ -298,6 +298,8 @@ class InstrumentWorker(threading.Thread):
         try:
             profile = self._resolve_profile(profile, idn)
             wanted = self._link_settings(profile)
+            self._selector = Selector(profile.link.select)
+            self._link_timeout_s = wanted.timeout_s
             if wanted != link_settings:
                 # The matched profile frames lines differently from the one used to identify.
                 link.close()

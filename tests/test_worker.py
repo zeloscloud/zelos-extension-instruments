@@ -18,7 +18,7 @@ from tests.conftest import (
 from zelos_extension_instruments import scope_ops
 from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.link import LinkError, LinkTimeout
-from zelos_extension_instruments.profile import Profile, from_dict, load_file
+from zelos_extension_instruments.profile import Profile, by_id, from_dict, load_file, shipped
 from zelos_extension_instruments.sim import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 
@@ -1006,3 +1006,32 @@ def test_a_slot_scan_an_action_overtook_never_overwrites_its_result(
     for _ in round_:
         pass
     assert worker._slots[shown["slot"]] == (2, "frequency")
+
+
+@pytest.mark.parametrize("profile_choice", ["auto", "rohde-schwarz-hmp"])
+def test_a_channel_command_selects_its_channel_whichever_way_the_profile_was_chosen(
+    profile_choice: str,
+) -> None:
+    """Under auto the identity is asked with a generic profile that selects nothing; the matched
+    profile's select must still go before every channel command."""
+    profile = by_id(shipped(), "rohde-schwarz-hmp")
+    assert profile is not None
+    fake = FakeInstrument(profile, "HMP4040")
+    link = ScriptedLink(fake.handle, "hmp")
+    cfg = instrument_config(name="psu", profile=profile_choice, rate_hz=50)
+    worker = InstrumentWorker(
+        cfg, shipped(), RecordingEmitter(), settings_for(cfg), open=opener_for(link)
+    )
+    worker.start()
+    try:
+        assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
+        assert worker.profile is not None and worker.profile.id == "rohde-schwarz-hmp"
+        assert ask(worker, "output", channel=3, on=True) == {"output": True}
+        states = []
+        for ch in (1, 2, 3, 4):
+            fake.handle(f"INST:NSEL {ch}")
+            states.append(fake.handle("OUTP?"))
+        assert states == ["0", "0", "1", "0"]
+    finally:
+        worker.stop()
+        worker.join(2)
