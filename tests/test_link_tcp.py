@@ -1,3 +1,4 @@
+import select
 import socket
 import threading
 import time
@@ -5,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import IDN, LineServer
+from tests.conftest import IDN, LineServer, start_blocked_query
 from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, TcpAddress, tcp
 from zelos_extension_instruments.link.tcp import open_tcp
 
@@ -50,13 +51,17 @@ def test_reply_split_across_two_sends_is_joined(instrument: LineServer) -> None:
         link.close()
 
 
-def test_second_reply_in_one_packet_waits_for_the_next_read(instrument: LineServer) -> None:
+def test_second_reply_in_one_packet_waits_for_the_next_read(
+    instrument: LineServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_receive(deadline: float, size: int) -> None:
+        raise AssertionError("the buffered reply went back to the socket")
+
     link = connect(instrument)
     try:
         assert link.query("TWO?") == "ONE"
-        started = time.monotonic()
+        monkeypatch.setattr(link, "_receive", no_receive)
         assert link.read() == "TWO"
-        assert time.monotonic() - started < 0.1
     finally:
         link.close()
 
@@ -121,14 +126,16 @@ def test_write_to_a_dropped_connection_is_a_link_error(instrument: LineServer) -
 
 
 def test_clear_drops_pending_bytes_and_waits_only_for_quiet(instrument: LineServer) -> None:
-    """A late reply still arriving is dropped too: clear ends after 0.1 s of silence."""
-    link = connect(instrument)
+    """A late reply still arriving is dropped too: clear ends after 0.1 s of silence, not at the
+    read timeout."""
+    link = connect(instrument, LinkSettings(timeout_s=10))
     try:
         link.write("TWO?")
-        time.sleep(0.2)
+        sock = link._sock  # type: ignore[attr-defined]
+        assert select.select([sock], [], [], 5)[0]
         started = time.monotonic()
         link.clear()
-        assert 0.05 < time.monotonic() - started < 0.5
+        assert 0.05 < time.monotonic() - started < 5
         assert link.query("*IDN?") == IDN
     finally:
         link.close()
@@ -153,24 +160,17 @@ def test_close_is_idempotent(instrument: LineServer) -> None:
         link.write("*IDN?")
 
 
-def test_close_from_another_thread_interrupts_a_blocked_read(instrument: LineServer) -> None:
+def test_close_from_another_thread_interrupts_a_blocked_read(
+    instrument: LineServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
     link = connect(instrument, LinkSettings(timeout_s=10))
-    errors: list[LinkError] = []
-
-    def blocked() -> None:
-        try:
-            link.query("NOREPLY?")
-        except LinkError as exc:
-            errors.append(exc)
-
-    worker = threading.Thread(target=blocked)
-    worker.start()
-    time.sleep(0.2)
+    worker, errors = start_blocked_query(link, monkeypatch)
     started = time.monotonic()
     link.close()
-    worker.join(2)
+    worker.join(8)
     assert not worker.is_alive()
-    assert time.monotonic() - started < 1.5
+    # Well before the 10 s read timeout.
+    assert time.monotonic() - started < 5
     assert len(errors) == 1
     assert not isinstance(errors[0], LinkTimeout)
 
@@ -181,22 +181,13 @@ def test_close_ends_a_blocked_read_even_where_shutdown_does_not_wake_it(
     """On the macOS runner a shutdown sometimes left the read blocked until its own timeout."""
     monkeypatch.setattr(socket.socket, "shutdown", lambda self, how: None)
     link = connect(instrument, LinkSettings(timeout_s=10))
-    errors: list[LinkError] = []
-
-    def blocked() -> None:
-        try:
-            link.query("NOREPLY?")
-        except LinkError as exc:
-            errors.append(exc)
-
-    worker = threading.Thread(target=blocked)
-    worker.start()
-    time.sleep(0.3)
+    worker, errors = start_blocked_query(link, monkeypatch)
     started = time.monotonic()
     link.close()
-    worker.join(2)
+    worker.join(8)
     assert not worker.is_alive()
-    assert time.monotonic() - started < 1.0
+    # Well before the 10 s read timeout.
+    assert time.monotonic() - started < 5
     assert len(errors) == 1 and not isinstance(errors[0], LinkTimeout)
 
 

@@ -48,7 +48,7 @@ def test_run_records_a_supply_and_serves_actions(
             actions.set_values._action.execute(channel=2, voltage=3.3).value["voltage"]["readback"]
             == 3.3
         )
-        assert wait_until(lambda: any(r for r in worker._channel[1].values.items()), timeout_s=5)
+        assert wait_until(lambda: worker._channel[1].values.get("voltage") == 5.0, timeout_s=5)
     finally:
         stop.set()
         thread.join(5)
@@ -162,7 +162,15 @@ def test_the_demo_bench_records_all_four_instruments(
         assert actions.output._action.execute(
             instrument="demo load", channel=1, on=False
         ).value == {"output": False}
-        time.sleep(1.5)
+        bench = actions.workers
+        assert wait_until(
+            lambda: (
+                bench["demo load"]._channel[1].values.get("current") is not None
+                and bench["demo acsource"]._channel[1].values.get("frequency") == 50.0
+                and len(bench["demo dmm"]._fast_times) >= 2
+            ),
+            timeout_s=10,
+        )
     finally:
         stop.set()
         thread.join(5)

@@ -391,12 +391,6 @@ def test_the_dmm_function_enum_has_a_value_table(spy: SpySource) -> None:
     assert table[12] == "other"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=RuntimeError,
-    reason="the SDK reader's field-path grammar is `source/event.field`, so an event name "
-    "containing `/` such as `psu/ch1` cannot be addressed",
-)
 def test_value_tables_read_back_from_the_trace(trace_file: Recording, dp800: Profile) -> None:
     emitter = Emitter(trace_file.source)
     register(emitter, "psu", dp800, 1)
@@ -405,7 +399,12 @@ def test_value_tables_read_back_from_the_trace(trace_file: Recording, dp800: Pro
     trace_file.writer.close()
     with zelos_sdk.TraceReader(str(trace_file.path)) as reader:
         segment = reader.list_data_segments()[0].id
-        table = reader.get_value_table(segment, "Instruments/psu/ch1.mode")
+        try:
+            table = reader.get_value_table(segment, "Instruments/psu/ch1.mode")
+        except RuntimeError as exc:
+            # The reader's path grammar is `source/event.field`: an event named `psu/ch1` has none.
+            assert "Invalid field path format" in str(exc), exc
+            pytest.xfail("the SDK reader cannot address an event name containing `/`")
     assert table == dict(enumerate(ENUM_FIELDS["mode"]))
 
 

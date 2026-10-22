@@ -384,7 +384,9 @@ def serve() -> Iterator[Callable[[str | None], TcpAddress]]:
     def start(reply: str | None) -> TcpAddress:
         server = _Server(reply)
         servers.append(server)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        ).start()
         return TcpAddress("127.0.0.1", server.server_address[1])
 
     yield start
@@ -703,12 +705,36 @@ def _held_search(
     )
     monkeypatch.setattr(
         discovery,
-        "identify",
-        lambda found, profiles, timeout_s=2.0: dataclasses.replace(
+        "_identify",
+        lambda found, profiles, timeout_s, deadline: dataclasses.replace(
             found, idn=profile.parse_idn(DP832_REPLY)
         ),
     )
     return calls, started, release
+
+
+class _SpyLock:
+    """The single-flight lock, signalling once a second caller reaches for it."""
+
+    def __init__(self, lock: Any) -> None:
+        self._lock = lock
+        self._attempts = 0
+        self.contended = threading.Event()
+
+    def acquire(self, timeout: float = -1) -> bool:
+        self._attempts += 1
+        if self._attempts > 1:
+            self.contended.set()
+        return self._lock.acquire(timeout=timeout)
+
+    def release(self) -> None:
+        self._lock.release()
+
+
+def _spy_on_the_lock(monkeypatch: pytest.MonkeyPatch) -> _SpyLock:
+    spy = _SpyLock(discovery._searches._lock)
+    monkeypatch.setattr(discovery._searches, "_lock", spy)
+    return spy
 
 
 def _in_thread(fn: Callable[[], Any]) -> tuple[threading.Thread, list[Any]]:
@@ -723,6 +749,7 @@ def test_a_caller_that_arrives_during_a_search_takes_its_result(
 ) -> None:
     """Two searches at once scanned every subnet twice and walked libusb from two threads."""
     calls, started, release = _held_search(monkeypatch)
+    spy = _spy_on_the_lock(monkeypatch)
     first_tried: list[str] = []
     second_tried: list[str] = []
     first, first_out = _in_thread(
@@ -732,7 +759,7 @@ def test_a_caller_that_arrives_during_a_search_takes_its_result(
     second, second_out = _in_thread(
         lambda: discovery.discover(dp800_only, usb=False, budget_s=1.0, tried=second_tried)
     )
-    time.sleep(0.2)
+    assert spy.contended.wait(5)
     release.set()
     first.join(5)
     second.join(5)
@@ -748,11 +775,15 @@ def test_a_caller_asking_for_more_waits_and_searches_again(
     monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     calls, started, release = _held_search(monkeypatch)
+    spy = _spy_on_the_lock(monkeypatch)
     first, _ = _in_thread(lambda: discovery.discover(dp800_only, usb=False, budget_s=1.0))
     assert started.wait(5)
     second, second_out = _in_thread(lambda: discovery.discover(dp800_only, usb=True, budget_s=1.0))
-    time.sleep(0.2)
+    assert spy.contended.wait(5)
+    # The second caller stays behind the held search, which a narrower result cannot answer.
+    second.join(0.2)
     assert calls == [1.0]
+
     release.set()
     first.join(5)
     second.join(5)
@@ -816,7 +847,9 @@ class _SleepyHandler(socketserver.StreamRequestHandler):
 def test_identify_asks_again_on_the_same_connection(dp800_only: list[profile.Profile]) -> None:
     server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _SleepyHandler)
     server.daemon_threads = True
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    ).start()
     try:
         address = TcpAddress("127.0.0.1", server.server_address[1])
         result = discovery.identify(_found(address), dp800_only, timeout_s=0.5)
@@ -854,8 +887,14 @@ def test_a_listing_that_hangs_ends_at_the_deadline_and_keeps_no_thread_alive(
         results = discovery.discover(dp800_only, deadline_s=0.5, tried=tried)
         elapsed = time.monotonic() - started
         stuck = [
-            t for t in threading.enumerate() if not t.daemon and t is not threading.main_thread()
+            t
+            for t in threading.enumerate()
+            if not t.daemon
+            and t is not threading.main_thread()
+            # The pytest-timeout watchdog is a non-daemon timer.
+            and not t.name.startswith("pytest_timeout")
         ]
+
     finally:
         release.set()
     assert elapsed < 1.0
