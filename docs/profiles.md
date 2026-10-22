@@ -253,7 +253,7 @@ Connection defaults for this family. The config can override each.
 | `needs_remote` | `false` | The instrument cannot stay in local while it is polled: some meters refuse `READ?` in local, and some units return to remote at the next command. The panel is handed back only when the extension stops. |
 | `device_clear` | `true` | `false` when a VISA device clear hangs the instrument; the extension then only drops its read buffer. |
 | `select` | none | Sent before a channel's commands when the selected channel changes, for the select-then-command style (`INST:NSEL {ch}`). |
-| `init` | `[]` | Commands sent once after connect. They may not change an output: the lint refuses `*RST`, `SYST:PRES`, `OUTP`, `INP` and anything that writes a level. |
+| `init` | `[]` | A command, or a list, sent once after connect. They may not change an output: the lint refuses `*RST`, `SYST:PRES`, `OUTP`, `INP` and anything that writes a level. |
 | `single_client` | `false` | The instrument accepts one connection at a time. Shown in Get State. |
 | `ack` | none | The reply every command that is not a query gets, such as `OK`. The extension reads it after each command and treats anything else as an error. For instruments that answer every command. |
 

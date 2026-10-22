@@ -120,6 +120,11 @@ def _at(where: str, key: str) -> str:
 _Choice = TypeVar("_Choice", bound=str)
 
 
+def _fields(cls: Any) -> tuple[str, ...]:
+    """A section's keys: the fields of the dataclass it becomes."""
+    return tuple(f.name for f in dataclasses.fields(cls))
+
+
 class Check:
     """Collects problems while a raw TOML table is turned into a Profile."""
 
@@ -194,12 +199,45 @@ class Check:
         return value
 
     def regex(self, raw: dict[str, Any], key: str, where: str) -> re.Pattern[str]:
-        text = self.required(raw, key, where)
+        return self.pattern(self.required(raw, key, where), _at(where, key))
+
+    def pattern(self, text: str, where: str, fallback: str = r"(?!)") -> re.Pattern[str]:
+        """`text` compiled, or `fallback` after a problem is noted."""
         try:
             return re.compile(text)
         except re.error as e:
-            self.fail(_at(where, key), f"is not a valid regular expression ({e}).")
-            return re.compile(r"(?!)")
+            self.fail(where, f"is not a valid regular expression ({e}).")
+            return re.compile(fallback)
+
+    def text_table(self, raw: dict[str, Any], key: str, where: str, what: str) -> dict[str, str]:
+        """A table of text to text, such as a map of reply words to labels."""
+        value = raw.get(key, {})
+        if not isinstance(value, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+        ):
+            self.fail(_at(where, key), f"must be a table of {what}.")
+            return {}
+        return value
+
+    def one_of(self, labels: Iterable[str], allowed: Iterable[str], where: str) -> None:
+        allowed = tuple(allowed)
+        for label in labels:
+            if label not in allowed:
+                self.fail(where, f"'{label}' is not one of {', '.join(allowed)}.")
+
+    def commands(
+        self, raw: dict[str, Any], key: str, where: str, *, required: bool = False
+    ) -> tuple[str, ...]:
+        """A command, or a list of them, each non-empty text."""
+        value = raw.get(key, [])
+        if isinstance(value, str) and value:
+            value = [value]
+        if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
+            self.fail(_at(where, key), "must be a command or a list of commands.")
+            return ()
+        if required and not value:
+            self.fail(_at(where, key), "missing: at least one command.")
+        return tuple(value)
 
     def unknown(self, raw: dict[str, Any], known: Iterable[str], where: str) -> None:
         extra = sorted(set(raw) - set(known))
@@ -328,7 +366,7 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
 
 
 def _evidence(c: Check, raw: dict[str, Any]) -> Evidence:
-    c.unknown(raw, ("badge", "source", "url", "firmware", "date"), "evidence")
+    c.unknown(raw, _fields(Evidence), "evidence")
     badge: Badge = c.choice(raw, "badge", BADGES, "manual", "evidence")
     source = c.required(raw, "source", "evidence")
     date = c.required(raw, "date", "evidence")
@@ -380,34 +418,8 @@ def _match(c: Check, raw: dict[str, Any], generic: bool) -> Match:
 
 
 def _link(c: Check, raw: dict[str, Any]) -> LinkDefaults:
-    keys = (
-        "write_terminator",
-        "read_terminator",
-        "timeout_s",
-        "delay_ms",
-        "command_delay_ms",
-        "lan_port",
-        "baud",
-        "data_bits",
-        "parity",
-        "stop_bits",
-        "flow_control",
-        "remote",
-        "local",
-        "locks_panel",
-        "first",
-        "needs_remote",
-        "device_clear",
-        "select",
-        "init",
-        "single_client",
-        "ack",
-    )
-    c.unknown(raw, keys, "link")
-    init_raw = raw.get("init", [])
-    if not isinstance(init_raw, list) or not all(isinstance(s, str) and s for s in init_raw):
-        c.fail("link.init", "must be a list of commands.")
-        init_raw = []
+    c.unknown(raw, _fields(LinkDefaults), "link")
+    init_raw = c.commands(raw, "init", "link")
     for command in init_raw:
         if _UNSAFE_INIT.search(command):
             c.fail("link.init", f"'{command}' could change an output; init commands may not.")
@@ -416,12 +428,7 @@ def _link(c: Check, raw: dict[str, Any]) -> LinkDefaults:
         c.template(select, {"ch"}, "link.select")
         if "{ch}" not in select and "{ch0}" not in select:
             c.fail("link.select", "must contain {ch} or {ch0}.")
-    local_raw = raw.get("local", [])
-    if isinstance(local_raw, str):
-        local_raw = [local_raw]
-    if not isinstance(local_raw, list) or not all(isinstance(s, str) and s for s in local_raw):
-        c.fail("link.local", "must be a command or a list of commands.")
-        local_raw = []
+    local_raw = c.commands(raw, "local", "link")
     for command in local_raw:
         c.template(command, set(), "link.local")
     for key in ("remote", "first"):
@@ -465,20 +472,16 @@ def _errors(c: Check, raw: Any) -> Errors | None:
     if raw is None:
         return None
     raw = c.table(raw, "errors")
-    c.unknown(raw, ("query", "ok", "drain"), "errors")
+    c.unknown(raw, _fields(Errors), "errors")
     query = c.required(raw, "query", "errors")
-    ok_text = c.string(raw, "ok", r"^\s*[+-]?0\b", "errors") or r"^\s*[+-]?0\b"
-    try:
-        ok = re.compile(ok_text)
-    except re.error as e:
-        c.fail("errors.ok", f"is not a valid regular expression ({e}).")
-        ok = re.compile(r"^\s*[+-]?0\b")
+    no_error = r"^\s*[+-]?0\b"
+    ok = c.pattern(c.string(raw, "ok", no_error, "errors") or no_error, "errors.ok", no_error)
     return Errors(query=query, ok=ok, drain=c.integer(raw, "drain", 20, "errors", low=1))
 
 
 def _range(c: Check, raw: Any, where: str) -> Range:
     raw = c.table(raw, where)
-    c.unknown(raw, ("min", "max", "digits", "step", "min_query", "max_query"), where)
+    c.unknown(raw, _fields(Range), where)
     low = c.number(raw, "min", 0.0, where)
     high = c.number(raw, "max", None, where)
     if low is not None and high is not None and high <= low:
@@ -540,20 +543,13 @@ def _parse_options(
 ) -> dict[str, Any]:
     """The parser settings shared by readers and flags, checked."""
     parse = c.choice(raw, "parse", PARSES, "float", where)
-    mapping = raw.get("map", {})
-    if not isinstance(mapping, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()
-    ):
-        c.fail(f"{where}.map", "must be a table of text to label.")
-        mapping = {}
+    mapping = c.text_table(raw, "map", where, "text to label")
     if parse == "map" and not mapping:
         c.fail(f"{where}.map", 'missing: parse = "map" needs it.')
     if parse == "bool" and any(v not in ("on", "off") for v in mapping.values()):
         c.fail(f"{where}.map", 'must map each word to "on" or "off" for parse = "bool".')
     if labels is not None:
-        for label in mapping.values():
-            if label not in labels:
-                c.fail(f"{where}.map", f"'{label}' is not one of {', '.join(labels)}.")
+        c.one_of(mapping.values(), labels, f"{where}.map")
     mask = _per_channel_ints(c, raw, "mask", where)
     if parse == "bits" and not any(mask):
         c.fail(f"{where}.mask", 'missing: parse = "bits" needs it.')
@@ -738,12 +734,8 @@ def _setters(
             continue
         entry = c.table(entry, where)
         c.unknown(entry, ("command", "verify", "range", "map", "channel", "scale", "master"), where)
-        raw_command = entry.get("command")
-        if key == "clear" and isinstance(raw_command, list):
-            if not raw_command or not all(isinstance(x, str) and x for x in raw_command):
-                c.fail(f"{where}.command", "must be a command or a list of commands.")
-                raw_command = []
-            commands = tuple(raw_command)
+        if key == "clear":
+            commands = c.commands(entry, "command", where, required=True)
             command = commands[0] if commands else ""
         else:
             command = c.required(entry, "command", where)
@@ -751,12 +743,7 @@ def _setters(
         verify = c.string(entry, "verify", None, where)
         if verify is not None:
             c.template(verify, {"ch"}, f"{where}.verify")
-        mapping = entry.get("map", {})
-        if not isinstance(mapping, dict) or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()
-        ):
-            c.fail(f"{where}.map", "must be a table of label to instrument word.")
-            mapping = {}
+        mapping = c.text_table(entry, "map", where, "label to instrument word")
         if key in VALUE_SETTERS:
             c.template(command, {"ch", "value"}, f"{where}.command")
             if "{value}" not in command:
@@ -772,9 +759,7 @@ def _setters(
             labels = ENUM_FIELDS[VERIFY_FIELD[key]]
             if not mapping:
                 c.fail(f"{where}.map", f"missing: {key} needs a map of label to instrument word.")
-            for label in mapping:
-                if label not in labels:
-                    c.fail(f"{where}.map", f"'{label}' is not one of {', '.join(labels)}.")
+            c.one_of(mapping, labels, f"{where}.map")
         elif key == "function":
             c.template(command, {"ch", "function"}, f"{where}.command")
             if "{function}" not in command:
@@ -782,9 +767,7 @@ def _setters(
             labels = MODE_LABELS if category == "load" else FUNCTION_LABELS
             if not mapping:
                 c.fail(f"{where}.map", "missing: function needs a map of label to instrument word.")
-            for label in mapping:
-                if label not in labels:
-                    c.fail(f"{where}.map", f"'{label}' is not one of {', '.join(labels)}.")
+            c.one_of(mapping, labels, f"{where}.map")
         else:
             for one in commands:
                 c.template(one, {"ch"}, f"{where}.command")
@@ -818,7 +801,7 @@ def _master(c: Check, entry: dict[str, Any], key: str, where: str) -> Master | N
         c.fail(where, "is only for the output setter.")
         return None
     raw = c.table(raw, where)
-    c.unknown(raw, ("command", "query", "armed"), where)
+    c.unknown(raw, _fields(Master), where)
     command = c.required(raw, "command", where)
     c.template(command, {"on", "bit"}, f"{where}.command")
     if "{on}" not in command and "{bit}" not in command:
@@ -843,19 +826,12 @@ def _dmm(c: Check, raw: Any, category: str) -> Dmm | None:
     function_query = c.string(raw, "function_query", None, "dmm")
     if function_query is not None:
         c.template(function_query, set(), "dmm.function_query")
-    mapping = raw.get("function_map", {})
-    if not isinstance(mapping, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()
-    ):
-        c.fail("dmm.function_map", "must be a table of reply text to function label.")
-        mapping = {}
+    mapping = c.text_table(raw, "function_map", "dmm", "reply text to function label")
     functions = raw.get("functions", {})
     if not isinstance(functions, dict) or not functions:
         c.fail("dmm.functions", "must be a non-empty table of function label to unit.")
         functions = {}
-    for label in (*mapping.values(), *functions):
-        if label not in FUNCTION_LABELS:
-            c.fail("dmm", f"'{label}' is not one of {', '.join(FUNCTION_LABELS)}.")
+    c.one_of((*mapping.values(), *functions), FUNCTION_LABELS, "dmm")
     for label, unit in functions.items():
         if unit is not None and not isinstance(unit, str):
             c.fail(f"dmm.functions.{label}", "must be a unit, as text.")
