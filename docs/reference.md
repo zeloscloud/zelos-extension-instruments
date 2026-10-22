@@ -23,8 +23,10 @@ All events go under one trace source, `Instruments` by default (**Prefix** in Ad
 
 | Event | Holds |
 |---|---|
-| `Instruments/<name>/ch<n>` | The channel's measurements every interval, and its setpoints, output, mode and protection once a second. Field names are the same for every vendor: see [Signals](#signals). |
-| `Instruments/<name>/<function>` | A multimeter's reading, under the active function (`dc_voltage`, `resistance`, ...), so each keeps its unit. |
+| `Instruments/<name>/ch<n>` | The channel's measurements every interval, and its setpoints, output, mode and protection once a second. Only the fields the instrument answers are registered. Field names are the same for every vendor: see [Signals](#signals). |
+| `Instruments/<name>/<function>` | A multimeter's reading, under the active function (`dc_voltage`, `resistance`, ...), so each keeps its unit. A function's event appears with its first reading. |
+| `Instruments/<name>/ch<n>/waveform` | A scope channel's captured samples, `voltage`. The event appears with the channel's first capture. |
+| `Instruments/<name>/identity` | Who the instrument is and how it is reached: `manufacturer`, `model`, `serial`, `firmware`, `profile` and `address`, written at every connect. |
 | `Instruments/<name>/status` | `rtt_ms`, the round trip of the last measurement query; `rate_hz`, the readings per second achieved over the last 10 s; `errors`, the instrument errors seen since start; `connected`. |
 | `Instruments/<name>/poll` | The extra readings from the config's poll table, one field each. |
 | `Instruments/<name>/log` | Connects and disconnects, every set with its source, setpoint changes made at the front panel or by another program, mode and protection changes, and the instrument's own errors. |

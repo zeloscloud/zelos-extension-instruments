@@ -73,11 +73,17 @@ def emitter_for(spy: SpySource) -> Emitter:
     return Emitter(spy.source())
 
 
+def register(emitter: Emitter, name: str, profile: Profile, channels: int, *poll: Any) -> None:
+    """Register an instrument as a worker does: its events, then every channel's fields."""
+    emitter.add_instrument(name, profile, channels, *poll)
+    emitter.add_channels(name, {ch: set(profile.fields) for ch in range(1, channels + 1)})
+
+
 def test_row_writes_numbers_a_bool_and_enum_indexes(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 2)
+    register(emitter, "psu", dp800, 2)
     emitter.row(
         "psu",
         1,
@@ -106,7 +112,7 @@ def test_row_writes_the_label_table_index_for_every_label(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     for i, label in enumerate(ENUM_FIELDS["mode"]):
         emitter.row("psu", 1, {"mode": label}, (i + 1) * SECOND)
     rows = trace_file.events()["psu/ch1"]
@@ -117,7 +123,7 @@ def test_row_writes_the_last_index_for_an_unknown_label(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.row("psu", 1, {"mode": "turbo", "protection": "meltdown"}, SECOND)
     (row,) = trace_file.events()["psu/ch1"]
     assert row["mode"] == len(ENUM_FIELDS["mode"]) - 1 == 6
@@ -128,7 +134,7 @@ def test_row_ignores_a_field_the_profile_does_not_read(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.row("psu", 1, {"voltage": 1.0, "frequency": 50.0, "bogus": 3}, SECOND)
     (row,) = trace_file.events()["psu/ch1"]
     assert row["voltage"] == 1.0
@@ -140,7 +146,7 @@ def test_row_with_only_unknown_fields_writes_nothing(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.row("psu", 1, {"bogus": 3}, SECOND)
     emitter.row("psu", 1, {}, 2 * SECOND)
     assert trace_file.events()["psu/ch1"] == []
@@ -150,7 +156,7 @@ def test_row_for_a_channel_the_instrument_lacks_is_dropped(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.row("psu", 2, {"voltage": 1.0}, SECOND)
     events = trace_file.events()
     assert "psu/ch2" not in events
@@ -161,7 +167,7 @@ def test_row_writes_nan_for_a_missing_number(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.row("psu", 1, {"voltage": None, "current": float("nan")}, SECOND)
     (row,) = trace_file.events()["psu/ch1"]
     assert row["voltage"] != row["voltage"]
@@ -177,7 +183,7 @@ def test_reading_writes_one_event_per_function_with_its_unit(
     trace_file: Recording, spy: SpySource
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("dmm", dmm_profile(), 1)
+    register(emitter, "dmm", dmm_profile(), 1)
     emitter.reading("dmm", "dc_voltage", 3.3, SECOND)
     emitter.reading("dmm", "resistance", 470.0, 2 * SECOND)
     emitter.reading("dmm", "dc_voltage", 3.4, 3 * SECOND)
@@ -187,17 +193,18 @@ def test_reading_writes_one_event_per_function_with_its_unit(
         {TIME: 3.0, "value": 3.4},
     ]
     assert events["dmm/resistance"] == [{TIME: 2.0, "value": 470.0}]
-    assert events["dmm/continuity"] == []
+    # A function the meter never read has no event, so no empty signal in the trace.
+    assert "dmm/continuity" not in events
     assert spy.fields["dmm/dc_voltage"]["value"][1] == "V"
     assert spy.fields["dmm/resistance"]["value"][1] == "Ohm"
-    assert spy.fields["dmm/continuity"]["value"][1] is None
+    assert "dmm/continuity" not in spy.fields
 
 
 def test_reading_for_an_unknown_function_is_dropped_and_logged_once(
     trace_file: Recording, spy: SpySource, caplog: pytest.LogCaptureFixture
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("dmm", dmm_profile(), 1)
+    register(emitter, "dmm", dmm_profile(), 1)
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         emitter.reading("dmm", "temperature", 21.0, SECOND)
         emitter.reading("dmm", "temperature", 22.0, 2 * SECOND)
@@ -216,7 +223,7 @@ def test_the_dmm_channel_event_carries_value_and_function_labels(
     trace_file: Recording, spy: SpySource
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("dmm", dmm_profile(), 1)
+    register(emitter, "dmm", dmm_profile(), 1)
     emitter.row("dmm", 1, {"function": "dc_voltage"}, SECOND)
     emitter.row("dmm", 1, {"function": "mystery"}, 2 * SECOND)
     rows = trace_file.events()["dmm/ch1"]
@@ -229,7 +236,7 @@ def test_poll_value_writes_the_rows_field(
 ) -> None:
     emitter = emitter_for(spy)
     poll = (PollRow("Temp", "TEMP?", "C", 1.0), PollRow("Fan", "FAN?", None, 1.0))
-    emitter.add_instrument("psu", dp800, 1, poll)
+    register(emitter, "psu", dp800, 1, poll)
     emitter.poll_value("psu", "Temp", 41.5, SECOND)
     emitter.poll_value("psu", "Fan", 1200.0, 2 * SECOND)
     events = trace_file.events()
@@ -251,7 +258,7 @@ def test_poll_value_names_never_collide(
         PollRow("A_B", "C?", None, 1.0),
         PollRow("a_b", "D?", None, 1.0),
     )
-    emitter.add_instrument("psu", dp800, 1, poll)
+    register(emitter, "psu", dp800, 1, poll)
     for i, row in enumerate(poll):
         emitter.poll_value("psu", row.name, float(i), (i + 1) * SECOND)
     assert list(spy.fields["psu/poll"]) == ["time_ns_2", "a_b", "A_B_2", "a_b_3"]
@@ -268,7 +275,7 @@ def test_poll_value_without_a_poll_table_is_ignored(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.poll_value("psu", "Temp", 1.0, SECOND)
     assert "psu/poll" not in trace_file.events()
 
@@ -277,7 +284,7 @@ def test_status_writes_the_four_fields(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.status("psu", 12.5, 9.8, 3, True, SECOND)
     emitter.status("psu", 0.0, 0.0, 4, False, 2 * SECOND)
     assert trace_file.events()["psu/status"] == [
@@ -290,7 +297,7 @@ def test_status_writes_the_four_fields(
 
 def test_note_writes_a_log_line(trace_file: Recording, spy: SpySource, dp800: Profile) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.note("psu", "INFO", "connected", SECOND)
     emitter.note("psu", "ERROR", "-113 Undefined header", 2 * SECOND, source="probe")
     assert trace_file.events()["psu/log"] == [
@@ -317,8 +324,8 @@ def test_instruments_write_to_their_own_events(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("a", dp800, 1)
-    emitter.add_instrument("b", dp800, 1)
+    register(emitter, "a", dp800, 1)
+    register(emitter, "b", dp800, 1)
     emitter.row("a", 1, {"voltage": 1.0}, SECOND)
     emitter.row("b", 1, {"voltage": 2.0}, SECOND)
     events = trace_file.events()
@@ -330,11 +337,12 @@ def test_the_trace_lists_every_event_of_an_instrument(
     trace_file: Recording, spy: SpySource, dp800: Profile
 ) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 2, (PollRow("Temp", "T?", None, 1.0),))
+    register(emitter, "psu", dp800, 2, (PollRow("Temp", "T?", None, 1.0),))
     events = trace_file.events()
     assert sorted(events) == [
         "psu/ch1",
         "psu/ch2",
+        "psu/identity",
         "psu/log",
         "psu/poll",
         "psu/status",
@@ -343,7 +351,7 @@ def test_the_trace_lists_every_event_of_an_instrument(
 
 def test_fields_returns_the_profiles_fields_with_units(spy: SpySource, dp800: Profile) -> None:
     emitter = emitter_for(spy)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     fields = emitter.fields("psu")
     assert fields == dp800.fields
     fields.clear()
@@ -352,7 +360,7 @@ def test_fields_returns_the_profiles_fields_with_units(spy: SpySource, dp800: Pr
 
 def test_channel_fields_carry_their_units_and_types(spy: SpySource, dp800: Profile) -> None:
     """The reader API lists no units, so the registered metadata is checked at the source."""
-    emitter_for(spy).add_instrument("psu", dp800, 2)
+    register(emitter_for(spy), "psu", dp800, 2)
     for ch in ("psu/ch1", "psu/ch2"):
         fields = spy.fields[ch]
         assert fields["voltage"] == (zelos_sdk.DataType.Float64, "V")
@@ -367,7 +375,7 @@ def test_channel_fields_carry_their_units_and_types(spy: SpySource, dp800: Profi
 
 
 def test_enum_fields_register_value_tables_on_every_channel(spy: SpySource, dp800: Profile) -> None:
-    emitter_for(spy).add_instrument("psu", dp800, 2)
+    register(emitter_for(spy), "psu", dp800, 2)
     for ch in ("psu/ch1", "psu/ch2"):
         assert spy.tables[(ch, "mode")] == dict(enumerate(ENUM_FIELDS["mode"]))
         assert spy.tables[(ch, "protection")] == dict(enumerate(ENUM_FIELDS["protection"]))
@@ -376,7 +384,7 @@ def test_enum_fields_register_value_tables_on_every_channel(spy: SpySource, dp80
 
 
 def test_the_dmm_function_enum_has_a_value_table(spy: SpySource) -> None:
-    emitter_for(spy).add_instrument("dmm", dmm_profile(), 1)
+    register(emitter_for(spy), "dmm", dmm_profile(), 1)
     table = spy.tables[("dmm/ch1", "function")]
     assert table[0] == "dc_voltage"
     assert table[12] == "other"
@@ -390,7 +398,7 @@ def test_the_dmm_function_enum_has_a_value_table(spy: SpySource) -> None:
 )
 def test_value_tables_read_back_from_the_trace(trace_file: Recording, dp800: Profile) -> None:
     emitter = Emitter(trace_file.source)
-    emitter.add_instrument("psu", dp800, 1)
+    register(emitter, "psu", dp800, 1)
     emitter.row("psu", 1, {"mode": "cc"}, SECOND)
     trace_file.source.flush()
     trace_file.writer.close()
@@ -411,7 +419,7 @@ def test_a_waveform_is_one_batch_at_exact_nanoseconds(
     """Samples 2 ns apart near today's epoch: float seconds would round them 256 ns apart."""
     scope = next(p for p in profiles if p.id == "siglent-sds")
     emitter = emitter_for(spy)
-    emitter.add_instrument("scope", scope, 2)
+    register(emitter, "scope", scope, 2)
     times = 1_790_000_000_123_456_789 + np.arange(5, dtype=np.int64) * 2
     volts = np.array([0.1, 0.2, -0.3, 0.4, 0.5])
     emitter.waveform("scope", 2, times, volts)
@@ -430,6 +438,48 @@ def test_a_waveform_for_a_channel_without_one_is_dropped(
 ) -> None:
     scope = next(p for p in profiles if p.id == "siglent-sds")
     emitter = emitter_for(spy)
-    emitter.add_instrument("scope", scope, 1)
+    register(emitter, "scope", scope, 1)
     emitter.waveform("scope", 3, np.zeros(2, dtype=np.int64), np.zeros(2))
     assert spy.batches == []
+
+
+def test_identity_is_written_as_its_own_event(
+    trace_file: Recording, spy: SpySource, dp800: Profile
+) -> None:
+    emitter = emitter_for(spy)
+    register(emitter, "psu", dp800, 1)
+    identity = {
+        "manufacturer": "RIGOL TECHNOLOGIES",
+        "model": "DP832A",
+        "serial": "DP8C000001",
+        "firmware": "00.01.16",
+        "profile": "rigol-dp800",
+        "address": "192.168.1.40:5555",
+    }
+    emitter.identity("psu", identity, SECOND)
+    assert trace_file.events()["psu/identity"] == [{TIME: 1.0, **identity}]
+
+
+def test_a_channel_registers_only_the_fields_its_readers_produce(
+    trace_file: Recording, spy: SpySource, dp800: Profile
+) -> None:
+    """A field no reader produces was registered anyway and showed as an empty signal."""
+    emitter = emitter_for(spy)
+    emitter.add_instrument("psu", dp800, 2)
+    emitter.add_channels("psu", {1: {"voltage", "current"}, 2: set()})
+    assert spy.fields["psu/ch1"] == {
+        "current": (zelos_sdk.DataType.Float64, "A"),
+        "voltage": (zelos_sdk.DataType.Float64, "V"),
+    }
+    assert "psu/ch2" not in spy.fields
+
+
+def test_a_waveform_event_exists_only_once_a_channel_is_captured(
+    trace_file: Recording, spy: SpySource, profiles: list[Profile]
+) -> None:
+    scope = next(p for p in profiles if p.id == "siglent-sds")
+    emitter = emitter_for(spy)
+    register(emitter, "scope", scope, 4)
+    assert not any(name.endswith("/waveform") for name in spy.fields)
+    emitter.waveform("scope", 2, np.array([SECOND], dtype=np.int64), np.array([0.5]))
+    assert [name for name in spy.fields if name.endswith("/waveform")] == ["scope/ch2/waveform"]
