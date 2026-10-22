@@ -3,7 +3,8 @@
 from itertools import pairwise
 
 from tests.conftest import ScriptedLink
-from zelos_extension_instruments.profile import by_id, shipped
+from zelos_extension_instruments.profile import by_id
+from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.record import Recorder
 from zelos_extension_instruments.sim.fake import FakeInstrument
 

@@ -48,9 +48,9 @@ from .profile import (
     by_id,
     find,
     is_identity,
-    load_file,
     parse_idn,
 )
+from .profile_load import load_file
 
 logger = logging.getLogger(__name__)
 

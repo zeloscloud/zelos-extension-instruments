@@ -107,7 +107,7 @@ def test_user_profiles_in_the_data_dir_override_shipped_ones(
 ) -> None:
     own = tmp_path / "profiles"
     own.mkdir()
-    from zelos_extension_instruments.profile import SHIPPED_DIR
+    from zelos_extension_instruments.profile_load import SHIPPED_DIR
 
     text = (SHIPPED_DIR / "psu" / "rigol-dp800.toml").read_text(encoding="utf-8")
     (own / "rigol-dp800.toml").write_text(

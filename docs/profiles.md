@@ -378,7 +378,7 @@ Set an instrument's Profile to the path of your file, or put files in `profiles/
 Check a file at any time:
 
 ```bash
-uv run python -m zelos_extension_instruments.profile check path/to/my-psu.toml
+uv run python -m zelos_extension_instruments.profile_load check path/to/my-psu.toml
 ```
 
 To contribute one, open a pull request with the file and, if you can, a transcript recorded on your unit:

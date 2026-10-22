@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from zelos_extension_instruments import engine
-from zelos_extension_instruments.profile import by_id, parse_idn, shipped
+from zelos_extension_instruments.profile import by_id, parse_idn
+from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.record import TRANSCRIPTS, load_transcript
 
 FILES = sorted(TRANSCRIPTS.rglob("*.txt")) if TRANSCRIPTS.is_dir() else []

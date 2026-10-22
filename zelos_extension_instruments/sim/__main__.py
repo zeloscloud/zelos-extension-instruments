@@ -7,7 +7,8 @@ import argparse
 import time
 from pathlib import Path
 
-from ..profile import SHIPPED_DIR, Profile, ProfileError, load_file
+from ..profile import Profile
+from ..profile_load import SHIPPED_DIR, ProfileError, load_file
 from .fake import FakeInstrument
 from .server import FakeServer
 

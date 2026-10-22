@@ -5,14 +5,8 @@ from typing import Any
 import pytest
 
 from zelos_extension_instruments import engine
-from zelos_extension_instruments.profile import (
-    SHIPPED_DIR,
-    VERIFY_FIELD,
-    Profile,
-    from_dict,
-    load_file,
-    parse_idn,
-)
+from zelos_extension_instruments.profile import VERIFY_FIELD, Profile, parse_idn
+from zelos_extension_instruments.profile_load import SHIPPED_DIR, from_dict, load_file
 from zelos_extension_instruments.sim.fake import FakeInstrument
 
 RIGOL = SHIPPED_DIR / "psu" / "rigol-dp800.toml"

@@ -14,7 +14,8 @@ from tests.test_worker import Dp832, RecordingEmitter, ask
 from zelos_extension_instruments import discovery, waveform
 from zelos_extension_instruments.engine import format_value, verified
 from zelos_extension_instruments.link import Lines, LinkError, LinkTimeout, TcpAddress, VisaAddress
-from zelos_extension_instruments.profile import Profile, Range, by_id, shipped
+from zelos_extension_instruments.profile import Profile, Range, by_id
+from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.worker import InstrumentWorker
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -334,7 +335,7 @@ def test_a_held_instrument_is_held_under_its_other_address_too(
 
 
 def test_a_scope_profile_without_slots_is_refused() -> None:
-    from zelos_extension_instruments.profile import ProfileError, from_dict
+    from zelos_extension_instruments.profile_load import ProfileError, from_dict
 
     raw = {
         "schema": 1,

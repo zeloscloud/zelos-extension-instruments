@@ -6,7 +6,8 @@ import sys
 
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.link import LinkError, LinkSettings, open_link
-from zelos_extension_instruments.profile import by_id, shipped
+from zelos_extension_instruments.profile import by_id
+from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.record import parse_address
 
 

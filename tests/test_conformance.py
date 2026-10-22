@@ -19,8 +19,8 @@ from zelos_extension_instruments.profile import (
     VALUE_SETTERS,
     VERIFY_FIELD,
     Profile,
-    shipped,
 )
+from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.profile_scope import MEASUREMENT_FIELDS
 from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker

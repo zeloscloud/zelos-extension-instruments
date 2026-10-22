@@ -26,15 +26,7 @@ from zelos_extension_instruments.engine import (
     unknown_label,
     verified,
 )
-from zelos_extension_instruments.profile import (
-    Errors,
-    Flag,
-    Parse,
-    Profile,
-    Range,
-    Reader,
-    Setter,
-)
+from zelos_extension_instruments.profile import Errors, Flag, Parse, Profile, Range, Reader, Setter
 
 THRESHOLD = 9.9e37
 FINITE = st.floats(allow_nan=False, allow_infinity=False, width=64)

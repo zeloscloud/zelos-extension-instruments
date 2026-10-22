@@ -7,7 +7,10 @@ the instrument; the extension never turns a measurement on at connect.
 
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .profile_load import Check
 
 # Measurement fields, per channel. Amplitude fields are in the channel's unit, volts by default.
 MEASUREMENT_FIELDS: dict[str, str | None] = {
@@ -94,25 +97,6 @@ WAVEFORM_FORMATS = ("wavedesc",)
 _CHANNEL_GROUP = re.compile(r"\(\?P<ch>")
 
 
-class Checker(Protocol):
-    """The part of the profile loader's checker this module uses."""
-
-    def fail(self, key: str, message: str) -> None: ...
-    def table(self, raw: Any, key: str) -> dict[str, Any]: ...
-    def string(
-        self, raw: dict[str, Any], key: str, default: str | None, where: str
-    ) -> str | None: ...
-    def required(self, raw: dict[str, Any], key: str, where: str) -> str: ...
-    def integer(
-        self, raw: dict[str, Any], key: str, default: int, where: str, low: int = 0
-    ) -> int: ...
-    def choice(
-        self, raw: dict[str, Any], key: str, choices: Any, default: str, where: str
-    ) -> str: ...
-    def unknown(self, raw: dict[str, Any], known: Any, where: str) -> None: ...
-    def template(self, text: str, allowed: set[str], where: str) -> None: ...
-
-
 @dataclass(frozen=True, slots=True)
 class Slots:
     """How the instrument's measurement slots are read: which are on, what and from where."""
@@ -159,7 +143,7 @@ class Scope:
     waveform: Waveform | None
 
 
-def load_scope(c: Checker, raw: Any, category: str) -> Scope | None:
+def load_scope(c: "Check", raw: Any, category: str) -> Scope | None:
     """The `[scope]` table of a profile, checked."""
     if raw is None:
         if category == "scope":
@@ -177,7 +161,7 @@ def load_scope(c: Checker, raw: Any, category: str) -> Scope | None:
     return Scope(grid=grid, slots=slots, measure=measure, waveform=waveform)
 
 
-def _slots(c: Checker, raw: Any) -> Slots | None:
+def _slots(c: "Check", raw: Any) -> Slots | None:
     if raw is None:
         return None
     raw = c.table(raw, "scope.slots")
@@ -252,7 +236,7 @@ def _slots(c: Checker, raw: Any) -> Slots | None:
     )
 
 
-def _measure(c: Checker, raw: Any, slots: Slots | None) -> Measure | None:
+def _measure(c: "Check", raw: Any, slots: Slots | None) -> Measure | None:
     if raw is None:
         return None
     raw = c.table(raw, "scope.measure")
@@ -278,7 +262,7 @@ def _measure(c: Checker, raw: Any, slots: Slots | None) -> Measure | None:
     return Measure(commands=tuple(commands), off=off)
 
 
-def _waveform(c: Checker, raw: Any) -> Waveform | None:
+def _waveform(c: "Check", raw: Any) -> Waveform | None:
     if raw is None:
         return None
     raw = c.table(raw, "scope.waveform")
