@@ -1055,3 +1055,19 @@ def test_requests_between_passes_keep_the_reading_schedule(dp800: Profile, dp832
     finally:
         worker.stop()
         worker.join(2)
+
+
+def test_stopping_answers_every_pending_request_even_after_one_was_abandoned(
+    dp800: Profile,
+) -> None:
+    """A future the action cancelled took set_result and raised, so the requests queued behind
+    it went unanswered."""
+    cfg = instrument_config(rate_hz=50)
+    worker = InstrumentWorker(
+        cfg, [dp800], RecordingEmitter(), settings_for(cfg), open=opener_for(ScriptedLink(Dp832()))
+    )
+    abandoned = worker.request("state")
+    abandoned.cancel()
+    waiting = worker.request("state")
+    worker._fail_pending("the extension is stopping")
+    assert waiting.result(timeout=0) == {"error": "the extension is stopping"}
