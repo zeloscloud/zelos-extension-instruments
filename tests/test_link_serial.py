@@ -298,10 +298,6 @@ def test_a_block_whose_header_is_split_is_read_whole(instrument: LineServer) -> 
         link.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="serial read_block never times out: each empty receive restarts its clock",
-)
 @pytest.mark.parametrize("command", ["SHORTBLOCK?", "NOREPLY?"])
 def test_a_block_that_stops_short_times_out_and_the_link_recovers(
     instrument: LineServer, command: str, monkeypatch: pytest.MonkeyPatch

@@ -86,6 +86,9 @@ class SerialLink(LineLink):
             raise self._broken(exc) from exc
         if self._closed:
             raise self._broken(None)
+        if count == 0:
+            # The wait ran out with nothing; a block read restarts its clock per piece.
+            raise self._no_reply()
         self._lines.feed(bytes(chunk[:count]))
 
     def clear(self) -> None:
