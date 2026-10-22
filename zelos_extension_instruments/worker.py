@@ -257,14 +257,18 @@ class InstrumentWorker(threading.Thread):
             self._fail_pending("the extension is stopping")
 
     def _wait(self, seconds: float) -> None:
+        """Wait out the schedule, serving requests as they arrive: returning early for one would
+        run an extra pass and push the schedule, or retry a connect inside the backoff."""
         deadline = time.monotonic() + seconds
+        link = self._link
         while not self._stopping.is_set():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return
             if self._wake.wait(min(remaining, 0.5)):
                 self._wake.clear()
-                if self._requests:
+                self._serve_requests()
+                if self._link is not link or self.state == "released":
                     return
 
     # -- connecting --------------------------------------------------------------------------

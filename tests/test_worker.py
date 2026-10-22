@@ -1035,3 +1035,23 @@ def test_a_channel_command_selects_its_channel_whichever_way_the_profile_was_cho
     finally:
         worker.stop()
         worker.join(2)
+
+
+def test_requests_between_passes_keep_the_reading_schedule(dp800: Profile, dp832: Dp832) -> None:
+    """Twenty requests in one second at 1 Hz each ran a pass and pushed the next one an interval
+    later, so the readings stopped for about twenty seconds."""
+    worker, link = start(dp800, dp832, RecordingEmitter(), rate_hz=1)
+    try:
+        assert wait_until(lambda: worker.state == "open")
+        passes = lambda: sum(c.startswith(":MEAS:ALL?") for c in link.commands)  # noqa: E731
+        before = passes()
+        for _ in range(20):
+            ask(worker, "state")
+            time.sleep(0.05)
+        during = passes() - before
+        assert during <= 2 * worker.channels, during
+        # The schedule holds: the next pass comes within about one interval.
+        assert wait_until(lambda: passes() - before > during, timeout_s=2.5)
+    finally:
+        worker.stop()
+        worker.join(2)
