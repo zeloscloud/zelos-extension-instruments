@@ -406,3 +406,36 @@ def test_a_port_in_the_host_field_is_split_off(host, port, expected) -> None:
         item["port"] = port
     cfg = config.from_dict({"instruments": [item]}).instruments[0]
     assert (cfg.host, cfg.port) == expected
+
+
+def test_a_setting_no_connection_takes_is_refused() -> None:
+    """Each connection's settings sit in a schema branch of their own, so a misspelt `rate` used
+    to pass and be ignored."""
+    with pytest.raises(config.ConfigError) as caught:
+        config.from_dict({"instruments": [{"connection": "lan", "host": "10.0.0.5", "rate": 5}]})
+    assert caught.value.problems == ["Instrument 1 (lan): unknown setting rate."]
+
+
+def test_every_setting_a_connection_takes_is_accepted() -> None:
+    config.from_dict(
+        {
+            "instruments": [
+                {
+                    "connection": "visa",
+                    "resource": "TCPIP::10.0.0.5::INSTR",
+                    "backend": "auto",
+                    "profile": "siglent-sds",
+                    "name": "scope",
+                    "rate_hz": 10,
+                    "advanced": {"keep_panel": True, "poll": []},
+                },
+                {"connection": "demo", "category": "psu"},
+                {"connection": "serial", "port": "COM3", "baud": 9600},
+            ]
+        }
+    )
+
+
+def test_a_host_with_spaces_around_it_is_trimmed() -> None:
+    settings = config.from_dict({"instruments": [{"connection": "lan", "host": " 10.0.0.5 "}]})
+    assert settings.instruments[0].host == "10.0.0.5"

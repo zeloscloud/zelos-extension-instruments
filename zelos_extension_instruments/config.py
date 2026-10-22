@@ -218,7 +218,8 @@ def _host_port(item: dict[str, Any]) -> tuple[str | None, int | None]:
     host = item.get("host")
     port = None if item.get("port") is None else int(item["port"])
     if isinstance(host, str):
-        found = _HOST_PORT.match(host.strip())
+        host = host.strip()
+        found = _HOST_PORT.match(host)
         if found is not None:
             host = found.group("v6") or found.group("host")
             if port is None:
@@ -261,7 +262,29 @@ def _problems(raw: dict[str, Any]) -> list[str]:
             for key, problem in _sentences(raw, leaf):
                 if key not in found or leaf.validator == "enum":
                     found[key] = problem
-    return list(found.values())
+    return list(found.values()) + _unknown_settings(raw)
+
+
+_ITEM: dict[str, Any] = _SCHEMA["properties"]["instruments"]["items"]
+# The settings each connection takes, beside the ones every entry has.
+_CONNECTION_SETTINGS = {
+    branch["properties"]["connection"]["enum"][0]: set(branch["properties"])
+    for branch in _ITEM["dependencies"]["connection"]["oneOf"]
+}
+
+
+def _unknown_settings(raw: dict[str, Any]) -> list[str]:
+    """A setting no connection takes, such as a misspelt `rate`, which the schema lets through
+    because each connection's settings sit in a branch of their own."""
+    problems: list[str] = []
+    for index, item in enumerate(raw.get("instruments") or [], 1):
+        if not isinstance(item, dict) or item.get("connection") not in _CONNECTION_SETTINGS:
+            continue
+        known = set(_ITEM["properties"]) | _CONNECTION_SETTINGS[item["connection"]]
+        unknown = sorted(set(item) - known)
+        if unknown:
+            problems.append(f"{_where(index, item)}: unknown setting {', '.join(unknown)}.")
+    return problems
 
 
 def _sentences(

@@ -12,7 +12,7 @@
         "properties": {
           "connection": { "type": "string", "title": "Connection", "enum": ["lan", "usb", "serial", "visa", "demo"], "ui:enumNames": ["LAN (raw socket)", "USB", "Serial port", "VISA resource", "Demo bench"], "default": "lan" },
           "profile": { "type": "string", "title": "Profile", "description": "auto picks the profile from the instrument's identity. Or choose one, or give the path to your own profile file.", "default": "auto", "ui:widget": "action-choices", "ui:options": { "action": "Instruments/list_profiles" } },
-          "name": { "type": "string", "title": "Name", "description": "How this instrument appears in the trace. Letters, digits, spaces, _ and -. Empty uses the model and serial number.", "pattern": "^[A-Za-z0-9 _-]*$", "maxLength": 64 },
+          "name": { "type": "string", "title": "Name", "description": "How this instrument appears in the trace. Letters, digits, spaces, _ and -. Empty uses the address.", "pattern": "^[A-Za-z0-9 _-]*$", "maxLength": 64 },
           "rate_hz": { "type": "number", "title": "Readings per second", "description": "How often the measurements are read. The instrument's own turnaround is the floor: ask for more and it reads back to back.", "default": 10, "exclusiveMinimum": 0 }
         },
         "required": ["connection"],
