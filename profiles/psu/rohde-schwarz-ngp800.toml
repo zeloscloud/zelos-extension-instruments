@@ -16,14 +16,14 @@ Mode reads the questionable condition register of the channel: bit 0 is constant
 Protection reads OVP, fuse (OCP), OPP and over-temperature. The OVP, fuse (OCP) and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
 Clear resets the OVP, OCP (FUSE:TRIP:CLEar) and OPP trips of the selected channel. \
 The manual lists no OCP level command, so the OCP setter is omitted. \
-Remote sense is read from VOLT:SENS?, which answers INT or EXT. Tracking, where channels follow each other's setpoints, is not a series or parallel mode, so it is not read. \
-The LAN socket port is fixed at 5025."""
+Remote sense is read and set with VOLT:SENS, which takes and answers INT or EXT for the selected channel. Tracking, where channels follow each other's setpoints, is not a series or parallel mode, so it is not read. \
+The LAN socket port is fixed at 5025. The *TST? self-test returns an error code, and 0 means no error. Save and recall use the ten memories 0 to 9. The manual has no general beep command, so Beep sends the single error and warning beep (SYST:BEEP:WARN). Lock sends SYST:RWL, which shows a message box and locks the front panel until Unlock (SYST:LOC). The Display action clears the text message box; the manual gives no length limit for DISP:TEXT, so there is no action to show a message. The manual documents no restart command."""
 
 [evidence]
 badge = "manual"
 source = "R&S NGP800 Power Supply Series User Manual, 5601.5610.02, Version 14, firmware 2.025 or higher"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/5601_5610_01/NGP800_User_Manual_en_14.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rohde\s*&\s*schwarz'
@@ -42,6 +42,15 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = "SYST:BEEP:WARN"
+display_clear = "DISP:TEXT:CLE"
+lock = "SYST:RWL"
+unlock = "SYSTem:LOCal"
 
 [ranges]
 voltage = { min = 0, max = 32.05, digits = 3 }
@@ -137,6 +146,10 @@ command = "FUSE {bit}"
 [setters.output]
 command = "OUTP:SEL {bit}"
 master = { command = "OUTP:GEN {bit}", query = "OUTP:GEN?", armed = "OUTP:SEL?" }
+
+[setters.remote_sense]
+command = "VOLT:SENS EXT"
+off = "VOLT:SENS INT"
 
 [setters.clear]
 command = ["VOLT:PROT:CLE", "FUSE:TRIP:CLE", "POW:PROT:CLE"]

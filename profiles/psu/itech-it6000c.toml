@@ -11,13 +11,20 @@ SYST:REM sets remote control mode and locks every key except Local; SYST:LOC res
 RS-232 defaults to 9600 baud. The programming guide gives no LAN socket port, so the profile keeps 5025. \
 Mode reads off, constant current (positive), constant voltage and constant power (positive) from the operation condition register. \
 Protection reads OV, OC, OP and OT from the questionable condition register. \
-Clear resets the tripped protections."""
+Clear resets the tripped protections. \
+*SAV and *RCL take locations 0 to 9. \
+SYST:BEEP:IMM sounds one beep. \
+Lock sends SYST:RWL and Unlock sends SYST:REM. \
+Remote sense is switched with SENS:REM:STAT. \
+The OVP delay (VOLT:PROT:DEL) gives no numeric range and no unit in the manual beyond a default of 60 s, so the profile sends seconds and reads the limits from the unit (VOLT:PROT:DEL? \
+MIN and MAX). \
+The manual has no tracking command; parallel operation uses PARallel:ROLE, which is not wired."""
 
 [evidence]
 badge = "manual"
 source = "IT6000C Series Programming Guide, V1.0/01, 2019; IT6000C data sheet, 2021-07-12 (model list)"
 url = "https://www.tehencom.com/Companies/ITECH/IT6000C/ITECH_IT6000C_Programming_Manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^itech'
@@ -36,6 +43,7 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { min = 0, max_query = "VOLT? MAX", digits = 3 }
 current = { min = 0, max_query = "CURR:LIM? MAX", digits = 3 }
+ovp_delay = { min_query = "VOLT:PROT:DEL? MIN", max_query = "VOLT:PROT:DEL? MAX", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -76,6 +84,10 @@ parse = "bool"
 [state.remote_sense]
 query = "SENS:REM:STAT?"
 parse = "bool"
+
+[state.ovp_delay_set]
+query = "VOLT:PROT:DEL?"
+parse = "float"
 
 [state.output]
 query = "OUTP?"
@@ -119,3 +131,17 @@ command = "OUTP {bit}"
 
 [setters.clear]
 command = "OUTP:PROT:CLE"
+
+[setters.remote_sense]
+command = "SENS:REM:STAT {on}"
+
+[setters.ovp_delay]
+command = "VOLT:PROT:DEL {value}"
+
+[system]
+beep = "SYST:BEEP:IMM"
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+lock = "SYST:RWL"
+unlock = "SYST:REM"

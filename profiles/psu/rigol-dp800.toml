@@ -2,13 +2,13 @@ schema = 1
 id = "rigol-dp800"
 name = "Rigol DP800 series"
 category = "psu"
-notes = "The limits are the rated values of each channel from Table 2-1 of the programming guide, and the instrument accepts settings a little above them: 0 V to 32 V and 0 A to 3.2 A on the DP832 CH1 and CH2, for example. The DP831 CH3 is negative, so its voltage runs from -30 V to 0 V. The DP811 and DP813 have two ranges, chosen with :OUTP:RANG, and the limits here take the larger voltage and the larger current of the two. The guide gives the settable values of the active range only. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the settable ranges of Table 2-2 with 0.01 as the smallest level, because the A models accept 1 mV and the others 10 mV. The models without the A suffix list 2 decimal places unless the high resolution option is installed, and this profile sends 3. Remote sense is read where the channel has the Sense function; the guide says other channels reply NONE, so they are not recorded. SYST:REMOTE leaves only the output key of each channel, the power switch and Back usable on the front panel, and SYST:LOCAL returns control. The guide says commands sent over RS232 end with CR LF, and this profile sends a newline, so set the write terminator in the config for an RS232 link. The programming guide does not name the LAN socket port; a DP832 answers on 5555. Owners report that DP832 firmware 00.01.13.00.01 does not trip OCP on CH3, and 00.01.14.00.03 fixes it."
+notes = "The limits are the rated values of each channel from Table 2-1 of the programming guide, and the instrument accepts settings a little above them: 0 V to 32 V and 0 A to 3.2 A on the DP832 CH1 and CH2, for example. The DP831 CH3 is negative, so its voltage runs from -30 V to 0 V. The DP811 and DP813 have two ranges, chosen with :OUTP:RANG, and the limits here take the larger voltage and the larger current of the two. The guide gives the settable values of the active range only. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the settable ranges of Table 2-2 with 0.01 as the smallest level, because the A models accept 1 mV and the others 10 mV. The models without the A suffix list 2 decimal places unless the high resolution option is installed, and this profile sends 3. Remote sense is read and set where the channel has the Sense function (CH2 of the DP821 and DP822, and the DP811 and DP813); the guide says other channels reply NONE, so they are not recorded and refuse the setting. The mode field comes from :OUTP:MODE?, which answers CV for a channel that is switched off; the extension records the mode of a switched-off channel as off. The track function (:OUTP:TRAC) keeps the voltages of two channels equal and is not series or parallel pairing, so there is no tracking setting. The *TST? query returns the self-test result of the top board, the bottom board and the fan, such as TopBoard:PASS,BottomBoard:PASS,Fan:PASS, and the self-test passes when every item reads PASS. Save and recall use the state files 1 to 10, and a locked file refuses a save. The display message takes 45 characters, and a longer one is rejected. The display switch needs remote mode, which the profile enters at connect, and the display turns on again at local. Lock sends :SYST:RWL ON, and Unlock sends :SYST:RWL OFF. SYST:REMOTE leaves only the output key of each channel, the power switch and Back usable on the front panel, and SYST:LOCAL returns control. The guide says commands sent over RS232 end with CR LF, and this profile sends a newline, so set the write terminator in the config for an RS232 link. The programming guide does not name the LAN socket port; a DP832 answers on 5555. Owners report that DP832 firmware 00.01.13.00.01 does not trip OCP on CH3, and 00.01.14.00.03 fixes it."
 
 [evidence]
 badge = "manual"
 source = "RIGOL DP800 Series Programmable Linear DC Power Supply Programming Guide, PGH03109-1110, Jun. 2021, software version 00.01.17"
 url = "https://www.rigol.com/dam/global/downloads/brochures/en/program-guide/dc-powers/DP800_ProgrammingGuide_EN.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rigol'
@@ -32,6 +32,19 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+self_test_ok = '(?i)^(\s*\w+\s*:\s*PASS\s*,?)+$'
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 10 }
+beep = ":SYST:BEEP:IMM"
+display = ":DISP {on}"
+display_text = ':DISP:TEXT "{text}"'
+display_text_max = 45
+display_clear = ":DISP:TEXT:CLE"
+lock = ":SYST:RWL ON"
+unlock = ":SYST:RWL OFF"
 
 # Programming Guide Table 2-1 (voltage and current) and Table 2-2 (OVP and OCP), rated channel values
 [ranges]
@@ -183,6 +196,9 @@ command = ":OUTP:OCP CH{ch},{on}"
 
 [setters.output]
 command = ":OUTP CH{ch},{on}"
+
+[setters.remote_sense]
+command = ":OUTP:SENS CH{ch},{on}"
 
 [setters.clear]
 command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]

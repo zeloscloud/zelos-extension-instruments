@@ -11,13 +11,17 @@ Protection reads OV and OT from the questionable condition register. The manual 
 VOLT:PROT is the overvoltage level; the extension bounds it by the voltage range. \
 Clear is not wired: the manual lists no protection clear command. \
 The IDN reply is ITECH, <model>, <serial>, <firmware>; the manual's example is ITECH,6152,000004,V1.01 with no IT prefix on the model, so the match accepts the model with or without IT and B. \
-The overvoltage protection state (VOLT:PROT:STAT, off after reset) and remote sense (SYST:SENS, off after reset) have readers, and the protection state has a setter."""
+The overvoltage protection state (VOLT:PROT:STAT, off after reset) and remote sense (SYST:SENS, off after reset) have readers, and the protection state has a setter. \
+*SAV and *RCL take locations 1 to 50. \
+The manual has no *TST?, beep or display command, so the self-test is off. \
+Lock sends SYST:RWL, which disables the Local key, and Unlock sends SYST:REM. \
+Remote sense is switched with SYST:SENS."""
 
 [evidence]
 badge = "manual"
 source = "IT6100B Series SCPI Programming Guide, Ver2.0, March 2016 (IT6100-508); IT6100B data sheet and IT6100B Series User's Manual (ratings)"
 url = "https://assets.testequity.com/te1/Documents/pdf/itech/ITECH_IT6100B-Programming-Guide-EN.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^itech'
@@ -125,3 +129,14 @@ command = "VOLT:PROT:STAT {on}"
 
 [setters.output]
 command = "OUTP {bit}"
+
+[setters.remote_sense]
+command = "SYST:SENS {on}"
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 50 }
+lock = "SYST:RWL"
+unlock = "SYST:REM"

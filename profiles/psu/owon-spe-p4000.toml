@@ -10,14 +10,14 @@ A P4603 driver says SYST:REM and SYST:LOC do not work on that model. \
 VOLT:LIM and CURR:LIM are the overvoltage and overcurrent protection values, not setpoint limits. \
 MEAS:ALL:INFO? reports the operating mode and the OVP, OCP and OTP faults. The manual shows its values separated by spaces, but real units separate them with commas, as in 57.430,0.059,3.390,OFF,OFF,OFF,1, so mode and protection are read from it. \
 Mode 0 is standby, read as off; mode 3, a failure, reads as unknown. \
-The manual documents no error query, so sets are verified by readback only, and no protection clear command. \
+The manual lists only *IDN? and *RST as common commands, so the profile has no self-test, no operation-complete wait and no save, recall, beep, display or lock; its *RST text says it resets an oscilloscope, which is a copy error. The manual documents no error query, so sets are verified by readback only, and no protection clear command. \
 The P4000 user manual gives the RS-232 factory default as 115200 baud, 8 data bits, no parity and 1 stop bit, and the profile uses 115200 baud. The serial defaults of the SPE models are not in the manuals read: set the baud rate in the config if a unit differs. The LAN settings are not in any manual read and stay at the profile defaults."""
 
 [evidence]
 badge = "manual"
 source = "OWON Single Channel DC Power Supply Programming Manual; OWON P Series Single Channel Output DC Power Supply User Manual, Sep. 2020 edition V1.2.0 (serial defaults); model ratings from OWON product listings, not checked against a manual"
 url = "https://tm-co.co.jp/wp/wp-content/uploads/2025/07/SP_and_SPE_SPS_programming_manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^owon'
@@ -27,6 +27,10 @@ channels = 1
 [link]
 baud = 115200
 local = "SYST:LOC"
+
+[system]
+self_test = false
+opc = false
 
 [ranges]
 voltage = { min = 0, max = 30, digits = 2 }

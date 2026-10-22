@@ -2,13 +2,13 @@ schema = 1
 id = "siglent-sps5000x"
 name = "Siglent SPS5000X series"
 category = "psu"
-notes = "The manual covers all 16 models, from the 40 V SPS5041X to the 160 V SPS5165X, and this profile matches them all. The X4 models have two channels and the X5 models have three, each with its own set of limits. Output on and off is one command for all channels (OUTPut), and the per-channel OUTPut:SET:ON:STATe is a channel enable, so the Output action switches every channel of a multi-channel unit. The manual misprints the set form of that enable command in its command format line, which is another reason the profile does not use it. The manual documents no error query, so sets are checked by readback only. It also documents no protection query, so protection is not read. OCP trips only when its switch is on (SYStem:OCP:STATe), which the profile reads and sets per channel, and the OVP and OCP setters use the voltage and current limits here as their bound. Clear sends RESET:CHANnel:PROTect for the channel. The manual shows only the reply CV to MEAS:RUN:MODE?; the profile also reads CC, and any other word shows as unknown. The programming section is part of the user manual, and the socket port is 5025."
+notes = "The manual covers all 16 models, from the 40 V SPS5041X to the 160 V SPS5165X, and this profile matches them all. The X4 models have two channels and the X5 models have three, each with its own set of limits. Output on and off is one command for all channels (OUTPut), and the per-channel OUTPut:SET:ON:STATe is a channel enable, so the Output action switches every channel of a multi-channel unit. The manual misprints the set form of that enable command in its command format line, which is another reason the profile does not use it. The manual documents no error query, so sets are checked by readback only. It also documents no protection query, so protection is not read. OCP trips only when its switch is on (SYStem:OCP:STATe), which the profile reads and sets per channel, and the OVP and OCP setters use the voltage and current limits here as their bound. Clear sends RESET:CHANnel:PROTect for the channel. The manual shows only the reply CV to MEAS:RUN:MODE?; the profile also reads CC, and any other word shows as unknown. The programming section is part of the user manual, and the socket port is 5025. The manual has no save, recall, beep, display or lock command (MENU:SOUN:KEY only switches the button sound), and no remote sense setting. Tracking is the master-slave role of the channel (SYStem:DEVIce:ROLE), which spans several units: M_INDEPEN is independent, M_SERIES and S_SERIES are series, and M_PAREL_1, M_PAREL_2 and S_PAREL are parallel. Setting parallel sends M_PAREL_1, the master of two units; use a raw command for M_PAREL_2. The manual does not show the reply spelling of the role query, so this profile expects the same words and drops the reading if the unit answers otherwise."
 
 [evidence]
 badge = "manual"
 source = "Siglent SPS5000X Series Wide Range Programmable Switching DC Power Supplies User Manual, SPS5000X_Usermanual_E02B.pdf, 2022/06 (Remote Control chapter)"
 url = "https://siglentna.com/download/21299/"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^siglent'
@@ -25,6 +25,11 @@ channels = 3
 
 [link]
 lan_port = 5025
+
+[system]
+reset = "*RST"
+self_test = "*TST?"
+opc = "*OPC?"
 
 [ranges]
 voltage = { min = 0, max = 40, digits = 3 }
@@ -105,6 +110,12 @@ parse = "float"
 query = "SYST:OCP:STAT? CH{ch}"
 parse = "bool"
 
+[state.tracking]
+query = "SYStem:DEVIce:ROLE? CH{ch}"
+parse = "map"
+map = { M_INDEPEN = "independent", M_SERIES = "series", S_SERIES = "series", M_PAREL_1 = "parallel", M_PAREL_2 = "parallel", S_PAREL = "parallel" }
+optional = true
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -133,6 +144,10 @@ command = "SYST:OCP:STAT CH{ch},{on}"
 [setters.output]
 command = "OUTP {on}"
 channel = false
+
+[setters.tracking]
+command = "SYStem:DEVIce:ROLE CH{ch},{value}"
+map = { independent = "M_INDEPEN", series = "M_SERIES", parallel = "M_PAREL_1" }
 
 [setters.clear]
 command = "RESET:CHAN:PROT CH{ch}"

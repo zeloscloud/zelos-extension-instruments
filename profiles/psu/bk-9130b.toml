@@ -16,13 +16,19 @@ Power comes from MEAS:POW?. \
 The manual says commands end with CR and LF. \
 The manual gives two default RS-232 settings: 4800 baud in the communication section and 9600 baud in the interface section, with 8 data bits and no parity. The profile leaves the baud rate at its default, so set the same rate on the supply and in the config. \
 The manual says RS-232 has no flow control and a delay between commands is required, without giving a value; the profile pauses 50 ms between commands, and the config can change it. \
-Clear resets the OVP trip only."""
+Clear resets the OVP trip only. \
+*SAV and *RCL take locations 1 to 36. \
+SYST:BEEP sounds one beep. \
+DISP switches the display on or off and DISP:TEXT:CLE clears a message; the manual gives no text length, so showing text is not offered. \
+Lock sends SYST:RWL, which also disables the Local key, and Unlock sends SYST:REM. \
+Tracking sends INST:COMB:OFF, INST:COMB:SER CH1,CH2 or INST:COMB:PARA CH1,CH2 to combine channels 1 and 2; the manual gives no reply format for INST:COMB?, so the mode is not read, and OUTP:TRAC (tracking) has no label here. \
+The manual has no remote-sense or OVP delay command."""
 
 [evidence]
 badge = "manual"
 source = "9130B Series Programming Manual V051415; 9130B Series data sheet v110221 (ratings); 9130B Series User Manual v020322 (RS-232 options)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9130B_Series_programming_manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
@@ -118,3 +124,18 @@ command = "CHAN:OUTP {bit}"
 
 [setters.clear]
 command = "VOLT:PROT:CLE"
+
+[setters.tracking]
+command = "INST:COMB:{value}"
+map = { independent = "OFF", series = "SER CH1,CH2", parallel = "PARA CH1,CH2" }
+channel = false
+
+[system]
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_clear = "DISP:TEXT:CLE"
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 36 }
+lock = "SYST:RWL"
+unlock = "SYST:REM"

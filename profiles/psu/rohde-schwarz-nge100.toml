@@ -19,14 +19,14 @@ Each channel is limited to 33.6 W. A bench NGE103 lowers a current limit above 3
 On a bench NGE103, OPP is on at 33.6 W as shipped. \
 A bench NGE103 refuses a fuse change with error -221 while the channel output is on. \
 Clear resets the OVP, OCP (FUSE:TRIP:CLEar) and OPP (POW:PROT:CLEar) trips of the selected channel. \
-The LAN socket port is fixed at 5025; USB offers TMC or VCP, which is selected in the instrument menu. \
+The LAN socket port is fixed at 5025; USB offers TMC or VCP, which is selected in the instrument menu. The *TST? self-test returns an error code, and 0 means no error. Save and recall use the five memories 0 to 4. Beep sends one beep. Lock sends SYST:RWL, after which only Unlock (SYST:LOC) returns the front panel. The supply has no display commands, and the manual documents no restart command. \
 The original NGE100 (not B) manual was not read. The NGE102 and NGE103 are matched from a driver measured on an NGE103 with firmware 1.40, which never sent OUTP:MODE? or VOLT:PROT?."""
 
 [evidence]
 badge = "manual"
 source = "R&S NGE100B Power Supply User Manual, 5601.1343.02, Version 11, firmware 1.55"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/5601_1343_01/NGE100B_User_Manual_en_11.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rohde\s*&\s*schwarz'
@@ -44,6 +44,14 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 4 }
+beep = "SYST:BEEP"
+lock = "SYST:RWL"
+unlock = "SYSTem:LOCal"
 
 [ranges]
 voltage = { min = 0, max = 32.2, digits = 2, step = 0.01 }

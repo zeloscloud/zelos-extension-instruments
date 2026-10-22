@@ -15,13 +15,17 @@ Protection reads OVP from VOLT:PROT:TRIP? and OCP and the fan-fault over-tempera
 The manual gives the overcurrent bit as bit 11 in its register table and as bit 1 in the command section, so the OCP flag is unconfirmed; the profile reads bit 11. \
 The OVP and OCP levels act only while their states (VOLT:PROT:STAT, CURR:PROT:STAT) are on; the OVP on and OCP on switches set them. \
 Clear resets the OVP trip only. \
-A real 9205B rejects a VISA device clear with VI_ERROR_NSUP_OPER, so the extension skips it."""
+A real 9205B rejects a VISA device clear with VI_ERROR_NSUP_OPER, so the extension skips it. \
+The manual has no *TST?, so the self-test is off. \
+*SAV and *RCL take locations 1 to 72. \
+Lock sends SYST:RWL, which also disables the Local key, and Unlock sends SYST:REM. \
+The manual has no beep, display, OVP delay or tracking command, and remote sense is wired at the rear terminals."""
 
 [evidence]
 badge = "manual"
 source = "9200B Series Multi-Range DC Power Supply User Manual v072524 (Remote Commands, chapter 5)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/manuals/en-us/9200B_Series_manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
@@ -125,3 +129,11 @@ command = "OUTP {bit}"
 
 [setters.clear]
 command = "VOLT:PROT:CLE"
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 72 }
+lock = "SYST:RWL"
+unlock = "SYST:REM"

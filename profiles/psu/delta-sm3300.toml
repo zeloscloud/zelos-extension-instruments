@@ -10,13 +10,17 @@ Mode reads bit 0 (CV) and bit 1 (CC) of status register A (STAT:REG:A?); neither
 Protection reads bit 8 (OT) of register A as over-temperature, and bits 6 (DCF), 9 (PSOL) and 10 (ACF) of register A and bits 7 and 8 (output overload) of register B (STAT:REG:B?) as other. \
 There is no protection clear command in the manual. \
 The older SM 70-45 D uses a different set of abbreviated commands and its manual was not available, so it is not matched. \
-The IDN reply is DELTA ELEKTRONIKA BV,SM18-220,<serial>,<firmware>,0."""
+The IDN reply is DELTA ELEKTRONIKA BV,SM18-220,<serial>,<firmware>,0. \
+The manual has no *TST? and no *RCL, so the self-test is off and recall is not offered. \
+*SAV takes no location and overwrites the calibration data, *PUD and the password in nonvolatile memory, so save is not offered either. \
+Lock sends SYST:FRO ON and Unlock sends SYST:FRO OFF; the lock covers the menu only, unless SYST:FRO:CON is on, which also locks the controls. \
+The manual has no beep command: SYST:FRO:HIG blinks the display and sounds the buzzer, and is not wired."""
 
 [evidence]
 badge = "manual"
 source = "Delta Elektronika SM3300 Ethernet & Sequencer Programming Product Manual, firmware P0210, rev. November 2025"
 url = "https://www.deltaelektronika.com/sites/default/files/2025-11/SM3300_Parser_P0210_V202511.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^delta\s*elektronika'
@@ -78,3 +82,8 @@ command = "SOUR:CUR {value}"
 
 [setters.output]
 command = "OUTP {bit}"
+
+[system]
+self_test = false
+lock = "SYST:FRO ON"
+unlock = "SYST:FRO OFF"

@@ -2,13 +2,13 @@ schema = 1
 id = "rigol-dp700"
 name = "Rigol DP700 series"
 category = "psu"
-notes = "The DP700 has one output and an RS232 port only, with no USB or LAN: 9600 baud, 8 data bits, no parity, 1 stop bit by default, and commands end with a newline. Data bits and stop bits cannot be changed, and the baud rate can be 7200 to 115200. The command set is the DP800 style, with an optional channel name (CH1) and a single :SOUR1 source. The guide gives the OCP and OVP tests as YES or NO. Voltage and current take 2 decimal places, which suits the standard unit, and a unit with the high-resolution option (HIRES-DP700) accepts 3. The limits here are the ratings, and the instrument accepts current up to 5.3 A on the DP711 and 3.2 A on the DP712. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the guide's settable ranges: 0.01 V to 33 V and 0.01 A to 5.5 A on the DP711, 0.01 V to 55 V and 0.01 A to 3.3 A on the DP712. SYST:REMOTE locks all front-panel keys except On/Off, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR."
+notes = "The DP700 has one output and an RS232 port only, with no USB or LAN: 9600 baud, 8 data bits, no parity, 1 stop bit by default, and commands end with a newline. Data bits and stop bits cannot be changed, and the baud rate can be 7200 to 115200. The command set is the DP800 style, with an optional channel name (CH1) and a single :SOUR1 source. The guide gives the OCP and OVP tests as YES or NO. Voltage and current take 2 decimal places, which suits the standard unit, and a unit with the high-resolution option (HIRES-DP700) accepts 3. The limits here are the ratings, and the instrument accepts current up to 5.3 A on the DP711 and 3.2 A on the DP712. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the guide's settable ranges: 0.01 V to 33 V and 0.01 A to 5.5 A on the DP711, 0.01 V to 55 V and 0.01 A to 3.3 A on the DP712. SYST:REMOTE locks all front-panel keys except On/Off, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. The *TST? query returns the result of the power-on self-test as text such as Fan:PASS, so the self-test passes when every item reads PASS. Save and recall use the ten state files 1 to 10; the guide also takes 11 and 12, which are timer files, and this profile leaves them out. The display switch needs remote mode, which the profile enters at connect, and the display turns on again at local. Lock sends :SYST:RWL ON, which locks all keys except On/Off, and Unlock sends :SYST:RWL OFF. The supply has no display text command."
 
 [evidence]
 badge = "manual"
 source = "RIGOL DP700 Series Programmable Linear DC Power Supply Programming Guide, PGH05101-1110, Jun. 2016, software version 00.01.02"
 url = "https://www.batronix.com/files/Rigol/Labornetzteile/DP700/DP700_ProgrammingGuide_EN.pdf"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rigol'
@@ -26,6 +26,16 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+self_test_ok = '(?i)^(\s*\w+\s*:\s*PASS\s*,?)+$'
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 10 }
+beep = ":SYST:BEEP:IMM"
+display = ":DISP {on}"
+lock = ":SYST:RWL ON"
+unlock = ":SYST:RWL OFF"
 
 # Programming Guide pp. 2-22 and 2-25, :SOURce commands
 [ranges]

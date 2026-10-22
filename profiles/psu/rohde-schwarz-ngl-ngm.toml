@@ -17,13 +17,13 @@ Mode reads the questionable condition register of the channel; zero is shown as 
 Protection reads OVP, OCP (CURR:PROT), OPP and over-temperature. The manual lists the FUSE commands as alternatives to CURR:PROT. The OVP, OCP and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
 The OVP level is 0.001 to 20.05 V. \
 Clear resets the OVP, OCP and OPP trips of the selected channel. \
-The raw socket port is set in the instrument's network dialog; the manual gives no default, so the profile keeps 5025."""
+The raw socket port is set in the instrument's network dialog; the manual gives no default, so the profile keeps 5025. The *TST? self-test returns an error code, and 0 means no error. The manual has no *SAV or *RCL, so there is no save or recall. Beep sends one operation-complete beep (SYST:BEEP). Lock sends SYST:RWL, which shows a message box and locks the front panel until Unlock (SYST:LOC). The Display action clears the text message box; the manual gives no length limit for DISP:TEXT, so there is no action to show a message. Reboot sends SYST:REST, and the manual gives no restart time."""
 
 [evidence]
 badge = "manual"
 source = "R&S NGL200/NGM200 Power Supply Series User Manual, 1178.8736.02, Version 10, firmware 3.060 or higher"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1178_8736_01/NGL200_NGM200_UserManual_en_10.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rohde\s*&\s*schwarz'
@@ -42,6 +42,13 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+beep = "SYST:BEEP"
+display_clear = "DISP:TEXT:CLE"
+lock = "SYST:RWL"
+unlock = "SYSTem:LOCal"
+reboot = "SYST:REST"
 
 [ranges]
 voltage = { min = 0, max = 20.05, digits = 3 }

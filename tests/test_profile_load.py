@@ -12,7 +12,7 @@ import pytest
 
 from tests.conftest import minimal, profile_from
 from zelos_extension_instruments import profile_load
-from zelos_extension_instruments.profile import Profile, parse_idn
+from zelos_extension_instruments.profile import Profile, by_id, parse_idn
 from zelos_extension_instruments.profile_load import (
     SHIPPED_DIR,
     ProfileError,
@@ -77,7 +77,7 @@ def test_load_file_reads_the_shipped_example(dp800: Profile) -> None:
     assert dp800.generic is False
     assert dp800.path == DP800_PATH
     assert dp800.evidence.badge == "manual"
-    assert dp800.evidence.date == "2026-10-21"
+    assert dp800.evidence.date == "2026-10-22"
     assert dp800.match.channels == 1
     assert [m.channels for m in dp800.match.models] == [2, 3]
     assert dp800.link.lan_port == 5555
@@ -110,6 +110,7 @@ def test_load_file_reads_the_shipped_example(dp800: Profile) -> None:
         "ocp_on",
         "output",
         "clear",
+        "remote_sense",
     }
     assert dp800.dmm is None
 
@@ -1129,6 +1130,11 @@ def test_match_connections_must_name_known_connections(connections: Any, message
     raw["match"] = {**raw["match"], "connections": connections}
     with pytest.raises(ProfileError, match=message):
         profile_from(raw)
+
+
+def test_the_serial_genesys_profile_matches_only_over_serial(profiles: list[Profile]) -> None:
+    genesys = by_id(profiles, "tdk-lambda-genesys")
+    assert genesys is not None and genesys.match.connections == ("serial",)
 
 
 def test_a_map_catch_all_is_not_an_instrument_word() -> None:

@@ -2,13 +2,13 @@ schema = 1
 id = "keysight-e36300"
 name = "Keysight E36300 series"
 category = "psu"
-notes = "Channel 3 differs by model: the E36311A has a negative 25 V output (0 to -25.75 V, 1 A), while the E36312A and E36313A have a positive 25 V output unless SYST:PERS:MOD E3631A is set. The E36311A has USB only; LAN is on the E36312A and E36313A. CV and CC come from STAT:QUES:INST:ISUM<n>:COND?, where value 1 (bit 0) is constant current, 2 (bit 1) is constant voltage and 0 is off or unregulated. The guide's value table calls 3 a hardware failure, while its register text calls it neither regulated, so this profile reads 3 as unregulated. The guide documents no power measurement and no overcurrent level (OCP is an on/off state with a delay), so those fields are left out and the Clear action clears the output protection latch. Trip flags (VOLT:PROT:TRIP?, CURR:PROT:TRIP?) take no channel list in the guide, so the profile selects the channel with INST:NSEL first. The OVP level runs from 0 to the guide's maximum for each output in normal mode, which is 6.6 V, 27.5 V and 27.5 V (-27.5 V for output 3 of the E36311A); series mode has other maximums and is not modeled. There is no VOLT:PROT:STAT command in the guide, and CURR:PROT:STAT is off after *RST, so the OCP flag stays quiet until it is switched on; this profile reads and sets it. Remote sense (VOLT:SENS?, 0 for internal, 1 for external) and pairing (OUTP:PAIR?) are supported only by the E36312A and E36313A, so the E36311A drops them. In E3631A persona mode, all outputs switch together. Auto-series or parallel pairing on the E36312A and E36313A changes the channels and ranges. With output sequencing on, OUTP? reports the configured state, not the actual one. A device that reports Agilent instead of Keysight after SYST:PERS:MAN is still matched."
+notes = "Channel 3 differs by model: the E36311A has a negative 25 V output (0 to -25.75 V, 1 A), while the E36312A and E36313A have a positive 25 V output unless SYST:PERS:MOD E3631A is set. The E36311A has USB only; LAN is on the E36312A and E36313A. CV and CC come from STAT:QUES:INST:ISUM<n>:COND?, where value 1 (bit 0) is constant current, 2 (bit 1) is constant voltage and 0 is off or unregulated. The guide's value table calls 3 a hardware failure, while its register text calls it neither regulated, so this profile reads 3 as unregulated. The guide documents no power measurement and no overcurrent level (OCP is an on/off state with a delay), so those fields are left out and the Clear action clears the output protection latch. Trip flags (VOLT:PROT:TRIP?, CURR:PROT:TRIP?) take no channel list in the guide, so the profile selects the channel with INST:NSEL first. The OVP level runs from 0 to the guide's maximum for each output in normal mode, which is 6.6 V, 27.5 V and 27.5 V (-27.5 V for output 3 of the E36311A); series mode has other maximums and is not modeled. There is no VOLT:PROT:STAT command in the guide, and CURR:PROT:STAT is off after *RST, so the OCP flag stays quiet until it is switched on; this profile reads and sets it. Remote sense (VOLT:SENS, INT for local sensing and EXT for remote sensing) and pairing (OUTP:PAIR, OFF, PAR or SER) are supported only by the E36312A and E36313A, so the E36311A drops them and refuses their actions; the guide says the OUTP:PAIR query also answers TRAC, which this profile reads as unknown. The display message takes 30 characters, where commas, periods and semicolons do not count. SYST:COMM:RLST RWL, the same as SYST:RWL, locks the front panel until SYST:COMM:RLST LOC. Save and recall use the ten locations 0 to 9. In E3631A persona mode, all outputs switch together. Auto-series or parallel pairing on the E36312A and E36313A changes the channels and ranges. With output sequencing on, OUTP? reports the configured state, not the actual one. A device that reports Agilent instead of Keysight after SYST:PERS:MAN is still matched."
 
 [evidence]
 badge = "manual"
 source = "Keysight E36300 Series Programming Guide, E36311-90008, Edition 3, October 2017; User's Guide E36311-90001, Edition 5, June 2020 (sockets, port 5025)"
 url = "https://xdevs.com/doc/HP_Agilent_Keysight/E36300A/E36311-90008_programming_guide.pdf"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(keysight|agilent)'
@@ -22,6 +22,18 @@ select = "INST:NSEL {ch}"
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 30
+display_clear = "DISP:TEXT:CLE"
+lock = "SYST:COMM:RLST RWL"
+unlock = "SYST:COMM:RLST LOC"
 
 # Programming Guide p. 16, Programming Ranges and Output Identifiers
 [ranges]
@@ -96,6 +108,7 @@ parse = "bool"
 [state.remote_sense]
 query = "VOLT:SENS? (@{ch})"
 parse = "bool"
+map = { EXT = "on", INT = "off" }
 optional = true
 
 [state.tracking]
@@ -135,6 +148,15 @@ command = "CURR:PROT:STAT {on},(@{ch})"
 
 [setters.output]
 command = "OUTP {on},(@{ch})"
+
+[setters.remote_sense]
+command = "VOLT:SENS EXT,(@{ch})"
+off = "VOLT:SENS INT,(@{ch})"
+
+[setters.tracking]
+command = "OUTP:PAIR {value}"
+map = { independent = "OFF", series = "SERies", parallel = "PARallel" }
+channel = false
 
 [setters.clear]
 command = "OUTP:PROT:CLE (@{ch})"

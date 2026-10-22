@@ -2,13 +2,13 @@ schema = 1
 id = "rigol-dp900"
 name = "Rigol DP900 series"
 category = "psu"
-notes = "The command set matches the DP800 profile, with OVP and OCP levels added (:OUTP:OVP:VAL, :OUTP:OCP:VAL). The DP932A and DP932U have two 32 V/3 A outputs and a 6 V/3 A output, and the DP932E has two 30 V/3 A outputs and a 6 V/3 A output. The limits here are the rated values, and the instrument accepts settings 5 percent above them. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the guide's available ranges (Table 4.33): 1 mV to 35.2 V on the 32 V channels, 1 mV to 33 V on the DP932E 30 V channels, 1 mV to 6.6 V on CH3, and 1 mA to 3.3 A. Tracking reads the channel connection mode from :OUTP:PAIR?, which applies to CH1 and CH2. The programming guide does not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The DP900 has USB and LAN only."
+notes = "The command set matches the DP800 profile, with OVP and OCP levels added (:OUTP:OVP:VAL, :OUTP:OCP:VAL). The DP932A and DP932U have two 32 V/3 A outputs and a 6 V/3 A output, and the DP932E has two 30 V/3 A outputs and a 6 V/3 A output. The limits here are the rated values, and the instrument accepts settings 5 percent above them. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the guide's available ranges (Table 4.33): 1 mV to 35.2 V on the 32 V channels, 1 mV to 33 V on the DP932E 30 V channels, 1 mV to 6.6 V on CH3, and 1 mA to 3.3 A. Tracking reads and sets the channel connection mode with :OUTP:PAIR (OFF, PARallel or SERies), which applies to CH1 and CH2. The *TST? query returns the result of the power-on self-test, not a new test. Save and recall use the state files 0 to 9. Beep sends one beep. Lock sends :SYST:RWL ON, which locks the touch screen and every key except the output keys, and Unlock sends :SYST:RWL OFF. The guide has no remote sense setting and no display commands. The programming guide does not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The DP900 has USB and LAN only."
 
 [evidence]
 badge = "manual"
 source = "RIGOL DP900 Series Programmable Linear DC Power Supply Programming Guide, PGH08101-1110, software version 00.01.02"
 url = "https://download.rigol.com/en/Manual/DC%20Power&Loads/DP900/DP900_ProgrammingGuide_en.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rigol'
@@ -23,6 +23,14 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = ":SYST:BEEP:IMM"
+lock = ":SYST:RWL ON"
+unlock = ":SYST:RWL OFF"
 
 # Programming Guide Table 4.9, rated channel ranges
 [ranges]
@@ -119,6 +127,11 @@ command = ":OUTP:OCP CH{ch},{on}"
 
 [setters.output]
 command = ":OUTP CH{ch},{on}"
+
+[setters.tracking]
+command = ":OUTP:PAIR {value}"
+map = { independent = "OFF", series = "SERies", parallel = "PARallel" }
+channel = false
 
 [setters.clear]
 command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]

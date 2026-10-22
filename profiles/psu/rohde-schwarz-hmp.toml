@@ -17,13 +17,13 @@ Clear resets the OVP trip only; the manual lists no command that clears a fuse t
 RS-232 needs the HO720 interface option. \
 The HO720 answers on either RS-232 or its USB virtual COM port, as chosen in the Interface menu; a real HMP2020 left on RS-232 did not answer over USB. \
 For RS-232 the manual's example uses 9600 baud, 1 stop bit, no parity and handshake on. Without handshake the manual asks for 50 ms to 100 ms between commands; the profile sets no delay. \
-The LAN socket port is 5025."""
+The LAN socket port is 5025. The *TST? self-test returns an error code, and 0 means no error. Save and recall use the ten memories 0 to 9. Beep sends one beep. Lock sends SYST:RWL, which locks the whole front panel including the Remote key, and Unlock sends SYST:LOC. The supply has no display commands, and the manual documents no restart command."""
 
 [evidence]
 badge = "manual"
 source = "R&S HMP Series Power Supplies User Manual, 1178.6833.02, Version 05, firmware V2.7x and later"
 url = "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1178_6833_01/HMPSeries_UserManual_en_05.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(hameg|rohde\s*&\s*schwarz)'
@@ -47,6 +47,14 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = "SYST:BEEP"
+lock = "SYST:RWL"
+unlock = "SYSTem:LOCal"
 
 [ranges]
 voltage = { min = 0, max = 32.05, digits = 3 }
