@@ -158,7 +158,7 @@ class VisaLink:
         self._pacer.mark(command)
 
     def read(self, timeout_s: float | None = None) -> str:
-        return self._text(self._read_raw(timeout_s, terminated=True), timeout_s)
+        return self._text(self._read_raw(timeout_s), timeout_s)
 
     def query(self, command: str) -> str:
         self.write(command)
@@ -179,13 +179,13 @@ class VisaLink:
         terminator = self._settings.read_terminator.encode()
         if terminator and head.endswith(terminator):
             return self._text(head, timeout_s)
-        rest = self._read_raw(timeout_s, terminated=True)
+        rest = self._read_raw(timeout_s)
         return self._text(head + rest, timeout_s)
 
     def _finish_block(self, head: bytes, timeout_s: float | None) -> bytes:
         if head[:1] != b"#" or not head[1:2].isdigit() or head[1:2] == b"0":
             with suppress(Exception):
-                self._read_raw(0.2, terminated=True)
+                self._read_raw(0.2)
             raise LinkError(
                 f"{self.where} did not answer with a block: expected a #-block, got {head!r}",
                 "reply",
@@ -200,7 +200,7 @@ class VisaLink:
         payload = self._read_bytes(int(digits), timeout_s)
         # The line endings behind the block, when the instrument sends any.
         with suppress(Exception):
-            self._read_raw(0.2, terminated=True)
+            self._read_raw(0.2)
         return payload
 
     def _read_bytes(self, count: int, timeout_s: float | None) -> bytes:
@@ -216,12 +216,9 @@ class VisaLink:
         finally:
             inst.timeout = timeout
 
-    def _read_raw(self, timeout_s: float | None, *, terminated: bool) -> bytes:
+    def _read_raw(self, timeout_s: float | None) -> bytes:
         inst = self._inst
-        termination = inst.read_termination
         timeout = inst.timeout
-        if not terminated:
-            inst.read_termination = None
         if timeout_s is not None:
             inst.timeout = max(1, round(timeout_s * 1000))
         try:
@@ -229,7 +226,6 @@ class VisaLink:
         except Exception as exc:
             raise self._failure(exc, reading=True, timeout_s=timeout_s) from exc
         finally:
-            inst.read_termination = termination
             inst.timeout = timeout
 
     def _text(self, raw: bytes, timeout_s: float | None) -> str:
