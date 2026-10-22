@@ -272,21 +272,49 @@ async def _open_ports(targets: list[tuple[str, int]]) -> list[tuple[str, int]]:
 
 def scan_lan(subnets: list[ipaddress.IPv4Network] | None = None) -> list[Found]:
     """Hosts on the local subnets that accept a connection on a SCPI port, one per host."""
-    subnets = local_subnets() if subnets is None else subnets
+    return _scan_hosts(_scan_open(local_subnets() if subnets is None else subnets))
+
+
+def _scanned(subnets: list[ipaddress.IPv4Network]) -> list[ipaddress.IPv4Network]:
+    return [n for n in subnets if n.num_addresses <= SCAN_MAX_HOSTS]
+
+
+def _scan_open(subnets: list[ipaddress.IPv4Network]) -> set[tuple[str, int]]:
+    """Every (host, port) on the scanned subnets that accepted a connection."""
     targets = [
-        (str(host), port)
-        for network in subnets
-        if network.num_addresses <= SCAN_MAX_HOSTS
-        for host in network.hosts()
-        for port in SCAN_PORTS
+        (str(host), port) for n in _scanned(subnets) for host in n.hosts() for port in SCAN_PORTS
     ]
-    if not targets:
-        return []
+    return set(asyncio.run(_open_ports(targets))) if targets else set()
+
+
+def _scan_hosts(open_ports: set[tuple[str, int]]) -> list[Found]:
     found: dict[str, Found] = {}
-    for ip, port in sorted(asyncio.run(_open_ports(targets)), key=lambda t: SCAN_PORTS.index(t[1])):
+    for ip, port in sorted(open_ports, key=lambda t: (SCAN_PORTS.index(t[1]), t[0])):
         if ip not in found:
             found[ip] = _candidate(TcpAddress(ip, port), "scan", f"{ip}:{port}")
     return list(found.values())
+
+
+def _drop_closed_sockets(
+    found: dict[str, Found], subnets: list[ipaddress.IPv4Network], open_ports: set[tuple[str, int]]
+) -> None:
+    """Drop a raw socket the scan found closed when its host has another address: a held socket
+    only waits out the connect timeout, and the other address reaches the instrument."""
+    scanned = _scanned(subnets)
+    for key, candidate in list(found.items()):
+        address = candidate.address
+        if not isinstance(address, TcpAddress) or address.port not in SCAN_PORTS:
+            continue
+        if (address.host, address.port) in open_ports:
+            continue
+        try:
+            ip = ipaddress.ip_address(address.host)
+        except ValueError:
+            continue
+        if not any(ip in n for n in scanned):
+            continue
+        if any(k != key and host_of(c.address) == address.host for k, c in found.items()):
+            del found[key]
 
 
 def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Found]:
@@ -296,7 +324,7 @@ def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Foun
         subnets = local_subnets()
         with ThreadPoolExecutor(max_workers=2) as pool:
             broadcast = pool.submit(_vxi11)
-            scan = pool.submit(scan_lan, subnets)
+            scan = pool.submit(_scan_open, subnets)
             found = _browse(budget_s)
             for ip, candidate in broadcast.result().items():
                 # A host mDNS named by its raw socket keeps its VXI-11 address beside it too:
@@ -306,11 +334,11 @@ def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Foun
                 else:
                     found.setdefault(ip, candidate)
             try:
-                hits = scan.result()
+                open_ports: set[tuple[str, int]] | None = scan.result()
             except Exception as e:
                 log.warning("the port scan failed: %s", e)
-                hits = []
-            for candidate in hits:
+                open_ports = None
+            for candidate in _scan_hosts(open_ports or set()):
                 ip = candidate.address.where.rsplit(":", 1)[0]
                 # A host found by VXI-11 keeps that address beside the raw socket: `discover`
                 # picks the one that identifies.
@@ -318,10 +346,12 @@ def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Foun
                     found[ip] = candidate
                 elif found[ip].source == "vxi11":
                     found[f"{ip} socket"] = candidate
+            if open_ports is not None:
+                _drop_closed_sockets(found, subnets, open_ports)
         if tried is not None:
             tried.append(f"mDNS for {budget_s:g} s")
             tried.append("VXI-11 broadcast")
-            scanned = [str(n) for n in subnets if n.num_addresses <= SCAN_MAX_HOSTS]
+            scanned = [str(n) for n in _scanned(subnets)]
             ports = ", ".join(str(p) for p in SCAN_PORTS)
             tried.append(
                 f"ports {ports} on {', '.join(scanned)}" if scanned else "no local subnet to scan"

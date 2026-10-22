@@ -1,4 +1,5 @@
 import dataclasses
+import ipaddress
 import logging
 import socketserver
 import threading
@@ -111,7 +112,7 @@ def _fake_visa(monkeypatch: pytest.MonkeyPatch, **managers: FakeManager | Except
 @pytest.fixture(autouse=True)
 def _no_scan(monkeypatch: pytest.MonkeyPatch) -> None:
     """The listing tests never probe the real network."""
-    monkeypatch.setattr(discovery, "scan_lan", lambda subnets=None: [])
+    monkeypatch.setattr(discovery, "_scan_open", lambda subnets: set())
     monkeypatch.setattr(discovery, "local_subnets", list)
 
 
@@ -744,3 +745,33 @@ def test_a_caller_after_a_search_searches_again(
     discovery.discover(profiles, usb=False)
     discovery.discover(profiles, usb=False)
     assert calls == [2.0, 2.0]
+
+
+def _held_scope_lan(
+    monkeypatch: pytest.MonkeyPatch, vxi: list[str], open_ports: set[tuple[str, int]]
+) -> dict[str, Found]:
+    """mDNS names 10.0.0.5 by its raw socket on 5025; the scan saw `open_ports` open."""
+    raw = discovery.SERVICE_RAW
+    _fake_zeroconf(monkeypatch, {(raw, _service("Scope", raw)): FakeInfo(["10.0.0.5"], 5025)})
+    _fake_visa(monkeypatch, py=FakeManager(vxi))
+    monkeypatch.setattr(discovery, "local_subnets", lambda: [ipaddress.ip_network("10.0.0.0/24")])
+    monkeypatch.setattr(discovery, "_scan_open", lambda subnets: open_ports)
+    return {f.address.where: f for f in discovery.list_lan(budget_s=0.05)}
+
+
+def test_a_socket_the_scan_found_closed_is_dropped_when_the_host_has_another_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A held socket cost a whole connect timeout in every Auto-configure."""
+    found = _held_scope_lan(monkeypatch, ["TCPIP0::10.0.0.5::inst0::INSTR"], set())
+    assert list(found) == ["TCPIP0::10.0.0.5::inst0::INSTR"]
+
+
+def test_a_closed_socket_stays_when_it_is_the_only_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    found = _held_scope_lan(monkeypatch, [], set())
+    assert list(found) == ["10.0.0.5:5025"]
+
+
+def test_an_open_socket_stays_beside_the_other_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    found = _held_scope_lan(monkeypatch, ["TCPIP0::10.0.0.5::inst0::INSTR"], {("10.0.0.5", 5025)})
+    assert sorted(found) == ["10.0.0.5:5025", "TCPIP0::10.0.0.5::inst0::INSTR"]
