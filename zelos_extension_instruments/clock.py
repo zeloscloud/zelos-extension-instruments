@@ -3,8 +3,10 @@
 import time
 from collections.abc import Callable
 
+# Nanoseconds in a second, for the reading clock's arithmetic.
+NS_PER_S = 1_000_000_000
 # Host time follows the wall clock only past this: NTP slews smaller differences.
-_ANCHOR_NS = 1_000_000_000
+_ANCHOR_NS = NS_PER_S
 
 
 class HostClock:

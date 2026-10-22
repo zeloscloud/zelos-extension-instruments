@@ -4,6 +4,7 @@ The engine knows no instrument. Everything it sends and everything it expects ba
 the profile, so one engine serves every family.
 """
 
+import dataclasses
 import math
 import re
 from dataclasses import dataclass
@@ -334,13 +335,11 @@ def _scaled(range_: Range | None, setter: Setter) -> Range | None:
     """The range in the instrument's own unit, so its digits apply to what is sent."""
     if range_ is None or setter.scale == 1.0:
         return range_
-    return Range(
-        None if range_.min is None else range_.min / setter.scale,
-        None if range_.max is None else range_.max / setter.scale,
-        range_.digits,
-        None if range_.step is None else range_.step / setter.scale,
-        range_.min_query,
-        range_.max_query,
+    return dataclasses.replace(
+        range_,
+        min=None if range_.min is None else range_.min / setter.scale,
+        max=None if range_.max is None else range_.max / setter.scale,
+        step=None if range_.step is None else range_.step / setter.scale,
     )
 
 

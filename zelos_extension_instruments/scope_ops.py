@@ -13,6 +13,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from . import engine
+from .clock import NS_PER_S
 from .engine import ParseError, RangeError
 from .link import LinkTimeout
 from .profile_scope import MEASUREMENT_FIELDS
@@ -26,7 +27,6 @@ DEFAULT_POINTS = 10_000
 # A transfer rate every link manages, and the most a capture may wait, under the action's own.
 _SLOW_LINK_BPS = 500_000
 _CAPTURE_MAX_S = 55.0
-_S = 1_000_000_000
 
 
 Slots = dict[int, tuple[int, str]]
@@ -221,16 +221,16 @@ def capture(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str
         "info",
         f"ch{ch} waveform: {len(values)} samples, "
         f"{desc.horizontal_interval * desc.step:g} s apart, "
-        f"{desc.vertical_gain * desc.probe:g} V/div, in {(done - sent) / _S:.2f} s",
+        f"{desc.vertical_gain * desc.probe:g} V/div, in {(done - sent) / NS_PER_S:.2f} s",
     )
     return {
         "channel": ch,
         "samples": len(values),
         "sample_interval_s": desc.horizontal_interval * desc.step,
-        "first_s": float(offsets[0]) / _S if len(offsets) else None,
-        "last_s": float(offsets[-1]) / _S if len(offsets) else None,
+        "first_s": float(offsets[0]) / NS_PER_S if len(offsets) else None,
+        "last_s": float(offsets[-1]) / NS_PER_S if len(offsets) else None,
         "minimum": float(values.min()) if len(values) else None,
         "maximum": float(values.max()) if len(values) else None,
         "volts_per_div": desc.vertical_gain * desc.probe,
-        "fetched_in_s": round((done - sent) / _S, 3),
+        "fetched_in_s": round((done - sent) / NS_PER_S, 3),
     }

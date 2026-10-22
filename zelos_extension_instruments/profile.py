@@ -4,11 +4,12 @@ A profile holds no code. Every command string in it comes from the instrument's 
 manual, and `docs/profiles.md` is the format's reference.
 """
 
+import dataclasses
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from .link import FlowControl, Parity
 from .profile_scope import (
@@ -25,11 +26,11 @@ from .profile_scope import (
 )
 
 Category = Literal["psu", "load", "dmm", "acsource", "scope"]
-CATEGORIES: tuple[Category, ...] = ("psu", "load", "dmm", "acsource", "scope")
+CATEGORIES: tuple[Category, ...] = get_args(Category)
 Badge = Literal["manual", "transcript", "hardware"]
-BADGES: tuple[Badge, ...] = ("manual", "transcript", "hardware")
+BADGES: tuple[Badge, ...] = get_args(Badge)
 Parse = Literal["float", "floats", "int", "bool", "map", "bits", "str"]
-PARSES: tuple[Parse, ...] = ("float", "floats", "int", "bool", "map", "bits", "str")
+PARSES: tuple[Parse, ...] = get_args(Parse)
 
 # The vocabulary: field name to unit, per category. None is a unitless field.
 SIGNAL_FIELDS: dict[str, dict[str, str | None]] = {
@@ -287,7 +288,7 @@ class Range:
     max_query: str | None
 
     def with_bounds(self, low: float | None, high: float | None) -> "Range":
-        return Range(low, high, self.digits, self.step, self.min_query, self.max_query)
+        return dataclasses.replace(self, min=low, max=high)
 
 
 @dataclass(frozen=True, slots=True)

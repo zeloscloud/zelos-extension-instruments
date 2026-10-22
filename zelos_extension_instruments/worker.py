@@ -16,7 +16,7 @@ from contextlib import suppress
 from typing import Any, Literal
 
 from . import connect, engine, scope_ops, serve
-from .clock import HostClock
+from .clock import NS_PER_S, HostClock
 from .config import InstrumentConfig, poll_key
 from .emitter import Emitter
 from .engine import ParseError, RangeError, Selector, Step
@@ -44,17 +44,16 @@ from .profile_load import load_file
 logger = logging.getLogger(__name__)
 
 _MS = 1_000_000
-_S = 1_000_000_000
-_SLOW_NS = 1 * _S
-_STATUS_NS = 1 * _S
-_RATE_WINDOW_NS = 10 * _S
+_SLOW_NS = 1 * NS_PER_S
+_STATUS_NS = 1 * NS_PER_S
+_RATE_WINDOW_NS = 10 * NS_PER_S
 _BACKOFF_MIN_S = 0.5
 _BACKOFF_MAX_S = 10.0
 # Consecutive timeouts in the poll loop before the link is reopened.
 _TIMEOUTS_BEFORE_RECONNECT = 3
 # A setpoint that changes within this long after our own set is ours, not an outside change.
-_OWN_CHANGE_NS = 2 * _S
-_LOG_EVERY_NS = 60 * _S
+_OWN_CHANGE_NS = 2 * NS_PER_S
+_LOG_EVERY_NS = 60 * NS_PER_S
 # Readings kept for Get State.
 _KEPT = 50
 # Replies read while getting back in step after one went astray.
@@ -177,7 +176,7 @@ class InstrumentWorker(threading.Thread):
         self._cycles_since_connect = 0
         self._link_timeout_s = 2.0
         self._fast_at: dict[int | None, int] = {}
-        self._interval_ns = int(_S / cfg.rate_hz)
+        self._interval_ns = int(NS_PER_S / cfg.rate_hz)
 
     # -- threads other than the worker's --------------------------------------------------------
 
@@ -564,7 +563,7 @@ class InstrumentWorker(threading.Thread):
             self._slow_step()
             longest = max(longest, self._now() - began)
         self._serve_requests()
-        remaining_s = (self._next_fast_ns - self._now()) / _S
+        remaining_s = (self._next_fast_ns - self._now()) / NS_PER_S
         if remaining_s > 0:
             self._wait(remaining_s)
 
@@ -650,11 +649,7 @@ class InstrumentWorker(threading.Thread):
                 values = engine.parse_reply(step.reader, reply, step.channel)
                 rows.setdefault(step.channel, {}).update(values)
         except ParseError as e:
-            throttle = self._parse_throttle.setdefault(step.key, _Throttle())
-            held = throttle.tally(self._now())
-            if held is not None:
-                suffix = f" ({held} more since the last note)" if held else ""
-                self._note("warn", f"{step.query}: {e}{suffix}")
+            self._log_once(step.key, f"{step.query}: {e}")
             for name in step.reader.fields:
                 if name in ENUM_FIELDS:
                     rows.setdefault(step.channel, {})[name] = engine.unknown_label(name)
@@ -722,7 +717,7 @@ class InstrumentWorker(threading.Thread):
             due = self._next_poll_ns.get(row.name, 0)
             if now < due:
                 continue
-            self._next_poll_ns[row.name] = now + int(row.every_s * _S)
+            self._next_poll_ns[row.name] = now + int(row.every_s * NS_PER_S)
             channels = list(self._channel) if "{ch}" in row.query else [None]
             for ch in channels:
                 self._serve_requests()
@@ -1000,7 +995,7 @@ class InstrumentWorker(threading.Thread):
 
     def _rate_hz(self) -> float:
         """The readings per second achieved over the last window."""
-        return len(self._fast_times) / (_RATE_WINDOW_NS / _S)
+        return len(self._fast_times) / (_RATE_WINDOW_NS / NS_PER_S)
 
     def _open_health(self) -> str:
         who = f"{self.idn.manufacturer} {self.idn.model}".strip() if self.idn else self.where

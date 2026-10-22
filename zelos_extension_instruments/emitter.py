@@ -2,6 +2,7 @@
 
 import logging
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -106,11 +107,7 @@ class Emitter:
             acquisition = self._source.add_event(
                 event_name, [_metadata(k, v) for k, v in acquisition_fields.items()]
             )
-            for field_name in acquisition_fields:
-                if field_name in ENUM_FIELDS:
-                    self._source.add_value_table(
-                        event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
-                    )
+            self._add_value_tables(event_name, acquisition_fields)
         scope = profile.scope
         self._instruments[name] = _Instrument(
             # A meter's reading lands under its function's event, not on the channel.
@@ -146,11 +143,15 @@ class Emitter:
                 event_name, [_metadata(k, u) for k, u in kept.items()]
             )
             inst.channel_fields[ch] = kept
-            for field_name in kept:
-                if field_name in ENUM_FIELDS:
-                    self._source.add_value_table(
-                        event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
-                    )
+            self._add_value_tables(event_name, kept)
+
+    def _add_value_tables(self, event_name: str, fields: Iterable[str]) -> None:
+        """Each enumerated field's labels, so the app shows a label for each stored index."""
+        for field_name in fields:
+            if field_name in ENUM_FIELDS:
+                self._source.add_value_table(
+                    event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
+                )
 
     def _event(
         self, inst: _Instrument, event_name: str, field_name: str, unit: str | None
