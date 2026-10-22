@@ -49,6 +49,7 @@ from .profile import (
     Setter,
     by_id,
     find,
+    is_identity,
     load_file,
     parse_idn,
 )
@@ -432,7 +433,7 @@ class InstrumentWorker(threading.Thread):
                         "; an instrument that speaks a dialect without it needs its profile picked"
                     )
                 raise LinkError(text, "held") from None
-            if "," in reply:
+            if is_identity(reply):
                 return parse_idn(reply)
             if attempt == 1:
                 link.clear()

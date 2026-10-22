@@ -30,9 +30,12 @@ _ACQUIRE_TIMEOUT_S = 15.0
 _CAPTURE_TIMEOUT_S = 60.0
 # A wait ends this much before the action's own timeout, so the caller gets the reason.
 _MARGIN_S = 0.5
-# The app's choices list gives up after 10 s; Auto-configure waits longer.
+# The app's choices list gives up after 10 s; Auto-configure waits longer. A search ends well
+# inside each, with room for a standalone run to start Python and exit.
 _LIST_TIMEOUT_S = 10
 _AUTOCONFIG_TIMEOUT_S = 30
+_LIST_SEARCH_S = 5.0
+_AUTOCONFIG_SEARCH_S = 15.0
 _MIN_SCPI_S, _MAX_SCPI_S = 0.1, 30.0
 _VALUES = ("voltage", "current", "power", "resistance", "frequency", "ovp", "ocp")
 _FUNCTIONS = ("cc", "cv", "cp", "cr", *profiles_module.FUNCTION_LABELS[:-1])
@@ -102,6 +105,7 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
         serial=False,
         budget_s=1.0,
         identify_timeout_s=2.0,
+        deadline_s=_LIST_SEARCH_S,
         skip=held,
         tried=tried,
         prefer="visa" if connection == "visa" else "socket",
@@ -187,6 +191,7 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
         usb=True,
         serial=True,
         budget_s=2.0,
+        deadline_s=_AUTOCONFIG_SEARCH_S,
         skip=held,
         tried=tried,
     )
