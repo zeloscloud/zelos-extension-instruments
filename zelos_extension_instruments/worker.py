@@ -846,7 +846,8 @@ class InstrumentWorker(threading.Thread):
             and not link.needs_remote
             and not self._requests
         ):
-            self._send(link.local)
+            for command in link.local:
+                self._send(command)
 
     def _hand_back(self) -> None:
         """Give the front panel back when the extension stops holding the instrument."""
@@ -856,7 +857,8 @@ class InstrumentWorker(threading.Thread):
             return
         if profile.link.local and profile.link.locks_panel:
             with suppress(Exception):
-                link.write(profile.link.local)
+                for command in profile.link.local:
+                    link.write(command)
 
     def _emit_status(self, *, connected: bool) -> None:
         if not self._registered:
@@ -1001,9 +1003,10 @@ class InstrumentWorker(threading.Thread):
             return self._scpi(args["command"], args.get("timeout_s"))
         if kind == "local":
             local = self.profile.link.local
-            if local is None:
+            if not local:
                 raise RangeError("this profile has no local command")
-            self._send(local)
+            for command in local:
+                self._send(command)
             self._after_write("local")
             return {"ok": True}
         ch = int(args.get("channel") or 1)
