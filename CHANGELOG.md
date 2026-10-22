@@ -7,17 +7,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- Record DC power supplies, electronic loads, multimeters and AC sources over SCPI: every measured value, setpoint, output state, mode and protection trip becomes a signal with the same name on every vendor.
-- Set voltage, current, power, resistance, frequency, protection levels, a load's function and an output from the Action panel, a notebook or Zelos AI, each checked against the instrument's range and your limits and confirmed by the readback.
-- Connections: a raw LAN socket, USB-TMC, a serial port, any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), and a demo bench.
-- Auto-configure finds instruments by mDNS, VXI-11 broadcast, USB and the serial ports of known instrument vendors, and picks the profile from each one's identity.
-- Instrument knowledge in profile files, one per family, checked at start; your own profile files load the same way.
-- A raw SCPI action, a poll table for any extra reading, Release and Acquire, Local, Clear and Get State.
-- A transcript recorder and a fake instrument served from any profile, for tests and the demo.
-- Get State names a SCPI port that another client holds, and gives the VISA resource when the instrument also answers VXI-11; the VISA resource list offers what answers VXI-11 or HiSLIP.
-- Oscilloscopes: a `scope` category, a Siglent SDS profile recorded from an SDS824X HD, the measurements a scope shows as per-channel signals, its channel, timebase and trigger settings as state, and the Set Channel, Set Timebase, Set Trigger, Run Control, Measure and Capture Waveform actions.
-- Protection enables, remote sense and tracking on supplies; slew rate and current range on loads; range, auto-range and integration time on meters; a meter's function read with every reading.
-- A late reply never lands under the next query: the worker resynchronizes after any silent query, and only the identity ends a resynchronization. The error queue is drained at connect and before every request, and every entry a request raises is reported. A value finer than the instrument's digits is refused instead of rounded. The SCPI action waits its own timeout and returns a block reply as base64.
-- A USB-TMC device this user cannot read is listed with the driver or permission fix for the platform.
-- Every shipped profile re-read against its vendor manual: corrected ranges per model and channel (Rigol DP800), models the matches missed, error-queue formats (GW Instek GPP, Chroma 61600), the identity forms ITECH and Chroma units answer, protection enables and clears, remote sense and tracking, a meter's remote mode, and connect-time commands that switched a setpoint source (Delta, Magna) removed. The profile format gains `scale` on readers and value setters, a zero-based `{ch0}` channel placeholder, and a `first` link command sent before the identity query.
-- A Set checks every value before sending any, and a later refusal names what already went out. A set with no readback says so instead of passing as verified; a value without a range is sent with all its digits and verified to a part in a thousand. A request the action gave up on never reaches the instrument. A silent query in a request fails that request and keeps the link. Readings are stamped at their own query. The panel is handed back on the worker's thread. A failed cycle waits the backoff before the next connect. Measure never takes over a slot that shows something the profile does not record.
+- Record DC power supplies, electronic loads, multimeters, AC sources and oscilloscopes over SCPI. Every reading, setpoint, output, mode and protection trip is a signal with the same name on every vendor, and a meter's reading is named after its function.
+- Connect over a raw LAN socket, USB-TMC, a serial port or any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), or try the demo bench.
+- Auto-configure finds instruments on the network, on USB and on the serial ports of known instrument makers, picks each one's profile from its identity, and names each entry after its model, adding `_1`, `_2` when two would clash.
+- Set voltage, current, power, resistance, frequency, protection levels, a load's function and an output from the Actions list, a notebook or Zelos AI. Every value is checked against the instrument's range and your limits before anything is sent, then confirmed by reading it back.
+- Switching on a channel of a Rohde & Schwarz NGE100, NGL200, NGM200 or NGP800 also raises its master output, and is refused when that would switch on another channel too.
+- Oscilloscopes: the measurements a scope's slots show are recorded per channel, with its channel, timebase and trigger settings. Measure, Capture Waveform, Set Channel, Set Timebase, Set Trigger and Run Control act on it. A Siglent SDS profile ships, recorded from an SDS824X HD.
+- Read, SCPI, Get State, Clear, Local, Release and Acquire actions, and Extra readings for any query that answers a number.
+- Each instrument's identity, connection, reading rate and errors are recorded beside its readings, and Get State says what to do when it cannot connect.
+- A profile per instrument family, each checked when it loads; your own profile files load the same way. The format is in `docs/profiles.md`.
+- Safe on a live bench: outputs are never touched on connect, reconnect, stop or crash, `*RST` is never sent, and the front panel is handed back when the extension stops.
+- A late reply never lands under the next query: the extension resynchronizes after a silent or garbled reply, and reconnects with a backoff when the link fails.
