@@ -16,7 +16,6 @@ from .profile import Profile, is_identity
 
 
 def address(cfg: InstrumentConfig, profile: Profile) -> Address:
-    """Where the config says the instrument is, with the profile's defaults for the rest."""
     if cfg.connection == "demo":
         return TcpAddress(cfg.where, 0)
     if cfg.connection == "lan":
@@ -30,7 +29,6 @@ def address(cfg: InstrumentConfig, profile: Profile) -> Address:
 
 
 def serial_address(port: str, profile: Profile, baud: int | None = None) -> SerialAddress:
-    """A serial port framed as the profile says, at `baud` when one is given."""
     link = profile.link
     return SerialAddress(
         port,
@@ -43,7 +41,6 @@ def serial_address(port: str, profile: Profile, baud: int | None = None) -> Seri
 
 
 def link_settings(cfg: InstrumentConfig, profile: Profile) -> LinkSettings:
-    """The profile's framing and timing, with the config's overrides."""
     link = profile.link
     return LinkSettings(
         write_terminator=cfg.line_ending or link.write_terminator,
@@ -81,7 +78,6 @@ def ask_identity(link: Link, command: str) -> str:
 
 
 def advice(e: LinkError) -> str:
-    """What usually fixes a failed open of this kind."""
     return {
         "refused": "Nothing answers on that port; check the host and port, and that the "
         "instrument's LAN socket is on.",

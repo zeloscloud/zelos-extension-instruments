@@ -230,7 +230,6 @@ class Lines:
 
 
 def seconds(value: float) -> str:
-    """A duration as a message shows it: `2 s`, `0.5 s`."""
     return f"{value:g} s"
 
 

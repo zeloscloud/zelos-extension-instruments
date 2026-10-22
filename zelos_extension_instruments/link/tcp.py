@@ -91,8 +91,7 @@ def _open_failure(address: TcpAddress, exc: OSError) -> LinkError:
     return LinkError(f"Cannot connect to {address.where}: {exc.strerror or exc}.", "other")
 
 
-# Ports an instrument that is up answers on even while its SCPI socket is held: the VXI-11
-# portmapper, the LXI web page and the telnet console.
+# Ports an instrument answers on while its SCPI socket is held: portmapper, web, telnet.
 _VXI11_PORT = 111
 _NEIGHBOR_PORTS = (_VXI11_PORT, 80, 5024)
 _NEIGHBOR_TIMEOUT_S = 0.5

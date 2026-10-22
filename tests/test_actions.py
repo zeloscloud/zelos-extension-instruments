@@ -253,7 +253,6 @@ def test_auto_config_adds_found_instruments_and_keeps_the_form(
 def test_auto_config_keeps_out_the_demo_bench_when_an_instrument_did_not_identify(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A scope that missed its *IDN? was replaced by the demo bench."""
     found = [_found(VisaAddress("TCPIP::10.0.0.5::INSTR"), None, None, "vxi11", "no reply")]
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: found)
     result = run("auto_config", config={"instruments": []})

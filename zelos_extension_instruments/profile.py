@@ -245,7 +245,6 @@ class LinkDefaults:
     read_terminator: str
     timeout_s: float
     delay_ms: int
-    # The pause after a command that sends no reply, when longer than `delay_ms`.
     command_delay_ms: int
     lan_port: int
     baud: int
@@ -257,12 +256,10 @@ class LinkDefaults:
     # The commands that hand the front panel back, in order; empty when the family has none.
     local: tuple[str, ...]
     locks_panel: bool
-    # A command the instrument needs before it answers anything, sent before the identity
-    # query (an address on a multi-drop link).
+    # Sent before the identity query, such as an address on a multi-drop link.
     first: str | None
     # Queries fail unless the instrument is in remote mode, so the panel is never handed back.
     needs_remote: bool
-    # Whether a VISA device clear is safe; some scopes hang on one.
     device_clear: bool
     select: str | None
     init: tuple[str, ...]

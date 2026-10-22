@@ -31,8 +31,7 @@ _ACQUIRE_TIMEOUT_S = 15.0
 _CAPTURE_TIMEOUT_S = 60.0
 # A wait ends this much before the action's own timeout, so the caller gets the reason.
 _MARGIN_S = 0.5
-# The app's choices list gives up after 10 s; Auto-configure waits longer. A search ends well
-# inside each, with room for a standalone run to start Python and exit.
+# The app gives up on a list after 10 s and on Auto-configure after 30 s; a search ends well inside.
 _LIST_TIMEOUT_S = 10
 _AUTOCONFIG_TIMEOUT_S = 30
 _LIST_SEARCH_S = 5.0

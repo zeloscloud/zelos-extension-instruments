@@ -70,8 +70,7 @@ def check_setting(worker: InstrumentWorker, ch: int, name: str, value: Any) -> N
         range_ = worker._channel[ch].ranges.get(key) if key else None
         limit = worker.cfg.limits.for_key(key or "")
         if range_ is not None or limit is not None or worker.profile.category != "scope":
-            # A scope setting without a range (an offset, a trigger level) harms nothing;
-            # the readback still has to agree. An output's level must be bounded.
+            # An unranged scope setting harms nothing, but an output's level must be bounded.
             engine.check_range(float(value), range_, limit, name)
         engine.check_resolution(float(value), range_, name)
     elif name == "function":

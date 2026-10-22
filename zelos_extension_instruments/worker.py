@@ -178,8 +178,6 @@ class InstrumentWorker(threading.Thread):
         self._fast_at: dict[int | None, int] = {}
         self._interval_ns = int(NS_PER_S / cfg.rate_hz)
 
-    # -- threads other than the worker's --------------------------------------------------------
-
     def request(self, kind: RequestKind, **args: Any) -> _Future:
         """Queue a request; the worker answers through the future."""
         future: _Future = concurrent.futures.Future()
@@ -196,14 +194,11 @@ class InstrumentWorker(threading.Thread):
     def stop(self) -> None:
         """Ask the worker to end; closes a link blocked in a read."""
         self.request_stop()
-        # The worker hands the panel back on its own thread; a thread still blocked in a read
-        # after the link timeout is woken by closing the link.
+        # The worker hands the panel back itself; closing the link wakes one still blocked.
         self.join(self._link_timeout_s + 0.5)
         link = self._link
         if link is not None and self.is_alive():
             link.close()
-
-    # -- the worker's thread --------------------------------------------------------------------
 
     def run(self) -> None:
         try:
@@ -251,8 +246,6 @@ class InstrumentWorker(threading.Thread):
                 self._serve_requests()
                 if self._link is not link or self.state == "released":
                     return
-
-    # -- connecting --------------------------------------------------------------------------
 
     def _connect(self) -> bool:
         """Open the link and identify the instrument; False with the health set when it fails."""
@@ -456,8 +449,7 @@ class InstrumentWorker(threading.Thread):
         for step in self._plan:
             if not step.reader.optional:
                 continue
-            # A field dropped here is never registered, and an event cannot gain one later, so
-            # one silent or garbled reply gets a second try before it costs the field.
+            # An event cannot gain a field later, so one bad reply gets a second try.
             for attempt in (1, 2):
                 try:
                     self._select(step.channel)
@@ -506,8 +498,6 @@ class InstrumentWorker(threading.Thread):
             link.close()
         self._selector.forget()
 
-    # -- the poll cycle ----------------------------------------------------------------------
-
     def _cycle(self) -> None:
         """One pass: the fast steps on their schedule, then slow steps in the time left before
         the next fast pass, serving requests in between."""
@@ -521,8 +511,7 @@ class InstrumentWorker(threading.Thread):
                 # State first, so a meter's first reading already knows its function.
                 while self._slow is not None:
                     self._slow_step()
-        # Requests are served before the batch, never inside it: a reading's time is the time
-        # of its own query, and a slow request must not sit between a query and its stamp.
+        # Before the batch, never inside it: a request must not sit between a query and its stamp.
         self._serve_requests()
         if self._stopping.is_set() or self._link is None:
             return
@@ -550,11 +539,9 @@ class InstrumentWorker(threading.Thread):
             self._next_status_ns = now + _STATUS_NS
             self._emit_status(connected=True)
             self.health = self._open_health()
-        # A fixed schedule: the next cycle is due one interval after this one was, so the rate
-        # holds whatever each cycle took, and a cycle that ran late does not delay the next.
+        # A fixed schedule, so a cycle that ran late does not delay the next.
         self._next_fast_ns = max(self._next_fast_ns + self._interval_ns, start)
-        # Slow steps fill the time before the next fast pass, so the fast readings keep their
-        # spacing; one runs every cycle regardless, so a round ends even with no time to spare.
+        # Slow steps fill the slack; one runs every cycle so a round always ends.
         longest = 0
         while self._slow is not None and not self._stopping.is_set():
             began = self._now()
@@ -811,8 +798,6 @@ class InstrumentWorker(threading.Thread):
             self._clock.epoch_ns(self._now()),
         )
 
-    # -- the wire ----------------------------------------------------------------------------
-
     def _query(self, command: str) -> str:
         assert self._link is not None
         self._queries += 1
@@ -882,8 +867,6 @@ class InstrumentWorker(threading.Thread):
         if self.idn is not None:
             return parse_idn(reply) == self.idn
         return reply.count(",") >= 3
-
-    # -- requests ----------------------------------------------------------------------------
 
     def _serve_requests(self) -> None:
         while True:

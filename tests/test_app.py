@@ -180,8 +180,6 @@ def test_the_demo_bench_records_all_four_instruments(
 def test_stopping_several_instruments_lets_them_wind_down_together(
     trace_file: Recording, profiles: list[Profile]
 ) -> None:
-    """Each stop waited for its own worker before the next was asked: three supplies that each
-    take 0.6 s to hand the panel back took 1.8 s."""
     hosts = ("192.168.1.41", "192.168.1.42", "192.168.1.43")
     settings = config.from_dict(
         {"instruments": [{"connection": "lan", "host": h, "port": 5555} for h in hosts]}
