@@ -540,6 +540,11 @@ def by_id(profiles: Iterable[Profile], profile_id: str) -> Profile | None:
     return next((p for p in profiles if p.id == profile_id), None)
 
 
+def _at(where: str, key: str) -> str:
+    """A key's place in the profile, `match.model`, or the key alone at the top level."""
+    return f"{where}.{key}" if where else key
+
+
 class _Check:
     """Collects problems while a raw TOML table is turned into a Profile."""
 
@@ -563,14 +568,14 @@ class _Check:
         if value is None:
             return None
         if not isinstance(value, str) or not value:
-            self.fail(f"{where}.{key}" if where else key, "must be non-empty text.")
+            self.fail(_at(where, key), "must be non-empty text.")
             return default
         return value
 
     def required(self, raw: dict[str, Any], key: str, where: str) -> str:
         value = raw.get(key)
         if not isinstance(value, str) or not value:
-            self.fail(f"{where}.{key}" if where else key, "missing or empty.")
+            self.fail(_at(where, key), "missing or empty.")
             return ""
         return value
 
@@ -581,21 +586,21 @@ class _Check:
         if value is None:
             return None
         if isinstance(value, bool) or not isinstance(value, int | float):
-            self.fail(f"{where}.{key}", "must be a number.")
+            self.fail(_at(where, key), "must be a number.")
             return default
         return float(value)
 
     def integer(self, raw: dict[str, Any], key: str, default: int, where: str, low: int = 0) -> int:
         value = raw.get(key, default)
         if isinstance(value, bool) or not isinstance(value, int) or value < low:
-            self.fail(f"{where}.{key}", f"must be a whole number of at least {low}.")
+            self.fail(_at(where, key), f"must be a whole number of at least {low}.")
             return default
         return value
 
     def boolean(self, raw: dict[str, Any], key: str, default: bool, where: str) -> bool:
         value = raw.get(key, default)
         if not isinstance(value, bool):
-            self.fail(f"{where}.{key}", "must be true or false.")
+            self.fail(_at(where, key), "must be true or false.")
             return default
         return value
 
@@ -604,7 +609,7 @@ class _Check:
     ) -> str:
         value = raw.get(key, default)
         if value not in choices:
-            self.fail(f"{where}.{key}", f"must be one of {', '.join(choices)}.")
+            self.fail(_at(where, key), f"must be one of {', '.join(choices)}.")
             return default
         return value
 
@@ -613,7 +618,7 @@ class _Check:
         try:
             return re.compile(text)
         except re.error as e:
-            self.fail(f"{where}.{key}", f"is not a valid regular expression ({e}).")
+            self.fail(_at(where, key), f"is not a valid regular expression ({e}).")
             return re.compile(r"(?!)")
 
     def unknown(self, raw: dict[str, Any], known: Iterable[str], where: str) -> None:

@@ -1008,3 +1008,13 @@ def test_every_enumerated_field_ends_in_unknown_or_other() -> None:
     from zelos_extension_instruments.profile import ENUM_FIELDS
 
     assert all(labels[-1] in ("unknown", "other") for labels in ENUM_FIELDS.values())
+
+
+def test_a_top_level_mistake_is_named_without_a_leading_dot() -> None:
+    raw = minimal()
+    raw["category"] = "oven"
+    raw["generic"] = "yes"
+    with pytest.raises(ProfileError) as caught:
+        from_dict(raw, "acme-psu.toml")
+    assert any(p.startswith("category: must be one of") for p in caught.value.problems)
+    assert "generic: must be true or false." in caught.value.problems
