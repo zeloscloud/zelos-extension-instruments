@@ -168,10 +168,15 @@ class VisaLink:
         return self._finish_block(head, timeout_s)
 
     def read_any(self, timeout_s: float | None = None) -> str | bytes:
-        head = self._read_bytes(2, timeout_s)
-        if head[:1] == b"#" and head[1:2].isdigit() and head[1:2] != b"0":
-            return self._finish_block(head, timeout_s)
-        # A line: the rest of it up to the terminator, with the two bytes already read.
+        # One byte first: a reply as short as `1` and its terminator is already whole.
+        head = self._read_bytes(1, timeout_s)
+        if head == b"#":
+            head += self._read_bytes(1, timeout_s)
+            if head[1:2].isdigit() and head[1:2] != b"0":
+                return self._finish_block(head, timeout_s)
+        terminator = self._settings.read_terminator.encode()
+        if terminator and head.endswith(terminator):
+            return self._text(head, timeout_s)
         rest = self._read_raw(timeout_s, terminated=True)
         return self._text(head + rest, timeout_s)
 
