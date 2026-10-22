@@ -776,3 +776,29 @@ def test_a_closed_socket_stays_when_it_is_the_only_address(monkeypatch: pytest.M
 def test_an_open_socket_stays_beside_the_other_address(monkeypatch: pytest.MonkeyPatch) -> None:
     found = _held_scope_lan(monkeypatch, ["TCPIP0::10.0.0.5::inst0::INSTR"], {("10.0.0.5", 5025)})
     assert sorted(found) == ["10.0.0.5:5025", "TCPIP0::10.0.0.5::inst0::INSTR"]
+
+
+class _SleepyHandler(socketserver.StreamRequestHandler):
+    """Ignores the first *IDN? on each connection, as an HMP does after a connect."""
+
+    def handle(self) -> None:
+        seen = 0
+        for line in self.rfile:
+            if line.strip() == b"*IDN?":
+                seen += 1
+                if seen > 1:
+                    self.wfile.write(DP832_REPLY.encode() + b"\n")
+
+
+def test_identify_asks_again_on_the_same_connection(profiles: list[profile.Profile]) -> None:
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _SleepyHandler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        address = TcpAddress("127.0.0.1", server.server_address[1])
+        result = discovery.identify(_found(address), profiles, timeout_s=0.5)
+        assert result.error is None
+        assert result.idn is not None and result.idn.model == "DP832"
+    finally:
+        server.shutdown()
+        server.server_close()
