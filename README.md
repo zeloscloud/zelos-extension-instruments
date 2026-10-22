@@ -1,235 +1,92 @@
 # Instruments
 
-Record bench instruments on the same timeline as the device under test, and set them from the app or a notebook.
+Record your bench instruments in Zelos, on the same timeline as the device you are testing, and set them from the app, a notebook or Zelos AI.
 
-- 📈 **Every reading a signal**: a supply's voltage, current and power, a load's resistance, a meter's reading, an AC source's frequency and power factor, each with its unit.
-- 🎛️ **Setpoints, output and mode too**: what the instrument was told to do sits beside what it measured, and a knob turned at the bench shows up as a change.
-- 🔁 **Same names on every vendor**: `psu/ch1.voltage` is the measured voltage on a Rigol, a Keysight or a Siglent, so a notebook written for one bench works on the next.
-- 💬 **Set from the app, a notebook or Zelos AI**: voltage, current limit, a load's function, an output switch. Each set is checked against the instrument's range and your limits, and confirmed by the readback.
-- 🧩 **One file per instrument**: profiles written from the programming manuals ship for the most used supplies, loads, meters, AC sources and Siglent scopes. Add your own as one TOML file, no code.
-- 🔬 **Scopes too**: whatever measurements a scope shows become signals, a Measure action puts one on screen, and Capture Waveform drops a channel's samples into the trace as a burst.
-- 🔎 **Auto-configure finds the bench**: instruments on the network, on USB and on the serial ports of known instrument vendors, each matched to its profile by its identity.
-- 🔌 **Any connection**: a raw LAN socket, USB-TMC, a serial port, or any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), on Linux, macOS and Windows, with nothing to install.
+- 📈 **Every reading is a signal**: a supply's voltage and current, a load's power, a meter's reading, a scope's measurements, each with its unit.
+- 🔎 **Finds your bench**: Auto-configure looks on the network, USB and serial ports, and picks each instrument's profile from its identity.
+- 🎛️ **Sets it safely**: every value is checked against the instrument's range and your limits, then confirmed by reading it back.
+- 🔬 **Scopes too**: the measurements on screen are recorded live, and Capture Waveform brings a channel's samples into the trace.
+- 🔁 **Same names on every vendor**: `psu/ch1.voltage` means the same on a Rigol, a Keysight or a Siglent, so a notebook works on any bench.
 
-![The signal tree with Instruments, demo psu and ch1 open, beside live plots of the supply's voltage falling as the battery charges, its current held at 2 A, and its 14.4 V setpoint.](assets/readme/overview.png)
+[![Instruments with a Siglent SDS824X HD: Auto-configure finds the scope, its measurements plot live, and Capture Waveform brings in five periods of the 1 kHz signal on channel 1.](assets/readme/hero.avif)](assets/readme/hero.mp4)
 
-![The signal tree with Instruments, scope and ch1 open, listing the scope's measurements and settings, beside live plots from a Siglent SDS824X HD: the channel 1 frequency near 999.905 Hz and its peak-to-peak value near 2.43 V, read from the scope's own measurement slots.](assets/readme/scope.png)
+## Works with
 
-The second capture is a Siglent SDS824X HD on the office switch, read over VXI-11 with the `siglent-sds` profile; the demo bench supplies the others.
-
-## What it records
-
-| | |
+| Instrument | Makers and families |
 |---|---|
-| **Instruments** | DC power supplies (including bidirectional), electronic loads, multimeters, AC sources, oscilloscopes |
-| **Connections** | LAN raw socket, USB-TMC, serial (COM, `/dev/tty*`), any VISA resource string, and a built-in demo bench |
-| **Profiles** | One per instrument family, shipped for Keysight, Rigol, Siglent, Keithley, Rohde & Schwarz, B&K Precision, GW Instek, ITECH, Chroma, Kikusui, EA, TDK-Lambda, Fluke and more; the Siglent SDS scopes; generic profiles for any instrument that follows SCPI |
-| **Runs on** | Linux, macOS and Windows, with Zelos 26.0.10 or later |
+| **DC power supplies** | Keysight E36100, E36200, E36300, N6700, N8900 · Agilent N5700 · Rigol DP700, DP800, DP900, DP2000 · Siglent SPD1000X, SPD3303X, SPS5000X · Rohde & Schwarz HMP, NGE100B, NGL200, NGM200, NGP800 · Keithley 2200, 2220, 2230, 2260B, 2280S, 2400 · B&K Precision 9115, 9130B, 9140, 9200B · GW Instek GPD, GPP, PSW · TDK-Lambda Genesys · EA Elektro-Automatik · ITECH IT6000C, IT6100B · Chroma 62000P · Magna-Power · Delta Elektronika · OWON |
+| **Electronic loads** | Keysight EL30000 · Rigol DL3000 · Siglent SDL1000X · Keithley 2380 · B&K Precision 8500B, 8600 · Chroma 63200A · ITECH IT8500+, IT8800 · GW Instek PEL-3000 · Kikusui PLZ-5W |
+| **Multimeters** | Keysight 34401A, 34460A, 34461A, 34465A, 34470A · Keithley 2000, 2110, DMM6500, DMM7510 · Fluke 8845A, 8846A · Siglent SDM3045X, SDM3055, SDM3065X · GW Instek GDM-9060 · B&K Precision 5491B, 2831E · OWON XDM2041 |
+| **AC sources** | Keysight AC6800B · Chroma 61600 · ITECH IT7800 |
+| **Oscilloscopes** | Siglent SDS |
+| **Anything else that speaks SCPI** | A generic profile per category reads the standard commands, and your own instrument is one TOML file away: see [profiles](docs/profiles.md). |
 
-## Quick start
+Instruments connect over LAN, USB-TMC, a serial port, or any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), on Linux, macOS and Windows, with Zelos 26.0.10 or later.
 
-1. **Configure**: press **Auto-configure**. It adds one entry for each instrument it finds, with its profile and a name from its model and serial number. Or add an entry yourself: pick the connection, pick the instrument from the list, and leave Profile on **Automatic**.
-2. **Start** Instruments. The signals appear under `Instruments/<name>/ch1`, and the log shows what connected.
-3. **Set** something: open the Action panel, pick **Set**, choose the instrument and channel, type a voltage. The readback comes back in the result and the log says what changed.
+## Get started
 
-The first time the instrument list or Auto-configure runs after an install, the agent can take more than 10 s to start it, and the app's list gives up after 10 s. Open the list again; Auto-configure waits up to 30 s.
+1. Install **Instruments** from Extensions and open its settings.
+2. Press **Auto-configure**. Each instrument it finds gets an entry with its connection and profile. Give it a short name: it becomes the folder its signals sit under.
+3. Press **Save & Start**. The instrument appears under **Instruments** in the signal tree. Double-click a signal to plot it.
 
-No hardware? Press Auto-configure with nothing connected and it adds the demo bench: a supply charging a battery, a load discharging it, a meter on the shunt and an AC source feeding the charger, all running on their own.
+![The Configure Instruments form after Auto-configure found the scope: Connection VISA resource, Resource TCPIP::10.1.1.201::INSTR, Profile siglent-sds and Name scope.](assets/readme/configure.png)
 
-![The Configure Instruments form: an Auto-configure button, then one entry with Connection set to Demo bench, Instrument to Power supply, Profile to auto with a Choose list, a Name and Readings per second at 10.](assets/readme/configure.png)
+![A Siglent SDS824X HD recorded in Zelos: live plots of channel 1's peak-to-peak voltage near 2.44 V, its RMS near 1.5066 V and its frequency near 999.905 Hz, read from the scope's measurement slots ten times a second.](assets/readme/scope.png)
 
-## One reading, recorded
+- **An instrument on another subnet** does not answer the searches. Add an entry and type its address.
+- **No hardware?** Press Auto-configure with nothing connected and it adds a demo bench: a supply charging a battery, a load discharging it, a meter and an AC source.
 
-A Rigol DP832 on channel 1 answers `:MEAS:ALL? CH1` with `12.0010,0.4998,5.998`. Instruments writes, at the moment the query was sent plus half the round trip:
+## Set and capture
 
-| Event | What lands |
-|---|---|
-| `Instruments/psu/ch1` | `voltage` = 12.001 V, `current` = 0.4998 A, `power` = 5.998 W |
+Actions show up under **Instruments** in the Actions list. Double-click one to add it to the layout.
 
-Once a second it also reads the setpoints and the state:
+- **Set** a voltage, current, power, resistance, frequency or protection level. The result shows what was sent and what the instrument read back.
+- **Output** switches a channel on or off.
+- **Measure** puts a measurement in one of a scope's slots, and it is recorded from then on.
+- **Capture Waveform** fetches a scope channel's samples, up to the whole acquisition, into the trace at the moment of the capture.
+- **SCPI** sends any command, for anything the profile does not cover.
 
-| Event | What lands |
-|---|---|
-| `Instruments/psu/ch1` | `voltage_set` = 12 V, `current_set` = 1 A, `output` = true, `mode` = cv, `protection` = none |
-| `Instruments/psu/status` | `rtt_ms` = 18.4, `rate_hz` = 9.9, `errors` = 0, `connected` = true |
+![Capture Waveform run on the scope's channel 1: the plot is zoomed to 4 ms and shows the 1 kHz square wave the scope captured, with the undershoot after each falling edge.](assets/readme/waveform.png)
 
-## What it records
-
-All events go under one trace source, `Instruments` by default (**Prefix** in Advanced (all instruments)). Each instrument has a name, set by **Name** in the config, or taken from its address.
-
-| Event | Holds |
-|---|---|
-| `Instruments/<name>/ch<n>` | The channel's measurements every interval, and its setpoints, output, mode and protection once a second. Field names are the same for every vendor: see [Signals](#signals). |
-| `Instruments/<name>/<function>` | A multimeter's reading, under the active function (`dc_voltage`, `resistance`, ...), so each keeps its unit. |
-| `Instruments/<name>/status` | `rtt_ms`, the round trip of the last measurement query; `rate_hz`, the readings per second achieved over the last 10 s; `errors`, the instrument errors seen since start; `connected`. |
-| `Instruments/<name>/poll` | The extra readings from the config's poll table, one field each. |
-| `Instruments/<name>/log` | Connects and disconnects, every set with its source, setpoint changes made at the front panel or by another program, mode and protection changes, and the instrument's own errors. |
-| `Instruments/log` | The extension's own log. |
-
-In the Log panel, the **Source** column shows `action` for a set from the app or a notebook, `instrument` for an error the instrument reported, `tx` and `rx` for raw commands, and `instruments` for the extension's notes.
-
-### Signals
-
-| Category | Measured every interval | Read once a second |
-|---|---|---|
-| Power supply | `voltage` V, `current` A, `power` W | `voltage_set` V, `current_set` A, `ovp_set` V, `ocp_set` A, `output`, `mode`, `protection` |
-| Electronic load | `voltage` V, `current` A, `power` W, `resistance` Ω | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ω, `output` (the input), `mode`, `protection` |
-| AC source | `voltage` V rms, `current` A rms, `power` W, `apparent_power` VA, `power_factor`, `frequency` Hz | `voltage_set` V, `frequency_set` Hz, `current_set` A, `output`, `protection` |
-| Multimeter | `value`, under the active function's event | `function` |
-
-`mode` is `off`, `cv`, `cc`, `cp`, `cr`, `unregulated` or `unknown`; for a load it is the configured function. `protection` is `none`, `ovp`, `ocp`, `opp`, `otp` or `other`. Both show as labels in the app and come back as text from the SDK.
-
-A profile records only what its instrument answers. A generic profile probes the standard queries at start and drops the ones the instrument rejects, with one line in the log.
-
-### Timing
-
-Instruments have no usable clock, so every reading is stamped on the host: the moment the query was sent plus half the round trip. The round trip is `status.rtt_ms`, so the error bound is always in the trace.
-
-**Readings per second** sets how often the measurements are read, 10 by default. The instrument's own turnaround is the floor: ask for more than it answers and it reads back to back, `status.rate_hz` shows what it achieves, and Get State says so. Setpoints, the error queue and the poll table are read on their own intervals, so a slow setpoint pass never costs a measurement.
-
-## Configuration
-
-The config holds a list of `instruments` and one `advanced` group. Each instrument picks a **Connection**:
-
-| Connection | Reads | Fields |
-|---|---|---|
-| `lan` (LAN) | A raw SCPI socket | **Host** (from the list, or typed), **Port** (empty uses the profile's default, 5025 for most instruments) |
-| `usb` (USB) | A USB-TMC instrument | **Device** (from the list, or a VISA resource string) |
-| `serial` (Serial port) | RS-232 or a USB-serial bridge | **Port** (from the list, or a path), **Baud** (empty uses the profile's default) |
-| `visa` (VISA resource) | Anything VISA names: `TCPIP0::host::inst0::INSTR`, `TCPIP0::host::hislip0::INSTR`, `GPIB0::5::INSTR` | **Resource** (from the list of what answers VXI-11 or HiSLIP, or typed), **VISA library** |
-| `demo` (Demo bench) | A simulated instrument | **Instrument**: supply, load, meter or AC source |
-
-Every entry has a **Profile** (Automatic, a shipped profile, or the path to your own file), a **Name**, and **Readings per second**. Advanced holds **Limits** (the most the extension will ever set, whatever the instrument allows), **Keep the front panel usable**, **Channels**, the reply timeout, the delay between commands, the line ending, and **Extra readings**: any query whose reply is a number, recorded as its own signal.
-
-The config is checked when the extension starts. A mistake logs one sentence that names the instrument and the field, then the extension exits.
-
-### Examples
-
-```json
-{ "instruments": [{ "connection": "lan", "host": "192.168.1.40", "profile": "auto", "name": "psu" }] }
-```
-
-```json
-{ "instruments": [
-    { "connection": "usb", "resource": "USB0::0xF4EC::0x1430::SDL13GCX::INSTR", "profile": "siglent-sdl1000x", "name": "load", "rate_hz": 5 },
-    { "connection": "serial", "port": "/dev/ttyUSB1", "baud": 9600, "profile": "keysight-e36100", "name": "aux",
-      "advanced": { "limits": { "max_voltage": 15, "max_current": 2 } } } ] }
-```
-
-```json
-{ "instruments": [{ "connection": "demo", "category": "psu" }, { "connection": "demo", "category": "load" }] }
-```
-
-### Profiles
-
-A profile is one TOML file that says how to recognise an instrument family, what to read, what can be set and what the replies mean. The shipped ones are listed by **List Profiles** and in [`profiles/`](profiles/). Each carries an evidence badge:
-
-| Badge | Means |
-|---|---|
-| `manual` | Transcribed from the programming manual; no unit seen yet. |
-| `transcript` | A transcript recorded from a real unit replays against the profile in the tests. |
-| `hardware` | Runs on the nightly bench. |
-
-Your own profile loads the same way: set **Profile** to the path of your file, or put files under `profiles/` in the extension's data directory. [docs/profiles.md](docs/profiles.md) is the format, and `just record` writes a transcript from your unit so the profile can earn its badge.
-
-### The VISA library
-
-LAN sockets and serial ports need nothing installed. USB-TMC, VXI-11, HiSLIP and GPIB go through [pyvisa](https://pyvisa.readthedocs.io/): the built-in pure-Python library serves LAN protocols and USB on every platform, and a vendor VISA (NI-VISA, Keysight IO Libraries, R&S VISA) is used automatically for USB and GPIB when one is installed, because on Windows it owns the device. Without a vendor VISA on Windows, bind the instrument to WinUSB once with [Zadig](https://zadig.akeo.ie/). On Linux, give your user access to the device with a udev rule.
-
-## Actions
-
-Every action except List Instruments, List Profiles and Auto-configure takes `instrument`, the instrument's **Name**. Leave it out to act on the first configured instrument. Channel actions take `channel`, from 1.
-
-| Action | Path | What it does | Read-only |
-|---|---|---|---|
-| List Instruments | `Instruments/list_instruments` | Instruments found on the network or on USB, or every serial port, for the address fields. Works while the extension is stopped. | yes |
-| List Profiles | `Instruments/list_profiles` | The shipped profiles with their badge, for the Profile field. | yes |
-| Auto-configure | `Instruments/auto_config` | Keeps the configured instruments and adds one for each instrument found, or the demo bench when there are none. Probes a serial port only when its USB vendor is a known instrument maker. | yes |
-| Set | `Instruments/set_values` | Sets any of voltage, current, power, resistance, frequency, OVP, OCP and function on a channel. Each value is checked against the profile's range and your limits, sent, checked against the instrument's error queue, and read back. | no |
-| Output | `Instruments/output` | Switches a channel's output, or a load's input, on or off. | no |
-| Set Channel | `Instruments/set_channel` | A scope channel's volts per division, offset, coupling, probe factor and visibility. | no |
-| Set Timebase | `Instruments/set_timebase` | A scope's seconds per division and trigger delay. | no |
-| Set Trigger | `Instruments/set_trigger` | A scope's edge trigger: source, level, slope and mode. | no |
-| Run Control | `Instruments/run_control` | Run, stop, arm a single acquisition or autoset a scope. | no |
-| Measure | `Instruments/measure` | Shows a measurement of a scope channel in one of the scope's measurement slots; it is recorded from then on. Reuses the slot that already shows it, else the lowest free one. | no |
-| Capture Waveform | `Instruments/capture_waveform` | Fetches a scope channel's samples on screen into `<name>/ch<n>/waveform` as one burst, `points` samples spread over the screen (10,000 by default). The trigger instant is placed at the moment of the capture; the samples keep the scope's spacing. | no |
-| Read | `Instruments/read` | A fresh measurement of every signal on a channel, now. | yes |
-| Get State | `Instruments/get_state` | Health, identity, profile, channels with their ranges and last values, counters, and the last commands. | yes |
-| SCPI | `Instruments/scpi` | Sends any command and returns the reply for a query. Logged. Nothing is checked. | no |
-| Clear | `Instruments/clear` | Clears a channel's latched protection and drains the error queue. The output stays off. | no |
-| Local | `Instruments/local` | Gives the front panel back. | no |
-| Release | `Instruments/release` | Closes the link so another program can use the instrument. Outputs stay as they are. | no |
-| Acquire | `Instruments/acquire` | Takes a released instrument back. | no |
-
-A set checks every value against the range, the limits and the instrument's digits before anything is sent, so a refusal leaves the instrument as it was. It returns what was sent and what the instrument reads back:
-
-```json
-{ "voltage": { "set": 12.0, "readback": 12.0 }, "current": { "set": 2.0, "readback": 2.0 } }
-```
-
-A failed action returns one sentence that says why: the range, the limit, a value finer than the instrument's digits, the instrument's own error text, or a readback that disagrees. When a set of several values fails after some went out, the sentence names them. A profile without a readback for a setting says `unverified` in the result instead of passing it as checked.
-
-![The Set action in the Action panel after a run: its result shows voltage set 13.8 and readback 13.8, current set 2.5 and readback 2.5, and the plots above step at that moment.](assets/readme/set.png)
-
-### From a notebook
+The same actions run from a notebook or the command line:
 
 ```python
 from zelos_sdk import connect
 
 with connect() as agent:
     agent.actions.execute(
-        "Instruments/set_values",
-        {"instrument": "psu", "channel": 1, "voltage": 12.0, "current": 2.0},
+        "Instruments/set_values", {"instrument": "psu", "channel": 1, "voltage": 12.0}
     )
     agent.actions.execute("Instruments/output", {"instrument": "psu", "channel": 1, "on": True})
-    frame = agent.query("Instruments/psu/ch1.*", start="-1m")
 ```
-
-### From the command line
 
 ```bash
-zelos actions execute Instruments/set_values --params '{"instrument": "psu", "channel": 1, "voltage": 12.0}'
-zelos actions execute Instruments/read --params '{"instrument": "psu"}'
+zelos actions execute Instruments/capture_waveform --params '{"instrument": "scope", "channel": 1}'
 ```
 
-## What the extension never does
+## Safe on a live bench
 
-- It never sends `*RST` or any command that resets an instrument on its own. The SCPI action sends what you type.
-- It never changes an output when it connects, reconnects, stops or crashes, and never re-applies a setpoint after a reconnect.
-- It never sets a value outside the profile's range or above a limit in the config, and it fails a set whose readback disagrees.
-- It never runs a write without asking when Zelos AI drives it: only List, Read and Get State are read-only.
+- It never touches an output when it connects, reconnects, stops or crashes.
+- It never sends `*RST`. The SCPI action sends exactly what you type.
+- It refuses a value outside the instrument's range or above a limit you set, before sending anything.
+- Zelos AI asks before every action that changes an instrument.
 
-## Reconnects and health
+## When something is wrong
 
-When an instrument stops answering or the link fails, the extension closes it and tries again, from 0.5 s up to every 10 s, until it answers. The gap shows in the trace as a `connected` = false status row. Get State returns one health sentence that says what to do:
-
-| Health | Also know |
+| You see | Do this |
 |---|---|
-| `Connecting to <where>.` | The first open has not finished. |
-| `Cannot open <where>: <reason>. <advice> Retrying.` | The reason comes from the link; the advice names the usual fix: the host and port, the device being plugged in, another program holding it, or a permission. A host that is up but whose SCPI port no longer accepts connections is named as such: most instruments serve one client on that port, and a client that vanished without closing can hold it until the instrument is power-cycled. When the instrument also answers VXI-11, the message gives the VISA resource that reaches it. |
-| `Lost <where>: <reason>. Reconnecting.` | Three queries in a row got no reply, or the link broke. |
-| `Connected to <maker> <model>. Reading <n> signals and <m> extra readings on <c> channels at <x> Hz (target <y> Hz).` | With a note when the instrument answers slower than the target, and the last instrument error. |
-| `Released <where>; run Acquire to take it back.` | Release closed it on purpose. |
+| Auto-configure finds nothing | Check the instrument is on the same subnet as this computer, or type its address in a new entry. |
+| `<host> is on the network, but port 5025 is not accepting connections` | Many instruments serve one client on their SCPI port and keep it held after a program vanishes. Use the VISA resource the message names, or power-cycle the instrument. |
+| A USB instrument is listed but cannot be read | On Windows, install the vendor's VISA or bind the device to WinUSB with [Zadig](https://zadig.akeo.ie/). On Linux, add a udev rule for your user. |
+| A reading you expected is missing | Run **Get State**. It shows the last commands and replies; a profile marked `manual` has not run on a real unit yet. |
 
-## Limits
+## Reference
 
-- Scopes: the profile covers the Siglent SDS families the EN11G programming guide describes and was run on an SDS824X HD. What is recorded is what the scope's own measurement slots show, in Advanced measurement mode; the extension never turns a measurement on by itself, the Measure action does. Other scope brands have no profile yet. Waveform generators have none either.
-- A scope's raw socket (port 5025 on a Siglent) serves one client and stays held when a client vanishes; VXI-11 (`TCPIP::<host>::INSTR`) does not. Two programs on the same instrument at once lose replies; the extension is one of them.
-- Instruments that speak a reverse-engineered protocol instead of SCPI (Korad and Tenma supplies, among others) have no profile.
-- A profile marked `manual` was written from the manual and has not been run against a unit. If yours answers differently, Get State shows the last commands and replies, and a transcript recorded with `just record` makes the fix a test.
-- USB-TMC through the built-in library has open issues with some Rigol and Siglent units; use LAN where the instrument has it, or a vendor VISA.
-- One instrument is one connection. Instruments that accept a single client refuse a second program while the extension holds them; use Release.
-- On Windows, the agent ends the extension without a final flush, so the last batch of rows may be lost.
+Every event and signal, the timing model, every config field, every action and every health message are in [docs/reference.md](docs/reference.md). The profile format is in [docs/profiles.md](docs/profiles.md).
 
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the prerequisites, every `just` command, a local run, the fake instrument and the transcript recorder.
-
-## Links
-
-- **Repository**: [github.com/zeloscloud/zelos-extension-instruments](https://github.com/zeloscloud/zelos-extension-instruments)
-- **Issues**: [github.com/zeloscloud/zelos-extension-instruments/issues](https://github.com/zeloscloud/zelos-extension-instruments/issues)
-- **Extensions in Zelos**: [docs.zeloscloud.io/latest/app/extensions](https://docs.zeloscloud.io/latest/app/extensions/)
 
 ## License
 
