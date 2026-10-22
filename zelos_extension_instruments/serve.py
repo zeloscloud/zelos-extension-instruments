@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import math
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from . import engine, scope_ops
@@ -17,7 +18,6 @@ from .profile import (
     LABEL_SETTERS,
     SWITCH_SETTERS,
     VALUE_SETTERS,
-    VERIFY_FIELD,
     Master,
     Setter,
 )
@@ -98,16 +98,12 @@ def set_label(worker: InstrumentWorker, ch: int, name: str, label: str) -> dict[
     worker._select(ch if setter.per_channel else None)
     worker._send(engine.render(setter.command, ch=ch if setter.per_channel else None, value=word))
     worker._after_write(f"set ch{ch} {name} {label}")
-    field_name = VERIFY_FIELD[name]
-    reader = worker.profile.reader(field_name)
-    verify = worker.profile.verify_query(setter)
-    if verify is None or reader is None:
+    readback = read_back(worker, setter, ch)
+    if readback is None:
         return {name: label, "unverified": "the profile has no readback"}
-    reply = worker._query(engine.render(verify, ch=ch if reader.per_channel else None))
-    readback = engine.parse_reply(reader, reply, ch)[field_name]
     if readback != label:
         raise RangeError(f"{name} reads back {readback}")
-    mark_own(worker, ch, field_name, readback)
+    mark_own(worker, ch, worker.profile.verify_field(setter), readback)
     return {name: label}
 
 
@@ -131,29 +127,17 @@ def set_value(worker: InstrumentWorker, ch: int, name: str, value: float) -> dic
     worker._select(ch if setter.per_channel else None)
     worker._send(engine.setter_command(setter, ch=ch, value=value, range_=range_))
     worker._after_write(f"set ch{ch} {name} {engine.format_value(value, range_)}")
-    readback: float | None = None
-    verify = worker.profile.verify_query(setter)
-    if verify is not None:
-        reply = worker._query(engine.render(verify, ch=ch))
-        field_name = VERIFY_FIELD.get(name, "")
-        reader = worker.profile.reader(field_name)
-        # The reader knows the reply's scale and form; a bare verify query is a number in
-        # the instrument's unit.
-        readback = (
-            float(engine.parse_reply(reader, reply, ch)[field_name])
-            if reader is not None and reader.query == verify
-            else engine.parse_float(reply) * setter.scale
-        )
-        if not engine.verified(value, readback, range_):
-            raise RangeError(
-                f"{name} reads back {readback:g} after setting {value:g}; "
-                "the instrument may have clipped it or refused it"
-            )
-    field_name = VERIFY_FIELD.get(name)
-    if field_name is not None and readback is not None:
-        mark_own(worker, ch, field_name, readback)
+    # A bare verify query answers a number in the instrument's unit.
+    readback = read_back(worker, setter, ch, lambda reply: engine.parse_float(reply) * setter.scale)
     if readback is None:
         return {"set": value, "readback": None, "unverified": "the profile has no readback"}
+    readback = float(readback)
+    if not engine.verified(value, readback, range_):
+        raise RangeError(
+            f"{name} reads back {readback:g} after setting {value:g}; "
+            "the instrument may have clipped it or refused it"
+        )
+    mark_own(worker, ch, worker.profile.verify_field(setter), readback)
     return {"set": value, "readback": readback}
 
 
@@ -179,20 +163,13 @@ def set_switch(worker: InstrumentWorker, ch: int, name: str, on: bool) -> dict[s
     if master is not None:
         worker._send(engine.render(master.command, on=True))
     worker._after_write(f"set ch{ch} {name} {'on' if on else 'off'}")
-    verify = worker.profile.verify_query(setter)
-    readback: bool | None = None
-    if verify is not None:
-        reader = worker.profile.reader(name)
-        reply = worker._query(engine.render(verify, ch=ch))
-        readback = (
-            bool(engine.parse_reply(reader, reply, ch)[name])
-            if reader is not None and reader.query == verify
-            else engine.parse_bool(reply)
-        )
-        if readback != on:
-            raise RangeError(f"{name} reads back {'on' if readback else 'off'}")
-        mark_own(worker, ch, name, readback)
-    return {name: on if readback is None else readback}
+    readback = read_back(worker, setter, ch, engine.parse_bool)
+    if readback is None:
+        return {name: on}
+    if bool(readback) != on:
+        raise RangeError(f"{name} reads back {'on' if readback else 'off'}")
+    mark_own(worker, ch, name, bool(readback))
+    return {name: bool(readback)}
 
 
 def is_armed(worker: InstrumentWorker, master: Master, ch: int) -> bool:
@@ -206,17 +183,38 @@ def set_function(worker: InstrumentWorker, ch: int, function: str) -> dict[str, 
     worker._select(ch if setter.per_channel else None)
     worker._send(engine.setter_command(setter, ch=ch, function=function))
     worker._after_write(f"set ch{ch} function {function}")
-    verify = worker.profile.verify_query(setter)
-    field_name = "mode" if worker.profile.category == "load" else "function"
-    reader = worker.profile.reader(field_name)
-    if verify is None or reader is None:
+    label = read_back(worker, setter, ch)
+    if label is None:
         return {"function": function, "unverified": "the profile has no readback"}
-    reply = worker._query(engine.render(verify, ch=ch))
-    label = engine.parse_reply(reader, reply, ch)[field_name]
     if label != function:
         raise RangeError(f"function reads back {label}")
-    mark_own(worker, ch, field_name, label)
+    mark_own(worker, ch, worker.profile.verify_field(setter), label)
     return {"function": function}
+
+
+def read_back(
+    worker: InstrumentWorker,
+    setter: Setter,
+    ch: int,
+    bare: Callable[[str], Any] | None = None,
+) -> Any:
+    """What the instrument reads back after a set, or None when the profile has no readback.
+
+    The state field's reader parses the reply when the verify query is its query, or when no
+    `bare` parser is given; otherwise `bare` does.
+    """
+    profile = worker.profile
+    assert profile is not None
+    verify = profile.verify_query(setter)
+    field_name = profile.verify_field(setter)
+    reader = profile.reader(field_name)
+    if verify is None or (reader is None and bare is None):
+        return None
+    reply = worker._query(engine.render(verify, ch=ch))
+    if reader is not None and (bare is None or reader.query == verify):
+        return engine.parse_reply(reader, reply, ch)[field_name]
+    assert bare is not None
+    return bare(reply)
 
 
 def clear_protection(worker: InstrumentWorker, ch: int) -> dict[str, Any]:
