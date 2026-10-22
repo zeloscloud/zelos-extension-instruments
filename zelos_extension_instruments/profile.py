@@ -418,14 +418,17 @@ class Profile:
                 return reader
         return None
 
+    def verify_field(self, setter: Setter) -> str:
+        """The state field a setter's readback lands in; a meter's function is its own."""
+        if setter.name == "function" and self.category == "dmm":
+            return "function"
+        return VERIFY_FIELD.get(setter.name, "")
+
     def verify_query(self, setter: Setter) -> str | None:
         """The readback query for a setter: its own, else its state field's."""
         if setter.verify is not None:
             return setter.verify
-        field_name = VERIFY_FIELD.get(setter.name, "")
-        if setter.name == "function" and self.category == "dmm":
-            field_name = "function"
-        reader = self.reader(field_name)
+        reader = self.reader(self.verify_field(setter))
         return reader.query if reader is not None else None
 
     def range_key(self, setter: Setter) -> str | None:
