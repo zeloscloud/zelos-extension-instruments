@@ -3,6 +3,7 @@ lands under the next field, stale errors never fail a request, the panel stays l
 that need it, and the SCPI action waits as long as it was told."""
 
 import base64
+import dataclasses
 import time
 from typing import Any
 
@@ -290,3 +291,26 @@ def test_identity_is_asked_again_after_a_silent_or_garbled_first_reply(
     finally:
         worker.stop()
         worker.join(2)
+
+
+def test_a_local_of_several_commands_sends_them_in_order(dp800: Profile, dp832: Dp832) -> None:
+    """A DL3000 returns to local only through its virtual panel: two commands with a pause."""
+    profile = dataclasses.replace(
+        dp800, link=dataclasses.replace(dp800.link, local=("DEBug:KEY 1", "SYSTem:KEY 8"))
+    )
+    original = dp832.__call__
+
+    def panel(command: str) -> str | None:
+        return None if command in ("DEBug:KEY 1", "SYSTem:KEY 8") else original(command)
+
+    link = ScriptedLink(panel)
+    worker, _ = _worker(profile, link)
+    try:
+        assert ask(worker, "local") == {"ok": True}
+        first = link.commands.index("DEBug:KEY 1")
+        assert link.commands[first + 1] == "SYSTem:KEY 8"
+    finally:
+        worker.stop()
+        worker.join(2)
+    # Stopping hands the panel back the same way.
+    assert link.commands[-2:] == ["DEBug:KEY 1", "SYSTem:KEY 8"]

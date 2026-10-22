@@ -107,7 +107,7 @@ def test_load_file_reads_the_shipped_example(dp800: Profile) -> None:
     assert [m.channels for m in dp800.match.models] == [2, 3]
     assert dp800.link.lan_port == 5555
     assert dp800.link.remote == "SYST:REMOTE"
-    assert dp800.link.local == "SYST:LOCAL"
+    assert dp800.link.local == ("SYST:LOCAL",)
     assert dp800.link.timeout_s == 2.0
     assert dp800.link.write_terminator == "\n"
     assert dp800.errors is not None

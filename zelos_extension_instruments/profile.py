@@ -297,7 +297,8 @@ class LinkDefaults:
     stop_bits: float
     flow_control: str
     remote: str | None
-    local: str | None
+    # The commands that hand the front panel back, in order; empty when the family has none.
+    local: tuple[str, ...]
     locks_panel: bool
     # A command the instrument needs before it answers anything, sent before the identity
     # query (an address on a multi-drop link).
@@ -821,7 +822,15 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         c.template(select, {"ch"}, "link.select")
         if "{ch}" not in select and "{ch0}" not in select:
             c.fail("link.select", "must contain {ch} or {ch0}.")
-    for key in ("remote", "local", "first"):
+    local_raw = raw.get("local", [])
+    if isinstance(local_raw, str):
+        local_raw = [local_raw]
+    if not isinstance(local_raw, list) or not all(isinstance(s, str) and s for s in local_raw):
+        c.fail("link.local", "must be a command or a list of commands.")
+        local_raw = []
+    for command in local_raw:
+        c.template(command, set(), "link.local")
+    for key in ("remote", "first"):
         if (value := raw.get(key)) is not None and isinstance(value, str):
             c.template(value, set(), f"link.{key}")
             if key == "first" and _UNSAFE_INIT.search(value):
@@ -846,7 +855,7 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         stop_bits=c.number(raw, "stop_bits", 1.0, "link") or 1.0,
         flow_control=c.choice(raw, "flow_control", _FLOW, "none", "link"),
         remote=c.string(raw, "remote", None, "link"),
-        local=c.string(raw, "local", None, "link"),
+        local=tuple(local_raw),
         locks_panel=c.boolean(raw, "locks_panel", False, "link"),
         first=c.string(raw, "first", None, "link"),
         needs_remote=c.boolean(raw, "needs_remote", False, "link"),

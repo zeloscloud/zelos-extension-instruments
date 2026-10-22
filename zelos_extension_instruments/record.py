@@ -180,8 +180,8 @@ class Recorder:
                     if profile.errors is not None:
                         self.query(profile.errors.query)
                     self.query(engine.render(verify, ch=ch))
-        if profile.link.local:
-            self.send(profile.link.local)
+        for command in profile.link.local:
+            self.send(command)
         name = f"{idn.model}-{idn.firmware}" if idn else "unknown"
         return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_") or "unknown"
 

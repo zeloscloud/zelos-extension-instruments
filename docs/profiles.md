@@ -246,10 +246,10 @@ Connection defaults for this family. The config can override each.
 | `lan_port` | `5025` | The raw socket port. |
 | `baud`, `data_bits`, `parity`, `stop_bits`, `flow_control` | `9600`, `8`, `"none"`, `1`, `"none"` | Serial defaults. |
 | `remote` | none | Sent once after connect, for instruments that need it before they accept commands (`SYST:REM`, `SYST:LOCK 1`). |
-| `local` | none | Returns front-panel control. The Local action sends it, and so does keep-panel. |
+| `local` | none | Returns front-panel control: one command, or a list sent in order. The Local action sends it, and so does keep-panel. |
 | `locks_panel` | `false` | Remote control locks the front panel, so keep-panel is offered for this family. |
 | `first` | none | A command sent before the identity query, for an instrument that answers nothing until it has one: the address of a multi-drop link (`ADR 6`). It may not change an output. |
-| `needs_remote` | `false` | Queries fail unless the instrument is in remote mode (some meters refuse `READ?` in local), so the panel is never handed back while the extension runs. |
+| `needs_remote` | `false` | The instrument cannot stay in local while it is polled: some meters refuse `READ?` in local, and some units return to remote at the next command. The panel is handed back only when the extension stops. |
 | `device_clear` | `true` | `false` when a VISA device clear hangs the instrument; the extension then only drops its read buffer. |
 | `select` | none | Sent before a channel's commands when the selected channel changes, for the select-then-command style (`INST:NSEL {ch}`). |
 | `init` | `[]` | Commands sent once after connect. They may not change an output: the lint refuses `*RST`, `SYST:PRES`, `OUTP`, `INP` and anything that writes a level. |

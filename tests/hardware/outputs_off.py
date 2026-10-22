@@ -40,8 +40,8 @@ def main() -> int:
                 if select is not None:
                     link.write(select)
                 link.write(engine.setter_command(setter, ch=ch, on=False))
-            if link_defaults.local:
-                link.write(link_defaults.local)
+            for command in link_defaults.local:
+                link.write(command)
         finally:
             link.close()
     return 1 if failed else 0

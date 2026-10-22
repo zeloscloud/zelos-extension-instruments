@@ -242,7 +242,7 @@ class FakeInstrument:
         for command in (
             profile.link.first,
             profile.link.remote,
-            profile.link.local,
+            *profile.link.local,
             *profile.link.init,
         ):
             if command is not None:
