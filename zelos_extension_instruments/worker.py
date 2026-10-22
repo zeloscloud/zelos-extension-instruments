@@ -1409,7 +1409,9 @@ class InstrumentWorker(threading.Thread):
         with self._lock:
             pending, self._requests = list(self._requests), deque()
         for request in pending:
-            request.future.set_result({"error": reason})
+            # An action that stopped waiting cancelled its future; it takes no result.
+            if request.future.set_running_or_notify_cancel():
+                request.future.set_result({"error": reason})
 
 
 def _same(a: float, b: float) -> bool:
