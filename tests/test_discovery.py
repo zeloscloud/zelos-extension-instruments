@@ -599,12 +599,12 @@ def test_discover_never_raises_when_identify_does(
     assert [f.error for f in results] == ["boom"]
 
 
-def test_default_name_uses_model_and_serial_else_detail() -> None:
+def test_default_name_is_the_model_else_the_detail() -> None:
     idn = Idn("RIGOL TECHNOLOGIES", "DP832", "DP8A123456", "00.01.16")
     named = Found(TcpAddress("h", 1), idn, None, None, "mdns", "DP832 A", None)
     bare = Found(SerialAddress("COM3"), None, None, None, "serial", "COM3 (DP832)", None)
 
-    assert discovery.default_name(named) == "DP832_DP8A123456"
+    assert discovery.default_name(named) == "DP832"
     assert "(" not in discovery.default_name(bare)
 
 

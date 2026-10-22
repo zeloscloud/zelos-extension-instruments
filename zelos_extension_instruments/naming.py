@@ -26,14 +26,14 @@ def ascii_name(text: str) -> str | None:
 
 
 def unique_name(raw: str, used: set[str], max_bytes: int = MAX_BYTES) -> str:
-    """The safe name for `raw`, with `_2`, `_3`, … until no name in `used` matches it ignoring
+    """The safe name for `raw`, with `_1`, `_2`, … until no name in `used` matches it ignoring
     case; adds it there.
 
     The trace store ignores case: two names that differ only in case leave the recording empty.
     """
     taken = {name.casefold() for name in used}
     name = base = safe_name(raw, max_bytes)
-    n = 1
+    n = 0
     while name.casefold() in taken:
         n += 1
         suffix = f"_{n}"
@@ -43,7 +43,7 @@ def unique_name(raw: str, used: set[str], max_bytes: int = MAX_BYTES) -> str:
 
 
 class Namer:
-    """Adds `_2`, `_3`, … when a different raw name maps to a safe name already used."""
+    """Adds `_1`, `_2`, … when a different raw name maps to a safe name already used."""
 
     def __init__(self, reserved: Iterable[str] = (), max_bytes: int = MAX_BYTES) -> None:
         self._names: dict[str, str] = {}

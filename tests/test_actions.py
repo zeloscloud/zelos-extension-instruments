@@ -241,11 +241,11 @@ def test_auto_config_adds_found_instruments_and_keeps_the_form(
             "connection": "usb",
             "resource": "USB0::0xF4EC::0x1430::SDL1::INSTR",
             "profile": "siglent-sdl1000x",
-            "name": "SDL1020X_SDL1",
+            "name": "SDL1020X",
         },
     ]
     assert result["message"] == (
-        "Added 1: SDL1020X_SDL1 (USB0::0xF4EC::0x1430::SDL1::INSTR). "
+        "Added 1: SDL1020X (USB0::0xF4EC::0x1430::SDL1::INSTR). "
         "Not identified: 192.168.1.9:5025: no reply."
     )
 
@@ -419,3 +419,24 @@ def test_list_instruments_for_lan_never_offers_a_resource_as_a_host(
         "Reachable only as a VISA resource: Siglent Technologies SDS824X HD "
         "(TCPIP::10.0.0.5::INSTR). Set Connection to VISA resource to use it."
     )
+
+
+def test_auto_config_names_two_of_one_model_apart(monkeypatch: pytest.MonkeyPatch) -> None:
+    found = [
+        _found(
+            TcpAddress("10.0.0.6", 5555), "RIGOL TECHNOLOGIES,DP832A,A1,1", "rigol-dp800", "scan"
+        ),
+        _found(
+            TcpAddress("10.0.0.7", 5555), "RIGOL TECHNOLOGIES,DP832A,A2,1", "rigol-dp800", "scan"
+        ),
+        _found(
+            TcpAddress("10.0.0.8", 5555), "RIGOL TECHNOLOGIES,DP832A,A3,1", "rigol-dp800", "scan"
+        ),
+    ]
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: found)
+    result = run("auto_config", config={})
+    assert [i["name"] for i in result["config"]["instruments"]] == [
+        "DP832A",
+        "DP832A_1",
+        "DP832A_2",
+    ]

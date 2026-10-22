@@ -77,13 +77,13 @@ def test_ascii_name_is_none_without_a_letter_or_digit(text: str) -> None:
 def test_unique_name_adds_suffixes_ignoring_case() -> None:
     used: set[str] = set()
     names = [unique_name(raw, used) for raw in ("psu", "PSU", "psu", "Psu")]
-    assert names == ["psu", "PSU_2", "psu_3", "Psu_4"]
+    assert names == ["psu", "PSU_1", "psu_2", "Psu_3"]
     assert used == set(names)
 
 
 def test_unique_name_compares_the_sanitized_name() -> None:
     used: set[str] = set()
-    assert [unique_name(raw, used) for raw in ("x/", "x_", "x")] == ["x", "x_2", "x_3"]
+    assert [unique_name(raw, used) for raw in ("x/", "x_", "x")] == ["x", "x_1", "x_2"]
 
 
 def test_unique_name_does_not_suffix_a_free_name() -> None:
@@ -93,13 +93,13 @@ def test_unique_name_does_not_suffix_a_free_name() -> None:
 
 
 def test_unique_name_treats_used_names_case_insensitively() -> None:
-    assert unique_name("psu", {"PSU"}) == "psu_2"
+    assert unique_name("psu", {"PSU"}) == "psu_1"
 
 
 def test_unique_name_keeps_the_suffix_inside_the_limit() -> None:
     used = {"a" * 64}
     name = unique_name("a" * 100, used)
-    assert name == "a" * 62 + "_2"
+    assert name == "a" * 62 + "_1"
     assert len(name) == 64
 
 
@@ -107,7 +107,7 @@ def test_unique_name_keeps_the_suffix_inside_the_byte_limit() -> None:
     used: set[str] = set()
     first = unique_name("abcdefghijklmnop", used, 10)
     second = unique_name("abcdefghijklmnoq", used, 10)
-    assert (first, second) == ("abcdefghij", "abcdefgh_2")
+    assert (first, second) == ("abcdefghij", "abcdefgh_1")
     assert len(second.encode()) <= 10
 
 
@@ -129,18 +129,18 @@ def test_namer_is_stable_for_a_repeated_raw_name() -> None:
 
 def test_namer_separates_different_raw_names_that_sanitize_alike() -> None:
     namer = Namer()
-    assert [namer.name(raw) for raw in ("a/b", "a.b", "A_B")] == ["a_b", "a_b_2", "A_B_3"]
-    assert namer.name("a.b") == "a_b_2"
+    assert [namer.name(raw) for raw in ("a/b", "a.b", "A_B")] == ["a_b", "a_b_1", "A_B_2"]
+    assert namer.name("a.b") == "a_b_1"
 
 
 def test_namer_avoids_reserved_names_ignoring_case() -> None:
     namer = Namer(("time_ns",))
-    assert namer.name("time_ns") == "time_ns_2"
-    assert namer.name("TIME_NS") == "TIME_NS_3"
-    assert namer.name("time_ns") == "time_ns_2"
+    assert namer.name("time_ns") == "time_ns_1"
+    assert namer.name("TIME_NS") == "TIME_NS_2"
+    assert namer.name("time_ns") == "time_ns_1"
 
 
 def test_namer_applies_its_byte_limit() -> None:
     namer = Namer(max_bytes=10)
     assert namer.name("abcdefghijklmnop") == "abcdefghij"
-    assert namer.name("abcdefghijklmnoq") == "abcdefgh_2"
+    assert namer.name("abcdefghijklmnoq") == "abcdefgh_1"

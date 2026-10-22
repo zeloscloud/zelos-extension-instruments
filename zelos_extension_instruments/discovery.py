@@ -730,12 +730,10 @@ def _one_per_host(found: list[Found], prefer: str) -> list[Found]:
 
 
 def default_name(found: Found) -> str:
-    """`<model>_<serial>` as a trace-safe name, else the list detail."""
+    """The model as a trace-safe name, else the list detail."""
     idn = found.idn
-    if idn is not None and idn.model:
-        raw = f"{idn.model}_{idn.serial}" if idn.serial else idn.model
-        return naming.safe_name(raw, naming.NAME_BYTES)
-    return naming.safe_name(found.detail, naming.NAME_BYTES)
+    raw = idn.model if idn is not None and idn.model else found.detail
+    return naming.safe_name(raw, naming.NAME_BYTES)
 
 
 @dataclass(frozen=True)
