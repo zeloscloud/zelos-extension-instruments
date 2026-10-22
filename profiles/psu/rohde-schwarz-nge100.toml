@@ -7,8 +7,9 @@ Channel commands act on the channel chosen with INST:NSEL, so the extension sele
 Any command switches the instrument to remote control and locks the front panel until the Local action runs or the Remote key is held. \
 A channel delivers power only while its channel key (OUTP:SEL) and the master output (OUTP:GEN) are both on, and OUTP? reads whether it does. \
 OUTP ON also switches the master output on, and on a bench NGE103 that switched on every other channel whose key was on. \
-So the output setter sends OUTP:SEL only and never switches the master output. \
-With the master output off, switching a channel on only arms it, and the set fails its readback until the Output key is pressed. \
+So switching a channel on sends OUTP:SEL 1, then OUTP:GEN 1 if the master output is off, as the manual's example does. \
+If another channel's key is on while the master output is off, switching a channel on is refused before anything is sent, because the master output would switch that channel on too. \
+Switching a channel off sends OUTP:SEL 0 and leaves the master output alone. \
 The command reference lists no error query, but the manual's appendix clears the queue with SYST:ERR?, and a bench NGE103 answers it. \
 Protection reads the OVP, OCP (FUSE) and OPP tripped flags of the selected channel. The OVP, fuse and OPP functions each have an on/off state, and the manual gives *RST as off for the fuse; the OVP and fuse states are read and switched, the OPP state is not. \
 The manual prints the overtemperature query as OTP:TRIPped? but its example is OUTP:TRIP?, so overtemperature is not read. \
@@ -118,6 +119,7 @@ command = "FUSE {bit}"
 
 [setters.output]
 command = "OUTP:SEL {bit}"
+master = { command = "OUTP:GEN {bit}", query = "OUTP:GEN?", armed = "OUTP:SEL?" }
 
 [setters.clear]
 command = ["VOLT:PROT:CLE", "FUSE:TRIP:CLE", "POW:PROT:CLE"]

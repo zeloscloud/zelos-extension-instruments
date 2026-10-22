@@ -324,6 +324,7 @@ Keyed by what the actions change. Values: `voltage`, `current`, `power`, `resist
 | `map` | For `function` and the label setters: our label to the instrument's word (`cc = "CURR"`, `rising = "RISing"`). A label setter's command carries the word as `{value}`. |
 | `channel` | `false` for an instrument-wide command. |
 | `scale` | For a value setter: the value is sent divided by it, so a slew rate the instrument takes in A/µs goes out right with `scale = 1e6` (its `[state]` reader carries the same `scale`). |
+| `master` | For `output`, when a channel delivers power only while a master switch is also on: a table of `command` (sets the master, with `{on}` or `{bit}`), `query` (reads it) and `armed` (reads the selected channel's own switch). Switching a channel on sends its command, then raises the master if it is off. That is refused before anything is sent when another channel is armed, because the master would switch it on too. Switching a channel off sends only its command. |
 
 ## `[scope]`
 

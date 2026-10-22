@@ -8,8 +8,9 @@ Channel commands act on the channel chosen with INST:NSEL, so the extension sele
 SYST:REM locks the front panel; the Local action (SYST:LOC) unlocks it. \
 A channel delivers power only while its channel key (OUTP:SEL) and the primary output (OUTP:GEN, the Output key) are both on, and the primary output switches every selected channel at once. \
 A real NGP814 was found with all four channel keys on and the primary output off, and on a bench NGE100 OUTP ON switched the primary output on and with it every other selected channel. \
-So the output setter sends OUTP:SEL only and never switches the primary output. \
-With the primary output off, switching a channel on only selects it; press the Output key to deliver power. \
+So switching a channel on sends OUTP:SEL 1, then OUTP:GEN 1 if the primary output is off. \
+If another channel's key is on while the primary output is off, switching a channel on is refused before anything is sent, because the primary output would switch that channel on too. \
+Switching a channel off sends OUTP:SEL 0 and leaves the primary output alone. \
 Output reads OUTP?, and what it answers while a channel is selected and the primary output is off was not seen on a unit. \
 Mode reads the questionable condition register of the channel: bit 0 is constant current and bit 1 is constant voltage; zero is shown as off, which the manual does not state. \
 Protection reads OVP, fuse (OCP), OPP and over-temperature. The OVP, fuse (OCP) and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
@@ -130,6 +131,7 @@ command = "FUSE {bit}"
 
 [setters.output]
 command = "OUTP:SEL {bit}"
+master = { command = "OUTP:GEN {bit}", query = "OUTP:GEN?", armed = "OUTP:SEL?" }
 
 [setters.clear]
 command = ["VOLT:PROT:CLE", "FUSE:TRIP:CLE", "POW:PROT:CLE"]

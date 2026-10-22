@@ -84,6 +84,13 @@ def test_every_query_parses_and_every_setter_round_trips(profile: Profile) -> No
             elif name in SWITCH_SETTERS:
                 for on in (True, False):
                     fake.handle_text(engine.setter_command(setter, ch=ch, on=on))
+                    if setter.master is not None:
+                        # An armed channel delivers power only once the master is on.
+                        assert fake.handle_text(engine.render(setter.master.armed, ch=ch)) == str(
+                            int(on)
+                        )
+                        fake.handle_text(engine.render(setter.master.command, on=True))
+                        assert fake.handle_text(setter.master.query) == "1"
                     verify = profile.verify_query(setter)
                     if verify is not None:
                         reader = profile.reader(name)

@@ -43,6 +43,7 @@ from .profile import (
     VALUE_SETTERS,
     VERIFY_FIELD,
     Idn,
+    Master,
     Profile,
     Range,
     Setter,
@@ -1158,8 +1159,22 @@ class InstrumentWorker(threading.Thread):
     def _set_switch(self, ch: int, name: str, on: bool) -> dict[str, Any]:
         assert self.profile is not None
         setter = self._setter(name)
+        master = setter.master if on else None
+        if master is not None and engine.parse_bool(self._query(master.query)):
+            master = None
+        if master is not None:
+            # Raising the master switches on every armed channel, not only this one.
+            armed = [n for n in range(1, self.channels + 1) if n != ch and self._armed(master, n)]
+            if armed:
+                names = ", ".join(f"ch{n}" for n in armed)
+                raise RangeError(
+                    f"the master output is off, and raising it would also switch on {names}; "
+                    "switch those off first"
+                )
         self._select(ch if setter.per_channel else None)
         self._send(engine.setter_command(setter, ch=ch, on=on))
+        if master is not None:
+            self._send(engine.render(master.command, on=True))
         self._after_write(f"set ch{ch} {name} {'on' if on else 'off'}")
         verify = self.profile.verify_query(setter)
         readback: bool | None = None
@@ -1175,6 +1190,10 @@ class InstrumentWorker(threading.Thread):
                 raise RangeError(f"{name} reads back {'on' if readback else 'off'}")
             self._mark_own(ch, name, readback)
         return {name: on if readback is None else readback}
+
+    def _armed(self, master: Master, ch: int) -> bool:
+        self._select(ch)
+        return engine.parse_bool(self._query(engine.render(master.armed, ch=ch)))
 
     def _set_function(self, ch: int, function: str) -> dict[str, Any]:
         assert self.profile is not None

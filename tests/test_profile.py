@@ -594,6 +594,55 @@ LINT_CASES: list[tuple[str, Any, str, str]] = [
         "must contain {on} or {bit}.",
     ),
     (
+        "master on a setter other than output",
+        lambda r: set_(
+            r,
+            "setters",
+            {
+                "ovp_on": {
+                    "command": "VOLT:PROT {bit}",
+                    "master": {"command": "OUTP:GEN {bit}", "query": "OUTP:GEN?", "armed": "X?"},
+                }
+            },
+        ),
+        "setters.ovp_on.master",
+        "is only for the output setter.",
+    ),
+    (
+        "master command without {on} or {bit}",
+        lambda r: set_(
+            r,
+            "setters",
+            {
+                "output": {
+                    "command": "OUTP:SEL {bit}",
+                    "master": {"command": "OUTP:GEN 1", "query": "OUTP:GEN?", "armed": "OUTP:SEL?"},
+                }
+            },
+        ),
+        "setters.output.master.command",
+        "must contain {on} or {bit}.",
+    ),
+    (
+        "master query for one channel",
+        lambda r: set_(
+            r,
+            "setters",
+            {
+                "output": {
+                    "command": "OUTP:SEL {bit}",
+                    "master": {
+                        "command": "OUTP:GEN {bit}",
+                        "query": "OUTP:GEN? {ch}",
+                        "armed": "OUTP:SEL?",
+                    },
+                }
+            },
+        ),
+        "setters.output.master.query",
+        "unknown placeholder ch.",
+    ),
+    (
         "function setter without {function}",
         lambda r: as_load(r, {"function": {"command": "FUNC CC", "map": {"cc": "CURR"}}}),
         "setters.function.command",

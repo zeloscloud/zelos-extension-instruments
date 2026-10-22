@@ -21,6 +21,7 @@ from ..profile import (
     PROTECTION_LABELS,
     VALUE_SETTERS,
     Flag,
+    Master,
     Profile,
     Reader,
     Setter,
@@ -142,6 +143,8 @@ class FakeInstrument:
         self._errors: deque[tuple[int, str]] = deque()
         self._selected = 1
         self._state = [_Channel(self._default_function()) for _ in range(self.channels)]
+        # Without a master switch, a channel that is on delivers power.
+        self._master = self._master_setter() is None
         self.scope = FakeScope(profile, self.channels) if profile.category == "scope" else None
         self._routes = self._routes_for(profile)
 
@@ -239,6 +242,10 @@ class FakeInstrument:
         for setter in profile.setters.values():
             for command in setter.commands:
                 add(command, partial(self._set, setter), setter.map.values())
+        if (master := self._master_setter()) is not None:
+            add(master.command, self._set_master)
+            add(master.query, lambda _: "1" if self._master else "0")
+            add(master.armed, self._armed)
         for command in (
             profile.link.first,
             profile.link.remote,
@@ -361,10 +368,26 @@ class FakeInstrument:
             for ch in targets:
                 self._state[ch - 1].trip = "none"
 
+    def _master_setter(self) -> Master | None:
+        output = self.profile.setters.get("output")
+        return output.master if output is not None else None
+
+    def _set_master(self, match: re.Match[str]) -> None:
+        groups = match.groupdict()
+        self._master = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
+
+    def _armed(self, match: re.Match[str]) -> str | None:
+        ch = self._channel(match)
+        return None if ch is None else "1" if self._state[ch - 1].output else "0"
+
+    def _live(self, state: _Channel) -> bool:
+        return state.output and self._master
+
     def _reset(self, _: re.Match[str]) -> None:
         for state in self._state:
             state.setpoints = dict.fromkeys(state.setpoints, 0.0)
             state.output = False
+        self._master = self._master_setter() is None
 
     def _push_error(self, code: int, text: str) -> None:
         if len(self._errors) >= _QUEUE_DEPTH:
@@ -441,7 +464,7 @@ class FakeInstrument:
         if setter.name in VALUE_SETTERS:
             return [(0, _number(state.setpoints[setter.name] / setter.scale), False)]
         if setter.name == "output":
-            return [(0, "1" if state.output else "0", False)]
+            return [(0, "1" if self._live(state) else "0", False)]
         if setter.name in state.extras:
             return [(0, "1" if state.extras[setter.name] else "0", False)]
         return [(0, setter.map.get(state.function or "", ""), False)]
@@ -455,7 +478,7 @@ class FakeInstrument:
         if name.endswith("_set"):
             return state.setpoints[name.removesuffix("_set")]
         if name == "output":
-            return state.output
+            return self._live(state)
         if name == "protection":
             return state.trip
         if name == "function":
@@ -473,7 +496,7 @@ class FakeInstrument:
             return state.function or "cc"
         if category != "psu":
             return "unknown"
-        if not state.output:
+        if not self._live(state):
             return "off"
         return "cv" if state.setpoints["voltage"] <= self._limit(state) * state.load_ohms else "cc"
 
@@ -484,7 +507,7 @@ class FakeInstrument:
         if self.profile.category == "load":
             return self._sink(state)
         volts = amps = 0.0
-        if state.output:
+        if self._live(state):
             volts = min(state.setpoints["voltage"], self._limit(state) * state.load_ohms)
             amps = volts / state.load_ohms
         return {
@@ -493,7 +516,7 @@ class FakeInstrument:
             "power": volts * amps,
             "apparent_power": volts * amps,
             "power_factor": 1.0 if amps > 0 else 0.0,
-            "frequency": state.setpoints["frequency"] if state.output else 0.0,
+            "frequency": state.setpoints["frequency"] if self._live(state) else 0.0,
         }
 
     def _sink(self, state: _Channel) -> dict[str, float]:
