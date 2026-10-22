@@ -398,3 +398,53 @@ def test_open_tcp_classifies_a_connect_timeout(monkeypatch: pytest.MonkeyPatch) 
         open_tcp(TcpAddress("127.0.0.1", 1), FAST)
     assert caught.value.kind == "held"
     assert consulted == [TcpAddress("127.0.0.1", 1)]
+
+
+class _Clock:
+    """A clock the pacer reads and sleeps on, so the test measures its pauses exactly."""
+
+    def __init__(self) -> None:
+        self.now = 100.0
+        self.slept: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(round(seconds, 3))
+        self.now += seconds
+
+
+def test_the_pacer_waits_longer_only_after_a_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A supply dropped a command sent 100 ms after another; a query is paced by its reply."""
+    from zelos_extension_instruments import link as link_module
+
+    clock = _Clock()
+    monkeypatch.setattr(link_module.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(link_module.time, "sleep", clock.sleep)
+    pacer = link_module.Pacer(100, 300)
+    pacer.wait()
+    pacer.mark("OUTP CH1,OFF")
+    pacer.wait()
+    pacer.mark("OUTP CH2,OFF")
+    pacer.wait()
+    pacer.mark("SYST:STAT?")
+    pacer.wait()
+    pacer.mark("MEAS:VOLT? CH1")
+    assert clock.slept == [0.3, 0.3, 0.1]
+
+
+def test_the_pacer_keeps_the_plain_delay_without_a_command_delay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zelos_extension_instruments import link as link_module
+
+    clock = _Clock()
+    monkeypatch.setattr(link_module.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(link_module.time, "sleep", clock.sleep)
+    pacer = link_module.Pacer(50)
+    for written in ("VOLT 1", "VOLT?", "CURR 2"):
+        pacer.wait()
+        pacer.mark(written)
+    pacer.wait()
+    assert clock.slept == [0.05, 0.05, 0.05]

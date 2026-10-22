@@ -52,6 +52,8 @@ class Settings:
     timeout_s: float = 2.0
     # A pause the vendor documents between commands; the link waits it out before each write.
     delay_ms: int = 0
+    # The pause after a command that sends no reply, when an instrument needs more than `delay_ms`.
+    command_delay_ms: int = 0
     # Whether clear() may send a VISA device clear; some scopes hang on one.
     device_clear: bool = True
 
@@ -132,21 +134,26 @@ class Link(Protocol):
 
 
 class Pacer:
-    """Keeps the vendor's inter-command delay between writes."""
+    """Keeps the vendor's pause between writes, and a longer one after a command that sends no
+    reply: a query is paced by its own reply, a command only by time."""
 
-    def __init__(self, delay_ms: int) -> None:
+    def __init__(self, delay_ms: int, command_delay_ms: int = 0) -> None:
         self._delay_s = delay_ms / 1000
+        self._after_command_s = max(delay_ms, command_delay_ms) / 1000
         self._last = 0.0
+        self._after_command = False
 
     def wait(self) -> None:
-        if self._delay_s <= 0:
+        pause = self._after_command_s if self._after_command else self._delay_s
+        if pause <= 0:
             return
-        remaining = self._last + self._delay_s - time.monotonic()
+        remaining = self._last + pause - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
 
-    def mark(self) -> None:
+    def mark(self, written: str) -> None:
         self._last = time.monotonic()
+        self._after_command = "?" not in written
 
 
 _LINE_ENDS = (b"\n", b"\r")

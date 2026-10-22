@@ -384,6 +384,7 @@ class InstrumentWorker(threading.Thread):
             read_terminator=cfg.line_ending or link.read_terminator,
             timeout_s=cfg.timeout_s or link.timeout_s,
             delay_ms=link.delay_ms if cfg.delay_ms is None else cfg.delay_ms,
+            command_delay_ms=link.command_delay_ms,
             device_clear=link.device_clear,
         )
 
