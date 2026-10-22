@@ -45,7 +45,7 @@ class LinkTimeout(LinkError):
 
 
 @dataclass(frozen=True, slots=True)
-class Settings:
+class LinkSettings:
     """How lines are framed and how long a reply may take."""
 
     write_terminator: str = "\n"
@@ -237,7 +237,7 @@ class LineLink(ABC):
     line_chunk = 256
     block_chunk = 256
 
-    def __init__(self, where: str, settings: Settings) -> None:
+    def __init__(self, where: str, settings: LinkSettings) -> None:
         self.where = where
         self._settings = settings
         self._pacer = Pacer(settings.delay_ms, settings.command_delay_ms)
@@ -303,7 +303,7 @@ class LineLink(ABC):
         return LinkTimeout(f"no reply from {self.where} within {seconds(self._settings.timeout_s)}")
 
 
-def open_link(address: Address, settings: Settings) -> Link:
+def open_link(address: Address, settings: LinkSettings) -> Link:
     """Open the link an address describes; raises LinkError."""
     if isinstance(address, TcpAddress):
         from .tcp import open_tcp

@@ -12,7 +12,7 @@ from . import (
     LineLink,
     Link,
     LinkError,
-    Settings,
+    LinkSettings,
     TcpAddress,
     seconds,
 )
@@ -131,7 +131,7 @@ def held_failure(address: TcpAddress, infos: list[Any]) -> LinkError:
     return LinkError(text + ".", "held")
 
 
-def open_tcp(address: TcpAddress, settings: Settings) -> Link:
+def open_tcp(address: TcpAddress, settings: LinkSettings) -> Link:
     """Connect to a host and port; raises LinkError."""
     deadline = time.monotonic() + CONNECT_TIMEOUT_S
     infos = _resolve(address, CONNECT_TIMEOUT_S)
@@ -159,7 +159,7 @@ class TcpLink(LineLink):
     line_chunk = _CHUNK
     block_chunk = _BLOCK_CHUNK
 
-    def __init__(self, sock: socket.socket, where: str, settings: Settings) -> None:
+    def __init__(self, sock: socket.socket, where: str, settings: LinkSettings) -> None:
         super().__init__(where, settings)
         self._sock = sock
 

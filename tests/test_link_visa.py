@@ -9,10 +9,10 @@ from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
 from test_link_tcp import IDN, FakeInstrument, closed_port, instrument  # noqa: F401
 
-from zelos_extension_instruments.link import LinkError, LinkTimeout, Settings, VisaAddress
+from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, VisaAddress
 from zelos_extension_instruments.link.visa import open_visa
 
-FAST = Settings(timeout_s=0.3)
+FAST = LinkSettings(timeout_s=0.3)
 STATUS = constants.StatusCode
 
 
@@ -180,7 +180,7 @@ def test_every_open_asks_pyvisa_for_the_backends_manager(fake_visa: FakeVisa) ->
 
 
 def test_open_applies_terminators_and_timeout(fake_visa: FakeVisa) -> None:
-    settings = Settings(write_terminator="\r\n", read_terminator="\n", timeout_s=1.5)
+    settings = LinkSettings(write_terminator="\r\n", read_terminator="\n", timeout_s=1.5)
     open_visa(VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"), settings)
     resource = fake_visa.resource
     assert resource.write_termination == "\r\n"
@@ -190,7 +190,7 @@ def test_open_applies_terminators_and_timeout(fake_visa: FakeVisa) -> None:
 
 def test_query_strips_the_terminator_and_replaces_bad_bytes(fake_visa: FakeVisa) -> None:
     link = open_visa(
-        VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"), Settings(read_terminator="\r\n")
+        VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"), LinkSettings(read_terminator="\r\n")
     )
     fake_visa.resource.replies = [b"OK\r\n", b"\xffA\r\n"]
     assert link.query("*IDN?") == "OK"
@@ -200,7 +200,7 @@ def test_query_strips_the_terminator_and_replaces_bad_bytes(fake_visa: FakeVisa)
 
 def test_a_block_payload_is_one_read_of_its_whole_length(fake_visa: FakeVisa) -> None:
     """pyvisa's 20 KB default made a VXI-11 round trip per piece: 1.8 times slower on a scope."""
-    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), Settings())
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), LinkSettings())
     payload = bytes(range(256)) * 400
     fake_visa.resource.replies = [b"#6102400" + payload + b"\n"]
     assert link.read_block() == payload
@@ -208,7 +208,7 @@ def test_a_block_payload_is_one_read_of_its_whole_length(fake_visa: FakeVisa) ->
 
 
 def test_delay_spaces_consecutive_writes(fake_visa: FakeVisa) -> None:
-    link = open_visa(VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"), Settings(delay_ms=200))
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"), LinkSettings(delay_ms=200))
     link.write("A")
     started = time.monotonic()
     link.write("B")
@@ -344,7 +344,7 @@ def test_an_unusable_terminator_closes_the_resource_and_is_a_config_error(
 ) -> None:
     with pytest.raises(LinkError) as caught:
         open_visa(
-            VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"), Settings(read_terminator="\n\n")
+            VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"), LinkSettings(read_terminator="\n\n")
         )
     assert caught.value.kind == "config"
     assert fake_visa.resource.closed == 1
@@ -358,7 +358,7 @@ def test_real_pyvisa_py_resource_string_that_cannot_be_parsed_is_config() -> Non
 
 def test_real_pyvisa_py_socket_against_a_fake_instrument(instrument: FakeInstrument) -> None:  # noqa: F811
     resource = f"TCPIP::127.0.0.1::{instrument.port}::SOCKET"
-    link = open_visa(VisaAddress(resource, "py"), Settings(timeout_s=0.5))
+    link = open_visa(VisaAddress(resource, "py"), LinkSettings(timeout_s=0.5))
     try:
         assert link.where == resource
         assert link.query("*IDN?") == IDN
@@ -376,7 +376,7 @@ def test_real_pyvisa_py_socket_against_a_fake_instrument(instrument: FakeInstrum
 def test_a_one_character_reply_does_not_wait_for_more(instrument: FakeInstrument) -> None:  # noqa: F811
     """`OUTP?` answers `1` and a newline: two bytes that are already the whole reply."""
     resource = f"TCPIP::127.0.0.1::{instrument.port}::SOCKET"
-    link = open_visa(VisaAddress(resource, "py"), Settings(timeout_s=1.0))
+    link = open_visa(VisaAddress(resource, "py"), LinkSettings(timeout_s=1.0))
     try:
         for reply in ("1", "", "#H1F"):
             link.write(f"ECHO {reply}")

@@ -20,9 +20,9 @@ from zelos_extension_instruments import discovery, profile
 from zelos_extension_instruments.discovery import Found
 from zelos_extension_instruments.link import (
     LinkError,
+    LinkSettings,
     LinkTimeout,
     SerialAddress,
-    Settings,
     TcpAddress,
     VisaAddress,
 )
@@ -456,7 +456,7 @@ def test_identify_abandons_a_link_that_hangs_while_opening(
         def close(self) -> None:
             closed.append("late")
 
-    def hang(address: Any, settings: Settings) -> Late:
+    def hang(address: Any, settings: LinkSettings) -> Late:
         release.wait(10)
         return Late()
 
@@ -479,7 +479,7 @@ def test_identify_abandons_a_link_that_hangs_while_opening(
 def test_identify_turns_a_link_error_into_its_sentence(
     monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
 ) -> None:
-    def refuse(address: Any, settings: Settings) -> None:
+    def refuse(address: Any, settings: LinkSettings) -> None:
         raise LinkError("Connection refused by 10.0.0.5:5025.", "refused")
 
     monkeypatch.setattr(discovery, "open_link", refuse)
@@ -503,7 +503,7 @@ def test_identify_tries_serial_at_9600_then_115200(
         def close(self) -> None:
             pass
 
-    def open_link(address: Any, settings: Settings) -> Any:
+    def open_link(address: Any, settings: LinkSettings) -> Any:
         bauds.append(address.baud)
         if address.baud == 9600:
             raise LinkTimeout("no reply")
@@ -523,7 +523,7 @@ def test_identify_does_not_retry_serial_when_the_port_is_busy(
 ) -> None:
     bauds: list[int] = []
 
-    def open_link(address: Any, settings: Settings) -> Any:
+    def open_link(address: Any, settings: LinkSettings) -> Any:
         bauds.append(address.baud)
         raise LinkError("COM3 is in use by another program.", "busy")
 
@@ -550,7 +550,7 @@ def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
     opened: list[str] = []
     real_open = discovery.open_link
 
-    def counting_open(address: Any, settings: Settings) -> Any:
+    def counting_open(address: Any, settings: LinkSettings) -> Any:
         opened.append(address.where)
         return real_open(address, settings)
 

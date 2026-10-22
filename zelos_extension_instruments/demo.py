@@ -9,7 +9,7 @@ import threading
 import time
 
 from .config import InstrumentConfig
-from .link import Address, Link, Settings
+from .link import Address, Link, LinkSettings
 from .profile import Profile, by_id, shipped
 from .sim.fake import FakeInstrument
 from .waveform import block_payload
@@ -157,7 +157,7 @@ def _make(profile: Profile, category: str) -> FakeInstrument:
 def demo_opener(cfg: InstrumentConfig) -> Opener:
     """An opener that connects a demo instrument to the shared bench."""
 
-    def open(address: Address, settings: Settings) -> Link:
+    def open(address: Address, settings: LinkSettings) -> Link:
         return InProcessLink(Bench.get().fake(cfg.category), cfg.where)
 
     return open

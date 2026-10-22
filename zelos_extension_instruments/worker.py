@@ -25,14 +25,12 @@ from .link import (
     Address,
     Link,
     LinkError,
+    LinkSettings,
     LinkTimeout,
     SerialAddress,
     TcpAddress,
     VisaAddress,
     open_link,
-)
-from .link import (
-    Settings as LinkSettings,
 )
 from .profile import (
     COMMAND_SETTERS,
