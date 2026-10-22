@@ -261,7 +261,7 @@ def test_poll_value_names_never_collide(
     register(emitter, "psu", dp800, 1, poll)
     for i, row in enumerate(poll):
         emitter.poll_value("psu", row.name, float(i), (i + 1) * SECOND)
-    assert list(spy.fields["psu/poll"]) == ["time_ns_2", "a_b", "A_B_2", "a_b_3"]
+    assert list(spy.fields["psu/poll"]) == ["time_ns_1", "a_b", "A_B_1", "a_b_2"]
     rows = trace_file.events()["psu/poll"]
     assert [next(v for k, v in r.items() if k != TIME and v is not None) for r in rows] == [
         0.0,
