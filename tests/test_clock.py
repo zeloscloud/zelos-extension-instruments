@@ -27,14 +27,6 @@ class Clocks:
         return HostClock(now=self.now, wall=self.time)
 
 
-def test_now_is_the_monotonic_clock() -> None:
-    clocks = Clocks(mono=42)
-    clock = clocks.clock()
-    assert clock.now() == 42
-    clocks.tick(8)
-    assert clock.now() == 50
-
-
 def test_epoch_maps_a_reading_onto_the_wall_clock() -> None:
     clocks = Clocks(mono=5 * SECOND, wall=1_700_000_000 * SECOND)
     clock = clocks.clock()

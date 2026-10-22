@@ -269,17 +269,16 @@ def flag_is_set(flag: Flag, reply: str, channel: int | None = None) -> bool:
 
 
 def unknown_label(field: str) -> str:
-    """What an enumerated field reads as when the reply is not in its map."""
-    labels = ENUM_FIELDS[field]
-    return "unknown" if "unknown" in labels else labels[-1]
+    """What an enumerated field reads as when the reply is not in its map: its table's last
+    label, `unknown` or `other`."""
+    return ENUM_FIELDS[field][-1]
 
 
 def format_value(value: float, range_: Range | None) -> str:
     """The number as the command carries it: the range's digits, or every digit it has."""
     if range_ is None:
         return f"{value:.12g}"
-    digits = range_.digits if range_ is not None else 3
-    return f"{value:.{digits}f}"
+    return f"{value:.{range_.digits}f}"
 
 
 def check_resolution(value: float, range_: Range | None, name: str) -> None:

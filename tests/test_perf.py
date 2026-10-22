@@ -10,7 +10,7 @@ import time
 import psutil
 import pytest
 
-from tests.conftest import ScriptedLink, instrument_config, opener_for, settings_for, wait_until
+from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
 from tests.test_worker import RecordingEmitter
 from zelos_extension_instruments.profile import Profile, by_id, shipped
 from zelos_extension_instruments.sim import FakeInstrument
@@ -32,7 +32,7 @@ def test_ten_instruments_hold_cadence_and_memory() -> None:
         fake = FakeInstrument(profile, model="DP832")
         cfg = instrument_config(name=f"psu{i}", profile=profile.id, rate_hz=RATE_HZ)
         worker = InstrumentWorker(
-            cfg, [profile], emitter, settings_for(cfg), open=opener_for(ScriptedLink(fake.handle))
+            cfg, [profile], emitter, open=opener_for(ScriptedLink(fake.handle))
         )
         worker.start()
         workers.append(worker)

@@ -14,7 +14,7 @@ import pytest
 import zelos_sdk
 
 from zelos_extension_instruments import ACTION_PREFIX, config
-from zelos_extension_instruments.config import InstrumentConfig, Settings
+from zelos_extension_instruments.config import InstrumentConfig
 from zelos_extension_instruments.link import Address, Link, LinkError, LinkTimeout
 from zelos_extension_instruments.link import Settings as LinkSettings
 from zelos_extension_instruments.profile import Profile, load_file, shipped
@@ -176,10 +176,6 @@ def instrument_config(**overrides: Any) -> InstrumentConfig:
     item.update(overrides)
     settings = config.from_dict({"instruments": [item]})
     return settings.instruments[0]
-
-
-def settings_for(*instruments: InstrumentConfig) -> Settings:
-    return Settings(instruments=tuple(instruments), prefix="Instruments", log_level="INFO")
 
 
 def wait_until(

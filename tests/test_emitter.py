@@ -8,7 +8,7 @@ import zelos_sdk
 
 from tests.conftest import TIME, Recording
 from zelos_extension_instruments.config import PollRow
-from zelos_extension_instruments.emitter import STATUS_FIELDS, Emitter
+from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.profile import ENUM_FIELDS, Profile, from_dict
 
 SECOND = 1_000_000_000
@@ -292,7 +292,7 @@ def test_status_writes_the_four_fields(
         {TIME: 2.0, "rtt_ms": 0.0, "rate_hz": 0.0, "errors": 4, "connected": False},
     ]
     units = {name: unit for name, (_, unit) in spy.fields["psu/status"].items()}
-    assert units == STATUS_FIELDS
+    assert units == {"rtt_ms": "ms", "rate_hz": "Hz", "errors": None, "connected": None}
 
 
 def test_note_writes_a_log_line(trace_file: Recording, spy: SpySource, dp800: Profile) -> None:

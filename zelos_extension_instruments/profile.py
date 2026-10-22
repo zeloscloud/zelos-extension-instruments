@@ -190,18 +190,6 @@ VERIFY_FIELD = {
     "trigger_slope": "trigger_slope",
     "trigger_mode": "trigger_mode",
 }
-PLACEHOLDERS = {
-    "ch",
-    "ch0",
-    "value",
-    "on",
-    "bit",
-    "function",
-    "slot",
-    "type",
-    "points",
-    "interval",
-}
 # Commands that change what an output does; none may appear in `init`.
 _UNSAFE_HEADS = (
     r"(PRES(ET)?|OUTP(UT)?|INP(UT)?|SOUR(CE)?|VOLT(AGE)?|CURR(ENT)?|POW(ER)?|RES(ISTANCE)?"

@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import ScriptedLink, instrument_config, opener_for, settings_for, wait_until
+from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
 from tests.test_worker import Dp832, RecordingEmitter, ask
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.engine import RangeError, parse_float
@@ -28,7 +28,7 @@ def _worker(
 ) -> tuple[InstrumentWorker, RecordingEmitter]:
     emitter = RecordingEmitter()
     cfg = instrument_config(rate_hz=50, **config)
-    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener_for(link))
     worker.start()
     assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
     return worker, emitter
@@ -167,7 +167,7 @@ def test_keep_panel_is_skipped_for_a_meter_that_needs_remote() -> None:
     link = ScriptedLink(meter)
     emitter = RecordingEmitter()
     cfg = instrument_config(rate_hz=50, profile="agilent-34401a")
-    worker = InstrumentWorker(cfg, [profile], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health

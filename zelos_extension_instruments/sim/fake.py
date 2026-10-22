@@ -881,10 +881,6 @@ def _bits(mapping: dict[str, str], mask: int, shift: int, name: str, value: Any)
     return int(key) << shift
 
 
-def _fold(key: str) -> str:
-    return key.strip().strip('"').casefold()
-
-
 def _for_channel(values: tuple[int, ...], ch: int) -> int:
     """The mask or shift for a channel: the only entry, or the channel's own."""
     return values[0] if len(values) == 1 else values[min(ch, len(values)) - 1]
