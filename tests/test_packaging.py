@@ -15,7 +15,6 @@ from zelos_extension_instruments import ACTION_PREFIX, __version__
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = tomllib.loads((REPO_ROOT / "extension.toml").read_text(encoding="utf-8"))
 PYPROJECT = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-NOT_WRITTEN_YET = {"assets/readme"}
 
 
 def test_entry_module_re_exports_the_action_prefix() -> None:
@@ -39,8 +38,6 @@ def test_manifest_uses_the_agent_table() -> None:
 
 @pytest.mark.parametrize("relative", MANIFEST["package"]["paths"])
 def test_package_path_exists(relative: str) -> None:
-    if relative in NOT_WRITTEN_YET and not (REPO_ROOT / relative).exists():
-        pytest.skip(f"{relative} is not written yet")
     assert (REPO_ROOT / relative).exists()
 
 

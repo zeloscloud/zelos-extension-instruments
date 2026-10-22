@@ -19,17 +19,18 @@ Once a second it also reads the setpoints and the state:
 
 ## What it records
 
-All events go under one trace source, `Instruments` by default (**Prefix** in Advanced (all instruments)). Each instrument has a name, set by **Name** in the config, or taken from its address.
+All events go under one trace source, `Instruments` by default (**Prefix** in Advanced (all instruments)). Each instrument has a name, set by **Name** in the config. Auto-configure names an entry after its model and adds `_1`, `_2` when two would clash; an empty Name uses the address.
 
 | Event | Holds |
 |---|---|
 | `Instruments/<name>/ch<n>` | The channel's measurements every interval, and its setpoints, output, mode and protection once a second. Only the fields the instrument answers are registered. Field names are the same for every vendor: see [Signals](#signals). |
 | `Instruments/<name>/<function>` | A multimeter's reading in one signal named after the active function, such as `dc_voltage` or `resistance`, so each keeps its unit. A function's event appears with its first reading. |
+| `Instruments/<name>/acquisition` | A scope's acquisition and trigger settings once a second: `timebase` s, `delay` s, `sample_rate` Sa/s, `memory_depth` pts, `points` pts, `acquisitions`, `trigger_status`, `trigger_mode`, `trigger_source`, `trigger_level` V, `trigger_slope`, `trigger_frequency` Hz. |
 | `Instruments/<name>/ch<n>/waveform` | A scope channel's captured samples, `voltage`. The event appears with the channel's first capture. |
 | `Instruments/<name>/identity` | Who the instrument is and how it is reached: `manufacturer`, `model`, `serial`, `firmware`, `profile` and `address`, written at every connect. |
 | `Instruments/<name>/status` | `rtt_ms`, the round trip of the last measurement query; `rate_hz`, the readings per second achieved over the last 10 s; `errors`, the instrument errors seen since start; `connected`. |
 | `Instruments/<name>/poll` | The extra readings from the config's poll table, one field each. |
-| `Instruments/<name>/log` | Connects and disconnects, every set with its source, setpoint changes made at the front panel or by another program, mode and protection changes, and the instrument's own errors. |
+| `Instruments/<name>/log` | Connects and disconnects, every set with its source, setpoint changes made at the front panel or by another program, mode and protection changes, the instrument's own errors, replies that fell out of step and came back, and a request dropped because its action stopped waiting. |
 | `Instruments/log` | The extension's own log. |
 
 In the Log panel, the **Source** column shows `action` for a set from the app or a notebook, `instrument` for an error the instrument reported, `tx` and `rx` for raw commands, and `instruments` for the extension's notes.
@@ -38,12 +39,13 @@ In the Log panel, the **Source** column shows `action` for a set from the app or
 
 | Category | Measured every interval | Read once a second |
 |---|---|---|
-| Power supply | `voltage` V, `current` A, `power` W | `voltage_set` V, `current_set` A, `ovp_set` V, `ocp_set` A, `output`, `mode`, `protection` |
-| Electronic load | `voltage` V, `current` A, `power` W, `resistance` Ω | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ω, `output` (the input), `mode`, `protection` |
+| Power supply | `voltage` V, `current` A, `power` W | `voltage_set` V, `current_set` A, `ovp_set` V, `ocp_set` A, `ovp_on`, `ocp_on`, `output`, `mode`, `protection`, `remote_sense`, `tracking` |
+| Electronic load | `voltage` V, `current` A, `power` W, `resistance` Ohm | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ohm, `slew_set` A/s, `current_range`, `output` (the input), `mode`, `protection` |
 | AC source | `voltage` V rms, `current` A rms, `power` W, `apparent_power` VA, `power_factor`, `frequency` Hz | `voltage_set` V, `frequency_set` Hz, `current_set` A, `output`, `protection` |
-| Multimeter | the reading, as `<function>` under `<name>/<function>` (`dc_voltage`, `resistance`, ...) | `function` |
+| Multimeter | the reading, as `<function>` under `<name>/<function>` (`dc_voltage`, `resistance`, ...) | `function`, `range`, `autorange`, `nplc` |
+| Oscilloscope | per channel, the measurements its slots show: `pkpk`, `maximum`, `minimum`, `amplitude`, `top`, `base`, `mean`, `cycle_mean`, `rms`, `cycle_rms`, `stdev` V, `overshoot`, `preshoot`, `duty` %, `period`, `positive_width`, `negative_width`, `rise_time`, `fall_time` s, `frequency` Hz | per channel: `visible`, `scale` V, `offset` V, `coupling`, `bandwidth_limit`, `probe`; the acquisition under `<name>/acquisition` |
 
-`mode` is `off`, `cv`, `cc`, `cp`, `cr`, `unregulated` or `unknown`; for a load it is the configured function. `protection` is `none`, `ovp`, `ocp`, `opp`, `otp` or `other`. Both show as labels in the app and come back as text from the SDK.
+`mode` is `off`, `cv`, `cc`, `cp`, `cr`, `unregulated` or `unknown`; for a load it is the configured function. `protection` is `none`, `ovp`, `ocp`, `opp`, `otp` or `other`. `tracking` is `independent`, `series`, `parallel` or `unknown`, and `current_range` is `low`, `mid`, `high`, `auto` or `unknown`. The labels of `function` and the scope's settings are listed in [docs/profiles.md](profiles.md#fields-by-category). All show as labels in the app and come back as text from the SDK.
 
 A profile records only what its instrument answers. A generic profile probes the standard queries at start and drops the ones the instrument rejects, with one line in the log.
 
@@ -65,7 +67,14 @@ The config holds a list of `instruments` and one `advanced` group. Each instrume
 | `visa` (VISA resource) | Anything VISA names: `TCPIP0::host::inst0::INSTR`, `TCPIP0::host::hislip0::INSTR`, `GPIB0::5::INSTR` | **Resource** (from the list of what answers VXI-11 or HiSLIP, or typed), **VISA library** |
 | `demo` (Demo bench) | A simulated instrument | **Instrument**: supply, load, meter or AC source |
 
-Every entry has a **Profile** (Automatic, a shipped profile, or the path to your own file), a **Name**, and **Readings per second**. Advanced holds **Limits** (the most the extension will ever set, whatever the instrument allows), **Keep the front panel usable**, **Channels**, the reply timeout, the delay between commands, the line ending, and **Extra readings**: any query whose reply is a number, recorded as its own signal.
+Every entry has a **Profile** (Automatic, a shipped profile, or the path to your own file), a **Name**, and **Readings per second** (10 by default). Its Advanced group holds:
+
+- **Limits**: the most the extension will ever set, whatever the instrument allows.
+- **Keep the front panel usable**: on by default.
+- **Channels**, the reply timeout, the delay between commands and the line ending: empty uses the profile's values.
+- **Extra readings**: any query whose reply is a number, recorded as its own signal under `<name>/poll`. Each has a name, the query (`{ch}` reads it once per channel), an optional unit, and how often to read it, every 1 s by default.
+
+Advanced (all instruments) holds the **Prefix** (`Instruments`) and the **Log level** (`DEBUG`, `INFO`, `WARNING` or `ERROR`, `INFO` by default).
 
 The config is checked when the extension starts. A mistake logs one sentence that names the instrument and the field, then the extension exits.
 
@@ -110,18 +119,18 @@ Every action except List Instruments, List Profiles and Auto-configure takes `in
 |---|---|---|---|
 | List Instruments | `Instruments/list_instruments` | Instruments found on the network or on USB, or every serial port, for the address fields. Works while the extension is stopped. | yes |
 | List Profiles | `Instruments/list_profiles` | The shipped profiles with their badge, for the Profile field. | yes |
-| Auto-configure | `Instruments/auto_config` | Keeps the configured instruments and adds one for each instrument found, or the demo bench when there are none. Probes a serial port only when its USB vendor is a known instrument maker. | yes |
+| Auto-configure | `Instruments/auto_config` | Keeps the configured instruments and adds one for each instrument found, or the demo bench when nothing is found and the form is empty. Probes a serial port only when its USB vendor is a known instrument maker. | yes |
 | Set | `Instruments/set_values` | Sets any of voltage, current, power, resistance, frequency, OVP, OCP and function on a channel. Each value is checked against the profile's range and your limits, sent, checked against the instrument's error queue, and read back. | no |
 | Output | `Instruments/output` | Switches a channel's output, or a load's input, on or off. | no |
 | Set Channel | `Instruments/set_channel` | A scope channel's volts per division, offset, coupling, probe factor and visibility. | no |
 | Set Timebase | `Instruments/set_timebase` | A scope's seconds per division and trigger delay. | no |
 | Set Trigger | `Instruments/set_trigger` | A scope's edge trigger: source, level, slope and mode. | no |
 | Run Control | `Instruments/run_control` | Run, stop, arm a single acquisition or autoset a scope. | no |
-| Measure | `Instruments/measure` | Shows a measurement of a scope channel in one of the scope's measurement slots; it is recorded from then on. Reuses the slot that already shows it, else the lowest free one. | no |
+| Measure | `Instruments/measure` | Shows a measurement of a scope channel in one of the scope's measurement slots; it is recorded from then on. Reuses the slot that already shows it, else the lowest free one. `slot` picks the slot, and `off` turns it off instead. | no |
 | Capture Waveform | `Instruments/capture_waveform` | Fetches a scope channel's samples on screen into `<name>/ch<n>/waveform` as one burst, `points` samples spread over the screen (10,000 by default). The trigger instant is placed at the moment of the capture; the samples keep the scope's spacing. | no |
 | Read | `Instruments/read` | A fresh measurement of every signal on a channel, now. | yes |
 | Get State | `Instruments/get_state` | Health, identity, profile, channels with their ranges and last values, counters, and the last commands. | yes |
-| SCPI | `Instruments/scpi` | Sends any command and returns the reply for a query. Logged. Nothing is checked. | no |
+| SCPI | `Instruments/scpi` | Sends any command and returns the reply for a query. Logged. Nothing is checked. `timeout_s` is 0.1 to 30 s, 2 s by default. | no |
 | Clear | `Instruments/clear` | Clears a channel's latched protection and drains the error queue. The output stays off. | no |
 | Local | `Instruments/local` | Gives the front panel back. | no |
 | Release | `Instruments/release` | Closes the link so another program can use the instrument. Outputs stay as they are. | no |
@@ -163,10 +172,13 @@ When an instrument stops answering or the link fails, the extension closes it an
 | Health | Also know |
 |---|---|
 | `Connecting to <where>.` | The first open has not finished. |
+| `Cannot load the profile <path>: <reason>` | The profile file named in the config has a mistake; the reason names it. |
+| `No profile is named <id>. Pick one from the list, or auto.` | The config names a profile that is not shipped. |
 | `Cannot open <where>: <reason>. <advice> Retrying.` | The reason comes from the link; the advice names the usual fix: the host and port, the device being plugged in, another program holding it, or a permission. A host that is up but whose SCPI port no longer accepts connections is named as such: most instruments serve one client on that port, and a client that vanished without closing can hold it until the instrument is power-cycled. When the instrument also answers VXI-11, the message gives the VISA resource that reaches it. |
 | `Lost <where>: <reason>. Reconnecting.` | Three queries in a row got no reply, or the link broke. |
 | `Connected to <maker> <model>. Reading <n> signals and <m> extra readings on <c> channels at <x> Hz (target <y> Hz).` | With a note when the instrument answers slower than the target, and the last instrument error. |
 | `Released <where>; run Acquire to take it back.` | Release closed it on purpose. |
+| `Stopped.` | The extension stopped this instrument. |
 
 ## Limits
 
