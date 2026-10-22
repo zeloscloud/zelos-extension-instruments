@@ -211,10 +211,14 @@ class InstrumentWorker(threading.Thread):
         self._wake.set()
         return future
 
-    def stop(self) -> None:
-        """Ask the worker to end; closes a link blocked in a read."""
+    def request_stop(self) -> None:
+        """Ask the worker to end without waiting, so several can wind down together."""
         self._stopping.set()
         self._wake.set()
+
+    def stop(self) -> None:
+        """Ask the worker to end; closes a link blocked in a read."""
+        self.request_stop()
         # The worker hands the panel back on its own thread; a thread still blocked in a read
         # after the link timeout is woken by closing the link.
         self.join(self._link_timeout_s + 0.5)
@@ -288,6 +292,9 @@ class InstrumentWorker(threading.Thread):
             self._failed_open(e)
             return False
         self._link = link
+        if self._stopping.is_set():
+            self._close()
+            return False
         self._selector = Selector(profile.link.select)
         # A banner, or bytes a previous client left behind, must not become the identity.
         link.clear()
@@ -298,6 +305,9 @@ class InstrumentWorker(threading.Thread):
         except (LinkError, RangeError) as e:
             self._close()
             self._failed_open(e if isinstance(e, LinkError) else LinkError(str(e)))
+            return False
+        if self._stopping.is_set():
+            self._close()
             return False
         try:
             profile = self._resolve_profile(profile, idn)

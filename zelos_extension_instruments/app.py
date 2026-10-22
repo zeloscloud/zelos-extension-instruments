@@ -76,6 +76,8 @@ def run(
     finally:
         workers = list(actions.workers.values())
         for worker in workers:
+            worker.request_stop()
+        for worker in workers:
             worker.stop()
         deadline = time.monotonic() + 1.0
         for worker in workers:
