@@ -400,3 +400,22 @@ def test_list_instruments_names_an_instrument_held_under_its_other_address(
     )
     choice = run("list_instruments", connection="lan")["choices"][0]
     assert choice["label"] == "Siglent Technologies SDS824X HD (10.0.0.5:5025)"
+
+
+def test_list_instruments_for_lan_never_offers_a_resource_as_a_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A VISA resource picked into the Host field made a config that could not connect."""
+    found = [
+        _found(
+            TcpAddress("10.0.0.6", 5025), "RIGOL TECHNOLOGIES,DP832A,X,1", "rigol-dp800", "scan"
+        ),
+        _found(VisaAddress("TCPIP::10.0.0.5::INSTR"), _SCOPE_IDN, "siglent-sds", "vxi11"),
+    ]
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: found)
+    result = run("list_instruments", connection="lan")
+    assert [c["value"] for c in result["choices"]] == ["10.0.0.6"]
+    assert result["message"] == (
+        "Reachable only as a VISA resource: Siglent Technologies SDS824X HD "
+        "(TCPIP::10.0.0.5::INSTR). Set Connection to VISA resource to use it."
+    )
