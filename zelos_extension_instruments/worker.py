@@ -399,17 +399,29 @@ class InstrumentWorker(threading.Thread):
                 raise LinkError(f"{self.where} answered {command} with {reply.strip()!r}")
 
     def _identify(self, link: Link, profile: Profile) -> Idn | None:
-        try:
-            reply = link.query(profile.match.idn)
-        except LinkTimeout:
-            text = f"accepted the connection but did not answer {profile.match.idn}"
-            if self.cfg.profile == "auto":
-                text += "; an instrument that speaks a dialect without it needs its profile picked"
-            raise LinkError(text, "held") from None
-        idn = parse_idn(reply)
-        if not idn.manufacturer and not idn.model:
-            raise LinkError(f"{self.where} answered {profile.match.idn} with {reply!r}")
-        return idn
+        """The identity, asked twice: some units ignore the first query after a connect, and
+        bytes left from before can garble the first reply."""
+        command = profile.match.idn
+        for attempt in (1, 2):
+            try:
+                reply = link.query(command)
+            except LinkTimeout:
+                if attempt == 1:
+                    link.clear()
+                    continue
+                text = f"accepted the connection but did not answer {command}"
+                if self.cfg.profile == "auto":
+                    text += (
+                        "; an instrument that speaks a dialect without it needs its profile picked"
+                    )
+                raise LinkError(text, "held") from None
+            if "," in reply:
+                return parse_idn(reply)
+            if attempt == 1:
+                link.clear()
+                continue
+            raise LinkError(f"{self.where} answered {command} with {reply!r}")
+        raise AssertionError("unreachable")
 
     def _resolve_profile(self, chosen: Profile, idn: Idn | None) -> Profile:
         """`auto` picks the matching profile; a chosen one is kept and the identity checked."""
@@ -908,6 +920,10 @@ class InstrumentWorker(threading.Thread):
         """
         assert self._link is not None and self.profile is not None
         self._clear_link()
+        remote = self.profile.link.remote
+        if remote:
+            # A unit that dropped out of remote mode answers nothing until it is back in it.
+            self._link.write(remote)
         idn = self.profile.match.idn
         self._link.write(idn)
         for _ in range(_RESYNC_READS):

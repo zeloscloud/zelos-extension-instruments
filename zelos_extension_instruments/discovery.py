@@ -470,6 +470,18 @@ class _Attempt:
         except Exception as e:
             log.debug("Closing %s failed: %s", self._address.where, e)
 
+    def _ask(self, link: Link) -> str:
+        """`*IDN?`, asked again on the same link after a silent or garbled first reply: some
+        units ignore the first query after a connect, and bytes left from before garble it."""
+        try:
+            reply = link.query("*IDN?")
+        except LinkTimeout:
+            reply = ""
+        if "," in reply:
+            return reply
+        link.clear()
+        return link.query("*IDN?")
+
     def _run(self) -> None:
         link = None
         try:
@@ -478,7 +490,7 @@ class _Attempt:
                 if self._abandoned:
                     return
                 self._link = link
-            self._reply = link.query("*IDN?")
+            self._reply = self._ask(link)
         except LinkError as e:
             self._error = e
         except Exception as e:
