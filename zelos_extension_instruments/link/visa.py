@@ -9,7 +9,7 @@ import pyvisa
 from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
 
-from . import CONNECT_TIMEOUT_S, Link, LinkError, LinkTimeout, Pacer, Settings, VisaAddress
+from . import CONNECT_TIMEOUT_S, Link, LinkError, LinkTimeout, Pacer, Settings, VisaAddress, seconds
 from .tcp import tune_socket
 
 _MISSING_DRIVER = {
@@ -17,10 +17,6 @@ _MISSING_DRIVER = {
     "GPIB": "GPIB needs a vendor VISA library such as NI-VISA or Keysight VISA",
     "ASRL": "Serial ports through VISA need the pyserial package",
 }
-
-
-def _seconds(value: float) -> str:
-    return f"{value:g} s"
 
 
 def _manager(backend: str) -> pyvisa.ResourceManager:
@@ -76,19 +72,19 @@ def _open_failure(address: VisaAddress, backend: str, exc: Exception) -> LinkErr
             return LinkError(f"{where} is in use by another program.", "busy")
         if code == constants.StatusCode.error_timeout:
             return LinkError(
-                f"No answer from {where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout"
+                f"No answer from {where} within {seconds(CONNECT_TIMEOUT_S)}.", "timeout"
             )
         return LinkError(f"Cannot open {where}: {exc.description}.", "other")
     if "no device found" in lowered:
         return LinkError(f"No instrument answers at {where}.{_usb_advice(where)}", "not_found")
     if "could not connect" in lowered:
-        return LinkError(f"No answer from {where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout")
+        return LinkError(f"No answer from {where} within {seconds(CONNECT_TIMEOUT_S)}.", "timeout")
     if isinstance(exc, ConnectionRefusedError):
         return LinkError(f"{where} refused the connection.", "refused")
     if isinstance(exc, socket.gaierror):
         return LinkError(f"Cannot find the host in {where}.", "unresolved")
     if isinstance(exc, TimeoutError):
-        return LinkError(f"No answer from {where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout")
+        return LinkError(f"No answer from {where} within {seconds(CONNECT_TIMEOUT_S)}.", "timeout")
     if backend == "ivi" and isinstance(exc, OSError) and "visa library" in lowered:
         return LinkError(
             "No system VISA library is installed; install NI-VISA or Keysight VISA, "
@@ -258,7 +254,7 @@ class VisaLink:
             if exc.error_code == constants.StatusCode.error_timeout:
                 if reading:
                     waited = timeout_s or self._settings.timeout_s
-                    return LinkTimeout(f"no reply from {self.where} within {_seconds(waited)}")
+                    return LinkTimeout(f"no reply from {self.where} within {seconds(waited)}")
                 return LinkError(f"{self.where} did not accept a command in time.", "timeout")
             return LinkError(f"The connection to {self.where} failed: {exc.description}.", "other")
         return LinkError(f"The connection to {self.where} failed: {exc}.", "other")

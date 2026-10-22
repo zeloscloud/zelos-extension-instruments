@@ -7,16 +7,14 @@ import time
 from contextlib import suppress
 from typing import Any
 
-from ..waveform import BlockError
 from . import (
     CONNECT_TIMEOUT_S,
-    Lines,
+    LineLink,
     Link,
     LinkError,
-    LinkTimeout,
-    Pacer,
     Settings,
     TcpAddress,
+    seconds,
 )
 
 _CHUNK = 4096
@@ -30,10 +28,6 @@ _TCP_USER_TIMEOUT = 18  # Linux; Python only exposes the constant from 3.12
 _KEEPALIVE_IDLE_S = 10
 _KEEPALIVE_INTERVAL_S = 5
 _KEEPALIVE_PROBES = 4
-
-
-def _seconds(value: float) -> str:
-    return f"{value:g} s"
 
 
 def tune_socket(sock: socket.socket) -> None:
@@ -77,7 +71,7 @@ def _resolve(address: TcpAddress, timeout_s: float) -> list[tuple]:
     threading.Thread(target=lookup, name="tcp-resolve", daemon=True).start()
     if not done.wait(timeout_s):
         raise LinkError(
-            f"No answer from {address.where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout"
+            f"No answer from {address.where} within {seconds(CONNECT_TIMEOUT_S)}.", "timeout"
         )
     result = outcome[0]
     if isinstance(result, BaseException):
@@ -92,7 +86,7 @@ def _open_failure(address: TcpAddress, exc: OSError) -> LinkError:
         return LinkError(f"{address.where} refused the connection.", "refused")
     if isinstance(exc, TimeoutError):
         return LinkError(
-            f"No answer from {address.where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout"
+            f"No answer from {address.where} within {seconds(CONNECT_TIMEOUT_S)}.", "timeout"
         )
     return LinkError(f"Cannot connect to {address.where}: {exc.strerror or exc}.", "other")
 
@@ -125,7 +119,7 @@ def held_failure(address: TcpAddress, infos: list[Any]) -> LinkError:
                 sock.close()
     if not answered:
         return LinkError(
-            f"No answer from {address.where} within {_seconds(CONNECT_TIMEOUT_S)}.", "timeout"
+            f"No answer from {address.where} within {seconds(CONNECT_TIMEOUT_S)}.", "timeout"
         )
     host = f"[{address.host}]" if ":" in address.host else address.host
     text = f"{host} is on the network, but port {address.port} is not accepting connections"
@@ -161,72 +155,26 @@ def open_tcp(address: TcpAddress, settings: Settings) -> Link:
     raise failure
 
 
-class TcpLink:
-    def __init__(self, sock: socket.socket, where: str, settings: Settings) -> None:
-        self.where = where
-        self._sock = sock
-        self._settings = settings
-        self._pacer = Pacer(settings.delay_ms, settings.command_delay_ms)
-        self._lines = Lines(settings.read_terminator)
-        self._closed = False
+class TcpLink(LineLink):
+    line_chunk = _CHUNK
+    block_chunk = _BLOCK_CHUNK
 
-    def write(self, command: str) -> None:
-        data = (command + self._settings.write_terminator).encode()
-        self._pacer.wait()
+    def __init__(self, sock: socket.socket, where: str, settings: Settings) -> None:
+        super().__init__(where, settings)
+        self._sock = sock
+
+    def _send(self, data: bytes) -> None:
         try:
             self._sock.settimeout(self._settings.timeout_s)
             self._sock.sendall(data)
         except TimeoutError as exc:
             raise LinkError(
                 f"{self.where} did not accept a command within "
-                f"{_seconds(self._settings.timeout_s)}.",
+                f"{seconds(self._settings.timeout_s)}.",
                 "timeout",
             ) from exc
         except OSError as exc:
             raise self._broken(exc) from exc
-        self._pacer.mark(command)
-
-    def read(self, timeout_s: float | None = None) -> str:
-        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
-        while True:
-            line = self._lines.pop()
-            if line is not None:
-                return line
-            self._receive(deadline, _CHUNK)
-
-    def query(self, command: str) -> str:
-        self.write(command)
-        return self.read()
-
-    def read_block(self, timeout_s: float | None = None) -> bytes:
-        # A block keeps arriving in pieces: each piece restarts the clock.
-        wait = timeout_s or self._settings.timeout_s
-        while True:
-            block = self._pop_block()
-            if block is not None:
-                return block
-            self._receive(time.monotonic() + wait, _BLOCK_CHUNK)
-
-    def read_any(self, timeout_s: float | None = None) -> str | bytes:
-        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
-        while True:
-            kind = self._lines.starts_block()
-            if kind is True:
-                block = self._pop_block()
-                if block is not None:
-                    return block
-            elif kind is False:
-                line = self._lines.pop()
-                if line is not None:
-                    return line
-            self._receive(deadline, _BLOCK_CHUNK)
-
-    def _pop_block(self) -> bytes | None:
-        try:
-            return self._lines.pop_block()
-        except BlockError as exc:
-            self._lines.clear()
-            raise LinkError(f"{self.where} did not answer with a block: {exc}", "reply") from exc
 
     def _receive(self, deadline: float, size: int) -> None:
         """One more chunk into the line buffer, or the timeout. The wait is sliced so a close
@@ -265,11 +213,6 @@ class TcpLink:
             self._sock.shutdown(socket.SHUT_RDWR)
         with suppress(OSError):
             self._sock.close()
-
-    def _no_reply(self) -> LinkTimeout:
-        return LinkTimeout(
-            f"no reply from {self.where} within {_seconds(self._settings.timeout_s)}"
-        )
 
     def _broken(self, exc: OSError | None) -> LinkError:
         if self._closed:
