@@ -1,6 +1,6 @@
 name = "Instruments"
 version = "0.1.0"
-description = "Record bench instruments (power supplies, electronic loads, multimeters, AC sources, oscilloscopes) over SCPI and set them from the app or a notebook."
+description = "Record bench instruments (power supplies, electronic loads, multimeters, AC sources, oscilloscopes) over SCPI and control them from the app."
 author = "Zelos"
 repository = "https://github.com/zeloscloud/zelos-extension-instruments"
 homepage = "https://github.com/zeloscloud/zelos-extension-instruments"

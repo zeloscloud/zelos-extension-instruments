@@ -1,7 +1,7 @@
 {
   "type": "object",
   "title": "Instruments",
-  "description": "Record bench instruments on the same timeline as the device under test, and set them from the app or a notebook.",
+  "description": "Record bench instruments on the same timeline as the device under test, and control them from the app.",
   "ui:options": { "autoconfig": "Instruments/auto_config" },
   "properties": {
     "instruments": {
