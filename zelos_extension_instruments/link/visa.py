@@ -29,9 +29,7 @@ _MISSING_DRIVER = {
 
 
 def _manager(backend: str) -> pyvisa.ResourceManager:
-    # pyvisa keeps one open manager per library and makes a new one after a close, so this is
-    # never cached here: a cached manager that was closed elsewhere fails every open.
-    # A bare ResourceManager() falls back to pyvisa-py; "@ivi" fails when no VISA is installed.
+    # Never cached: pyvisa shares one manager per library, and one closed elsewhere fails opens.
     return pyvisa.ResourceManager("@py" if backend == "py" else "@ivi")
 
 
@@ -167,8 +165,7 @@ class VisaLink:
         return self.read()
 
     def read_block(self, timeout_s: float | None = None) -> bytes:
-        # A block holds every byte value, so it is read by count, never to a terminator: a raw
-        # socket has no END to read to, and the data may hold the terminator byte.
+        # By count: a raw socket has no END, and a block may hold the terminator byte.
         head = self._read_bytes(2, timeout_s)
         return self._finish_block(head, timeout_s)
 
@@ -212,8 +209,7 @@ class VisaLink:
         if timeout_s is not None:
             inst.timeout = max(1, round(timeout_s * 1000))
         try:
-            # One request for the whole count: pyvisa's 20 KB default cost a VXI-11 round trip per
-            # piece and nearly halved a scope's waveform transfer rate.
+            # One request: pyvisa's 20 KB pieces each cost a VXI-11 round trip, halving the rate.
             return inst.read_bytes(count, chunk_size=max(1, count), break_on_termchar=False)
         except Exception as exc:
             raise self._failure(exc, reading=True, timeout_s=timeout_s) from exc

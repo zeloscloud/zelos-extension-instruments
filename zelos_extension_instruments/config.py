@@ -276,8 +276,7 @@ _CONNECTION_SETTINGS = {
 
 
 def _unknown_settings(raw: dict[str, Any]) -> list[str]:
-    """A setting no connection takes, such as a misspelt `rate`, which the schema lets through
-    because each connection's settings sit in a branch of their own."""
+    """The schema cannot refuse these: each connection's settings sit in a branch of their own."""
     problems: list[str] = []
     for index, item in enumerate(raw.get("instruments") or [], 1):
         if not isinstance(item, dict) or item.get("connection") not in _CONNECTION_SETTINGS:

@@ -125,7 +125,6 @@ class _Background:
             self._done.set()
 
     def result(self, deadline: float, default: Any) -> Any:
-        """The call's value, or `default` when it failed or is still running at `deadline`."""
         self._done.wait(max(0.0, deadline - time.monotonic()))
         return default if self._value is self._UNSET else self._value
 
@@ -214,8 +213,7 @@ def _browse(budget_s: float) -> dict[str, Found]:
 def _vxi11() -> dict[str, Found]:
     found: dict[str, Found] = {}
     try:
-        # The portmapper broadcast alone: a resource manager's listing also walks USB twice and
-        # browses mDNS for HiSLIP, which the browse here already covers.
+        # The broadcast alone: a resource manager's listing also walks USB and browses mDNS again.
         for resource in TCPIPInstrVxi11.list_resources():
             parts = resource.split("::")
             if len(parts) > 1:
@@ -277,8 +275,7 @@ async def _open_ports(targets: list[tuple[str, int]], deadline: float) -> list[t
     for start in range(0, len(targets), batch):
         if time.monotonic() >= deadline:
             break
-        # Plain sockets and numeric addresses, and one timer for the batch: a timeout per probe
-        # cost a quarter more CPU, which the recording threads share.
+        # One timer per batch: a timeout per probe costs a quarter more CPU, shared with recording.
         probes: dict[asyncio.Future[None], tuple[str, int, socket.socket]] = {}
         for ip, port in targets[start : start + batch]:
             sock = socket.socket()
@@ -309,7 +306,6 @@ def _scanned(subnets: list[ipaddress.IPv4Network]) -> list[ipaddress.IPv4Network
 
 
 def _scan_open(subnets: list[ipaddress.IPv4Network], deadline: float) -> set[tuple[str, int]]:
-    """Every (host, port) on the scanned subnets that accepted a connection by the deadline."""
     targets = [
         (str(host), port) for n in _scanned(subnets) for host in n.hosts() for port in SCAN_PORTS
     ]
@@ -360,8 +356,7 @@ def list_lan(
         found = _browse(max(0.0, min(budget_s, deadline - time.monotonic())))
         vxi11: dict[str, Found] | None = broadcast.result(deadline, None)
         for ip, candidate in (vxi11 or {}).items():
-            # A host mDNS named by its raw socket keeps its VXI-11 address beside it too:
-            # `discover` keeps whichever identifies, and a held socket does not.
+            # Keep both: `discover` keeps whichever identifies, and a held socket does not.
             if ip in found and not isinstance(found[ip].address, VisaAddress):
                 found[f"{ip} vxi11"] = candidate
             else:
@@ -369,8 +364,7 @@ def list_lan(
         open_ports: set[tuple[str, int]] | None = scan.result(deadline, None)
         for candidate in _scan_hosts(open_ports or set()):
             ip = candidate.address.where.rsplit(":", 1)[0]
-            # A host found by VXI-11 keeps that address beside the raw socket: `discover`
-            # picks the one that identifies.
+            # Keep both addresses: `discover` picks the one that identifies.
             if ip not in found:
                 found[ip] = candidate
             elif found[ip].source == "vxi11":
@@ -433,8 +427,7 @@ def _libusb_devices() -> list[Found]:
             detail = product or f"{vid:04X}:{pid:04X}"
             candidate = _candidate(VisaAddress(resource), "usb", detail)
             if serial is None:
-                # The device is there but its descriptors cannot be read: a driver or a
-                # permission stands in the way, and no open will get past it either.
+                # Unreadable descriptors mean a driver or a permission no open gets past either.
                 candidate = dataclasses.replace(candidate, error=USB_UNREADABLE)
             found.append(candidate)
         except Exception as e:
@@ -734,8 +727,7 @@ def _search(
         tried.append(("usb", "USB-TMC devices"))
     if "serial" in asked.listings:
         tried.append(("serial", "serial ports of known instrument vendors"))
-    # A worker holds an instrument, not an address: its other address is held too, and so is
-    # the address its host name resolves to.
+    # A worker holds an instrument: its other address and its host name's address are held too.
     held_hosts = {host_of_where(where) for where in asked.skip}
     held_hosts |= resolve(held_hosts, min(1.0, max(0.0, deadline - time.monotonic())))
 
@@ -822,7 +814,6 @@ def _one_per_host(found: list[Found], prefer: str) -> list[Found]:
 
 
 def default_name(found: Found) -> str:
-    """The model as a name the config accepts, else the list detail."""
     idn = found.idn
     raw = idn.model if idn is not None and idn.model else found.detail
     # The config's Name takes ASCII only: a model such as Prüfgerät is saved as Prufgerat.

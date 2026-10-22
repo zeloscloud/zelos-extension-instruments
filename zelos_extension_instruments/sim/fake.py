@@ -91,8 +91,6 @@ class _Channel:
     trip: str = "none"
     load_ohms: float = 10.0
     source_volts: float = 12.0
-    # The newer state fields: protection enables, sense, tracking, a load's range, a meter's
-    # range, auto-range and integration time.
     extras: dict[str, Any] = field(
         default_factory=lambda: {
             "ovp_on": False,

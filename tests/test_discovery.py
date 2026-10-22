@@ -671,8 +671,7 @@ def test_discover_keeps_one_address_per_instrument(
 
 
 def test_the_vxi11_broadcast_opens_no_resource_manager(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A manager's listing walked USB twice and browsed mDNS again; pyvisa also shares that
-    manager with every open link, so closing it closed a worker's session."""
+    """pyvisa shares a library's manager with every open link, so a closed one fails them."""
     _fake_vxi11(monkeypatch, ["TCPIP0::10.0.0.9::inst0::INSTR"])
     _fake_visa(monkeypatch, py=RuntimeError("no manager may be opened"))
     found = discovery.list_lan(budget_s=0.01)
@@ -835,8 +834,6 @@ def test_identify_asks_again_on_the_same_connection(profiles: list[profile.Profi
 def test_a_listing_that_hangs_ends_at_the_deadline_and_keeps_no_thread_alive(
     monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
 ) -> None:
-    """Nothing shared one deadline, so a stalled listing ran Auto-configure past the app's 30 s,
-    and threads the interpreter joins at exit kept a finished run alive."""
     release = threading.Event()
 
     def stalled(budget_s: float, tried: list[str] | None = None, deadline_s: float = 10.0):
@@ -895,8 +892,7 @@ def test_an_instrument_still_answering_at_the_deadline_is_reported_as_out_of_tim
 def test_one_instruments_addresses_are_asked_one_after_another(
     monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
 ) -> None:
-    """Two clients at once on one instrument's parser garbled the identity of both; different
-    hosts are still asked at the same time."""
+    """Two clients at once on one instrument's parser garble each other's replies."""
     addresses = [
         _found(TcpAddress("10.0.0.5", 5025), "a"),
         _found(VisaAddress("TCPIP::10.0.0.5::INSTR"), "a vxi"),
@@ -950,8 +946,6 @@ def test_the_port_scan_starts_no_batch_past_its_deadline() -> None:
 def test_an_instrument_held_under_its_host_name_is_held_at_its_address(
     monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
 ) -> None:
-    """A worker on psu.local held the instrument that a search found as an address, and the
-    search opened a second client on it."""
     monkeypatch.setattr(
         discovery,
         "list_lan",

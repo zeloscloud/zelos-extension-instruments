@@ -409,8 +409,6 @@ def test_a_port_in_the_host_field_is_split_off(host, port, expected) -> None:
 
 
 def test_a_setting_no_connection_takes_is_refused() -> None:
-    """Each connection's settings sit in a schema branch of their own, so a misspelt `rate` used
-    to pass and be ignored."""
     with pytest.raises(config.ConfigError) as caught:
         config.from_dict({"instruments": [{"connection": "lan", "host": "10.0.0.5", "rate": 5}]})
     assert caught.value.problems == ["Instrument 1 (lan): unknown setting rate."]

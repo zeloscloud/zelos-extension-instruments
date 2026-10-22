@@ -67,8 +67,7 @@ def compile_plan(
     profile: Profile, channels: int, dropped: frozenset[str] | set[str] = frozenset()
 ) -> Plan:
     """Every step for `channels` channels, minus the keys in `dropped`."""
-    # A meter's function is read with every reading, so a knob turned at the bench never
-    # labels a reading with the old function.
+    # Read with every reading, so a knob turned at the bench never mislabels one.
     fast_state = tuple(
         r for r in profile.state if profile.category == "dmm" and "function" in r.fields
     )
@@ -150,8 +149,7 @@ def parse_float(text: str) -> float:
     if suffix and not _UNIT.fullmatch(suffix):
         raise ParseError(f"expected a number, got {text.strip()!r}")
     if suffix in _METRIC or (suffix[:1] in _METRIC and suffix[1:] in _UNITS):
-        # A metric prefix, as a memory depth (10M), a sample rate (1.00GSa/s) or a delay
-        # (100ps) reads. Any other suffix is a unit, left as it is.
+        # A metric prefix, as in 10M, 1.00GSa/s or 100ps; any other suffix is a unit.
         number *= _METRIC[suffix[0]]
     if abs(number) >= _NAN_FROM:
         return math.nan
@@ -175,7 +173,6 @@ def parse_int(text: str, hex: bool = False) -> int:
 
 
 def parse_bool(text: str, words: dict[str, str] | None = None) -> bool:
-    """ON/OFF or 1/0, after `words` turns an instrument's own word (`EXT`) into one of them."""
     cleaned = text.strip().strip('"').casefold()
     if words:
         cleaned = words.get(cleaned, cleaned)
@@ -348,8 +345,7 @@ def verified(expected: float, readback: float, range_: Range | None) -> bool:
     if not math.isfinite(readback):
         return False
     if range_ is None:
-        # No digits are known: the instrument may round, but not by more than a part in a
-        # thousand, and a tiny value must not pass as zero.
+        # Without digits, allow a part in a thousand of rounding; a tiny value never passes as 0.
         return abs(readback - expected) <= 1e-3 * max(abs(expected), abs(readback))
     tolerance = range_.step if range_.step is not None else 10.0**-range_.digits
     return abs(readback - expected) <= tolerance * 1.5

@@ -205,8 +205,7 @@ def capture(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str
         desc = decode_wavedesc(worker._link.read_block())
         sent = worker._now()
         worker._link.write(wf.data)
-        # A capture of millions of samples needs more than a reply's timeout: allow a slow
-        # link's worth of transfer time, within what the action waits.
+        # Millions of samples outlast a reply's timeout: allow a slow link's transfer time.
         expected = min(desc.array_bytes or desc.count * desc.bytes_per_sample, points * 2)
         payload = worker._link.read_block(min(_CAPTURE_MAX_S, 5.0 + expected / _SLOW_LINK_BPS))
     except BlockError as e:

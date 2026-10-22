@@ -590,7 +590,7 @@ def test_generic_profile_probes_and_drops_what_the_instrument_refuses() -> None:
 
 
 def test_one_silent_reply_while_probing_does_not_cost_the_field() -> None:
-    """A field dropped at connect is never registered, so its values were lost for good."""
+    """An event cannot gain a field later, so a field dropped at connect is gone for good."""
     silent_once = ["MEAS:VOLT?"]
 
     def unit(command: str) -> str | None:
@@ -1090,8 +1090,6 @@ def test_a_channel_command_selects_its_channel_whichever_way_the_profile_was_cho
 
 
 def test_requests_between_passes_keep_the_reading_schedule(dp800: Profile, dp832: Dp832) -> None:
-    """Twenty requests in one second at 1 Hz each ran a pass and pushed the next one an interval
-    later, so the readings stopped for about twenty seconds."""
     worker, link = start(dp800, dp832, RecordingEmitter(), rate_hz=1)
     try:
         assert wait_until(lambda: worker.state == "open")
@@ -1112,8 +1110,6 @@ def test_requests_between_passes_keep_the_reading_schedule(dp800: Profile, dp832
 def test_stopping_answers_every_pending_request_even_after_one_was_abandoned(
     dp800: Profile,
 ) -> None:
-    """A future the action cancelled took set_result and raised, so the requests queued behind
-    it went unanswered."""
     cfg = instrument_config(rate_hz=50)
     worker = InstrumentWorker(
         cfg, [dp800], RecordingEmitter(), open=opener_for(ScriptedLink(Dp832()))
