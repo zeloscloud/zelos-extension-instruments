@@ -373,6 +373,20 @@ def test_real_pyvisa_py_socket_against_a_fake_instrument(instrument: FakeInstrum
         link.close()
 
 
+def test_a_one_character_reply_does_not_wait_for_more(instrument: FakeInstrument) -> None:  # noqa: F811
+    """`OUTP?` answers `1` and a newline: two bytes that are already the whole reply."""
+    resource = f"TCPIP::127.0.0.1::{instrument.port}::SOCKET"
+    link = open_visa(VisaAddress(resource, "py"), Settings(timeout_s=1.0))
+    try:
+        for reply in ("1", "", "#H1F"):
+            link.write(f"ECHO {reply}")
+            started = time.monotonic()
+            assert link.read_any() == reply
+            assert time.monotonic() - started < 0.5
+    finally:
+        link.close()
+
+
 def test_real_pyvisa_py_socket_to_a_closed_port_fails(closed_port: int) -> None:  # noqa: F811
     resource = f"TCPIP::127.0.0.1::{closed_port}::SOCKET"
     with pytest.raises(LinkError):
