@@ -24,7 +24,7 @@ from .link import (
     VisaAddress,
     open_link,
 )
-from .profile import Profile, by_id, load_file, parse_idn, shipped
+from .profile import Idn, Profile, by_id, load_file, parse_idn, shipped
 
 TRANSCRIPTS = Path(__file__).resolve().parent.parent / "tests" / "transcripts"
 _HOST_PORT = re.compile(r"^(?P<host>[^:]+|\[[^\]]+\])(?::(?P<port>\d+))?$")
@@ -98,13 +98,18 @@ class Recorder:
         command = self._selector.command_for(ch)
         if command is not None:
             self.send(command)
+            self._selector.mark(ch)
 
-    def run(self, channels: int, allow_set: bool) -> str:
+    def identify(self) -> Idn | None:
+        """The identity, after the command some families need before they answer it."""
         profile = self._profile
         if profile.link.first:
             self.send(profile.link.first)
         reply = self.query(profile.match.idn)
-        idn = parse_idn(reply) if reply else None
+        return parse_idn(reply) if reply else None
+
+    def run(self, idn: Idn | None, channels: int, allow_set: bool) -> str:
+        profile = self._profile
         if profile.link.remote:
             self.send(profile.link.remote)
         self.lines.append("# ranges")
@@ -171,7 +176,8 @@ class Recorder:
                     if current is None:
                         continue
                     try:
-                        value = engine.parse_float(current)
+                        # The readback is in the instrument's unit; the setter divides by scale.
+                        value = engine.parse_float(current) * setter.scale
                     except engine.ParseError:
                         continue
                     key = profile.range_key(setter)
@@ -218,15 +224,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     recorder = Recorder(link, profile)
     try:
-        idn_reply = link.query(profile.match.idn)
-    except LinkError as e:
-        print(f"{address.where} did not answer {profile.match.idn}: {e}")
-        link.close()
-        return 1
-    idn = parse_idn(idn_reply)
-    channels = args.channels or profile.channels_for(idn.model)
-    try:
-        name = recorder.run(channels, args.set)
+        idn = recorder.identify()
+        if idn is None:
+            print(f"{address.where} did not answer {profile.match.idn}")
+            return 1
+        channels = args.channels or profile.channels_for(idn.model)
+        name = recorder.run(idn, channels, args.set)
     finally:
         link.close()
     out = args.out or TRANSCRIPTS / profile.id / f"{name}.txt"

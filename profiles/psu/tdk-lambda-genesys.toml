@@ -4,7 +4,7 @@ name = "TDK-Lambda Genesys GEN series"
 category = "psu"
 notes = """Covers the Genesys 750 W and 1500 W GEN models through the RS-232 and RS-485 serial protocol: commands end with a carriage return, and every command is answered with OK, or Enn or Cnn when it fails. \
 The serial port is 8 data bits, no parity, 1 stop bit, 9600 baud by default (1200 to 19200 are selectable). \
-Every supply on a daisy chain must be addressed first with ADR n, and the supply accepts no other command until ADR answers OK. The profile sends ADR 6, the factory default address, and then RMT 1 once after connecting, so a supply set to another address or a chain of several supplies is not supported. The identity query IDN? is sent before ADR 6, because the extension identifies the instrument first; a unit may not answer it until ADR has answered OK. \
+Every supply on a daisy chain must be addressed first with ADR n, and the supply accepts no other command until ADR answers OK. The profile sends ADR 6, the factory default address, before the identity query and RMT 1 after it, so a supply set to another address or a chain of several supplies is not supported. With Profile set to auto the identity is asked before ADR 6, and a unit may not answer it, so pick this profile. \
 The identity query is IDN? and the reply has two fields: LAMBDA,GEN60-12.5. \
 RMT 1 puts the supply in remote mode; RMT 0 returns it to local mode, and RMT 2 (local lockout) is not used. In remote mode the front panel is disabled except PREV, OVP/UVL and LOC/REM. \
 The supply has no error queue; a failed command answers with an error code and the extension reads that as an error. \
