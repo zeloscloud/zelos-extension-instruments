@@ -1,0 +1,267 @@
+schema = 1
+id = "tektronix-2-series"
+name = "Tektronix 2 Series MSO oscilloscopes"
+category = "scope"
+notes = """The MSO22 and MSO24 the 2 Series Programmer Manual covers. The socket server listens on \
+port 4000 by default, with its protocol set to None. Replies come without headers and with \
+full-length words: the extension sends HEADer OFF and VERBose ON at connect. The measurements \
+recorded are the ones the scope's measurement badges show; the Measure action adds one. The \
+manual gives no limit on how many measurements the scope holds; the extension uses at most 12. \
+Bandwidth limit is set but not read back: the scope reports the bandwidth it reached, not the \
+filter. Trigger level sets the level of the edge trigger's source channel, and is not recorded. \
+Pulse width sets the one limit the less-than and greater-than conditions both use. There is no \
+probe ratio over the bus, so probe is not offered. The scope has no internal setup slots and no \
+way to read a setup as one reply, so save, recall and setup are not offered. A screenshot saves \
+the screen to C:/zelos.png on the scope, reads that file back with FILESystem:READFile and then \
+deletes it. *TST? only tests the interface and always passes. Errors are read from the event queue \
+after *ESR? makes them available. A waveform comes as 16-bit signed integers, most significant \
+byte first. Written from the manual; not yet run on a unit."""
+
+[evidence]
+badge = "manual"
+source = "Tektronix 2 Series MSO MSO22, MSO24 Programmer Manual 077-1776-01, April 2022, firmware 1.42.5 and above"
+url = "https://valuetronics.com/cdn/shop/files/Tektronix_2_Series_Programmer_Manual.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^tektronix'
+model = '(?i)^MSO2[24]$'
+channels = 4
+
+[[match.models]]
+model = '(?i)^MSO22$'
+channels = 2
+
+[link]
+lan_port = 4000
+init = ["HEADer OFF", "VERBose ON"]
+
+[errors]
+query = ["*ESR?", "EVMsg?"]
+ok = '^\s*\d+\s*$|^\s*(0|1|40[0-35])\s*,'
+
+[system]
+lock = "LOCk ALL"
+unlock = "LOCk NONe"
+screenshot = ['SAVe:IMAGe "C:/zelos.png"', "*OPC?", 'FILESystem:READFile "C:/zelos.png"']
+screenshot_framing = "png"
+screenshot_cleanup = 'FILESystem:DELEte "C:/zelos.png"'
+
+[state.visible]
+query = "DISplay:WAVEView1:CH{ch}:STATE?"
+parse = "bool"
+
+[state.scale]
+query = "CH{ch}:SCAle?"
+parse = "float"
+
+[state.offset]
+query = "CH{ch}:OFFSet?"
+parse = "float"
+
+[state.coupling]
+query = "CH{ch}:COUPling?"
+parse = "map"
+map = { DC = "dc", AC = "ac" }
+
+[state.timebase]
+query = "HORizontal:SCAle?"
+parse = "float"
+
+[state.sample_rate]
+query = "HORizontal:SAMPLERate?"
+parse = "float"
+
+[state.memory_depth]
+query = "HORizontal:RECOrdlength?"
+parse = "float"
+
+[state.acquisitions]
+query = "ACQuire:NUMACq?"
+parse = "int"
+
+[state.trigger_status]
+query = "TRIGger:STATE?"
+parse = "map"
+map = { ARMED = "armed", AUTO = "auto", READY = "ready", SAVE = "stopped", TRIGGER = "triggered" }
+
+[state.trigger_mode]
+query = "TRIGger:A:MODe?"
+parse = "map"
+map = { AUTO = "auto", NORMal = "normal" }
+
+[state.trigger_source]
+query = "TRIGger:A:EDGE:SOUrce?"
+parse = "map"
+map = { CH1 = "ch1", CH2 = "ch2", CH3 = "ch3", CH4 = "ch4", AUXiliary = "external" }
+
+[state.trigger_slope]
+query = "TRIGger:A:EDGE:SLOpe?"
+parse = "map"
+map = { RISe = "rising", FALL = "falling", EITher = "either" }
+
+[state.acquisition_mode]
+query = "ACQuire:MODe?"
+parse = "map"
+map = { SAMple = "normal", PEAKdetect = "peak", HIRes = "hires", AVErage = "average", ENVelope = "envelope" }
+
+[state.averages]
+query = "ACQuire:NUMAVg?"
+parse = "int"
+
+[state.trigger_type]
+query = "TRIGger:A:TYPe?"
+parse = "map"
+map = { EDGE = "edge", WIDth = "pulse", RISE = "other", FALL = "other", TIMEOut = "other", RUNt = "other", LOGIc = "other", SETHold = "other", BUS = "other" }
+
+[state.pulse_width]
+query = "TRIGger:A:PULSEWidth:LOWLimit?"
+parse = "float"
+
+[state.pulse_condition]
+query = "TRIGger:A:PULSEWidth:WHEn?"
+parse = "map"
+map = { LESSthan = "less", MOREthan = "greater", EQual = "other", UNEQual = "other", WIThin = "other", OUTside = "other" }
+
+[setters.visible]
+command = "DISplay:WAVEView1:CH{ch}:STATE {on}"
+
+[setters.scale]
+command = "CH{ch}:SCAle {value}"
+
+[setters.offset]
+command = "CH{ch}:OFFSet {value}"
+
+[setters.coupling]
+command = "CH{ch}:COUPling {value}"
+map = { dc = "DC", ac = "AC" }
+
+[setters.bandwidth_limit]
+command = "CH{ch}:BANdwidth {value}"
+map = { full = "FULl", "20mhz" = "20.0E+6" }
+
+[setters.timebase]
+command = "HORizontal:SCAle {value}"
+channel = false
+
+[setters.trigger_level]
+command = "TRIGger:A:LEVel:CH{src} {value}"
+verify = "TRIGger:A:LEVel:CH{src}?"
+channel = false
+
+[setters.trigger_source]
+command = "TRIGger:A:EDGE:SOUrce {value}"
+channel = false
+map = { ch1 = "CH1", ch2 = "CH2", ch3 = "CH3", ch4 = "CH4" }
+
+[setters.trigger_slope]
+command = "TRIGger:A:EDGE:SLOpe {value}"
+channel = false
+map = { rising = "RISe", falling = "FALL", either = "EITher" }
+
+[setters.trigger_mode]
+command = "TRIGger:A:MODe {value}"
+channel = false
+map = { auto = "AUTO", normal = "NORMal" }
+
+[setters.acquisition_mode]
+command = "ACQuire:MODe {value}"
+channel = false
+map = { normal = "SAMple", peak = "PEAKdetect", hires = "HIRes", average = "AVErage", envelope = "ENVelope" }
+
+[setters.averages]
+command = "ACQuire:NUMAVg {value}"
+channel = false
+
+[setters.trigger_type]
+command = "TRIGger:A:TYPe {value}"
+channel = false
+map = { edge = "EDGE", pulse = "WIDth" }
+
+[setters.pulse_width]
+command = "TRIGger:A:PULSEWidth:LOWLimit {value}"
+channel = false
+
+[setters.pulse_condition]
+command = "TRIGger:A:PULSEWidth:WHEn {value}"
+channel = false
+map = { less = "LESSthan", greater = "MOREthan" }
+
+[setters.run]
+command = ["ACQuire:STOPAfter RUNSTop", "ACQuire:STATE RUN"]
+channel = false
+
+[setters.stop]
+command = "ACQuire:STATE STOP"
+channel = false
+
+[setters.single]
+command = ["ACQuire:STOPAfter SEQuence", "ACQuire:STATE RUN"]
+channel = false
+
+[setters.autoset]
+command = "AUTOSet EXECute"
+channel = false
+
+[setters.force]
+command = "TRIGger FORCe"
+channel = false
+
+[scope]
+grid = 10
+
+[scope.slots]
+count = 12
+list = "MEASUrement:LIST?"
+list_pattern = 'MEAS(?P<slot>\d+)'
+type = "MEASUrement:MEAS{slot}:TYPe?"
+source = "MEASUrement:MEAS{slot}:SOUrce1?"
+source_pattern = '^CH(?P<ch>\d+)$'
+value = "MEASUrement:MEAS{slot}:RESUlts:CURRentacq:MEAN?"
+
+[scope.slots.types]
+PK2Pk = "pkpk"
+MAXimum = "maximum"
+MINImum = "minimum"
+AMPLITUDE = "amplitude"
+TOP = "top"
+BASE = "base"
+MEAN = "mean"
+RMS = "rms"
+POVERSHOOT = "overshoot"
+PERIOD = "period"
+FREQuency = "frequency"
+PWIDTH = "positive_width"
+NWIdth = "negative_width"
+PDUTY = "duty"
+RISETIME = "rise_time"
+FALLTIME = "fall_time"
+
+[scope.measure]
+commands = [
+  'MEASUrement:ADDNew "MEAS{slot}"',
+  "MEASUrement:MEAS{slot}:TYPe {type}",
+  "MEASUrement:MEAS{slot}:SOUrce1 CH{ch}",
+]
+off = 'MEASUrement:DELete "MEAS{slot}"'
+
+[scope.waveform]
+format = "linear"
+setup = [
+  "DATa:SOUrce CH{ch}",
+  "DATa:ENCdg RIBinary",
+  "WFMOutpre:BYT_Nr 2",
+  "DATa:RESample {interval}",
+  "DATa:STARt 1",
+  "DATa:STOP 1000000000",
+]
+data = "CURVe?"
+points = "HORizontal:RECOrdlength?"
+encoding = "i2"
+byte_order = "big"
+x_inc = { query = "WFMOutpre:XINcr?" }
+x_zero = { query = "WFMOutpre:XZEro?" }
+x_ref = { query = "WFMOutpre:PT_Off?" }
+y_mult = { query = "WFMOutpre:YMUlt?" }
+y_zero = { query = "WFMOutpre:YZEro?" }
+y_ref = { query = "WFMOutpre:YOFf?" }
