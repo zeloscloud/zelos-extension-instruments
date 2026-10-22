@@ -7,7 +7,7 @@ from contextlib import suppress
 
 import serialx
 
-from . import LineLink, Link, LinkError, SerialAddress, Settings, seconds
+from . import LineLink, Link, LinkError, LinkSettings, SerialAddress, seconds
 
 _WRITE_TIMEOUT_S = 1.0
 _CHUNK = 256
@@ -35,7 +35,7 @@ def _open_failure(port: str, exc: Exception) -> LinkError:
     return LinkError(f"Cannot open {port}: {getattr(exc, 'strerror', None) or exc}.", "other")
 
 
-def open_serial(address: SerialAddress, settings: Settings) -> Link:
+def open_serial(address: SerialAddress, settings: LinkSettings) -> Link:
     """Open a serial port or serialx URL; raises LinkError."""
     try:
         port = serialx.serial_for_url(
@@ -60,7 +60,7 @@ class SerialLink(LineLink):
     line_chunk = _CHUNK
     block_chunk = _CHUNK
 
-    def __init__(self, port: serialx.BaseSerial, where: str, settings: Settings) -> None:
+    def __init__(self, port: serialx.BaseSerial, where: str, settings: LinkSettings) -> None:
         super().__init__(where, settings)
         self._port = port
 

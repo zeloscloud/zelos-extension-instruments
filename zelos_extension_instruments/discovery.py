@@ -31,9 +31,9 @@ from .link import (
     Address,
     Link,
     LinkError,
+    LinkSettings,
     LinkTimeout,
     SerialAddress,
-    Settings,
     TcpAddress,
     VisaAddress,
     open_link,
@@ -489,7 +489,7 @@ class _Attempt:
     def __init__(self, address: Address, timeout_s: float) -> None:
         self._address = address
         # A device clear resets what another client is asking: a read-buffer flush is enough.
-        self._settings = Settings(
+        self._settings = LinkSettings(
             write_terminator="\n", read_terminator="\n", timeout_s=timeout_s, device_clear=False
         )
         self._lock = threading.Lock()

@@ -9,7 +9,16 @@ import pyvisa
 from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
 
-from . import CONNECT_TIMEOUT_S, Link, LinkError, LinkTimeout, Pacer, Settings, VisaAddress, seconds
+from . import (
+    CONNECT_TIMEOUT_S,
+    Link,
+    LinkError,
+    LinkSettings,
+    LinkTimeout,
+    Pacer,
+    VisaAddress,
+    seconds,
+)
 from .tcp import tune_socket
 
 _MISSING_DRIVER = {
@@ -105,7 +114,7 @@ def _open_failure(address: VisaAddress, backend: str, exc: Exception) -> LinkErr
     return LinkError(f"Cannot open {where}: {message or type(exc).__name__}.", "other")
 
 
-def open_visa(address: VisaAddress, settings: Settings) -> Link:
+def open_visa(address: VisaAddress, settings: LinkSettings) -> Link:
     """Open a VISA resource; raises LinkError."""
     backend = _backend(address)
     inst = None
@@ -135,7 +144,7 @@ def open_visa(address: VisaAddress, settings: Settings) -> Link:
 
 
 class VisaLink:
-    def __init__(self, inst: MessageBasedResource, where: str, settings: Settings) -> None:
+    def __init__(self, inst: MessageBasedResource, where: str, settings: LinkSettings) -> None:
         self.where = where
         self._inst = inst
         self._settings = settings

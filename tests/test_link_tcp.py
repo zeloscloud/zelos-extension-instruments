@@ -7,11 +7,11 @@ from typing import Any
 
 import pytest
 
-from zelos_extension_instruments.link import LinkError, LinkTimeout, Settings, TcpAddress, tcp
+from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, TcpAddress, tcp
 from zelos_extension_instruments.link.tcp import open_tcp
 
 IDN = "ACME,PSU-1,SN1,1.0"
-FAST = Settings(timeout_s=0.3)
+FAST = LinkSettings(timeout_s=0.3)
 
 
 class _Handler(socketserver.BaseRequestHandler):
@@ -85,7 +85,7 @@ def closed_port() -> int:
         return sock.getsockname()[1]
 
 
-def connect(server: FakeInstrument, settings: Settings = FAST):
+def connect(server: FakeInstrument, settings: LinkSettings = FAST):
     return open_tcp(TcpAddress("127.0.0.1", server.port), settings)
 
 
@@ -99,7 +99,7 @@ def test_query_returns_the_reply_without_its_terminator(instrument: FakeInstrume
 
 
 def test_write_appends_the_write_terminator(instrument: FakeInstrument) -> None:
-    link = connect(instrument, Settings(write_terminator="\r\n", timeout_s=0.3))
+    link = connect(instrument, LinkSettings(write_terminator="\r\n", timeout_s=0.3))
     try:
         assert link.query("ECHO hi") == "hi"
         assert instrument.received == ["ECHO hi"]
@@ -108,7 +108,7 @@ def test_write_appends_the_write_terminator(instrument: FakeInstrument) -> None:
 
 
 def test_read_terminator_can_be_longer_than_one_byte(instrument: FakeInstrument) -> None:
-    link = connect(instrument, Settings(read_terminator="\r\n", timeout_s=0.3))
+    link = connect(instrument, LinkSettings(read_terminator="\r\n", timeout_s=0.3))
     try:
         assert link.query("CRLF?") == "OK"
     finally:
@@ -116,7 +116,7 @@ def test_read_terminator_can_be_longer_than_one_byte(instrument: FakeInstrument)
 
 
 def test_reply_split_across_two_sends_is_joined(instrument: FakeInstrument) -> None:
-    link = connect(instrument, Settings(timeout_s=2))
+    link = connect(instrument, LinkSettings(timeout_s=2))
     try:
         assert link.query("SPLIT?") == "HELLO"
     finally:
@@ -168,7 +168,7 @@ def test_a_timed_out_link_keeps_working_after_clear(instrument: FakeInstrument) 
 
 
 def test_connection_closed_mid_reply_is_a_link_error(instrument: FakeInstrument) -> None:
-    link = connect(instrument, Settings(timeout_s=2))
+    link = connect(instrument, LinkSettings(timeout_s=2))
     try:
         with pytest.raises(LinkError) as caught:
             link.query("DROP?")
@@ -180,7 +180,7 @@ def test_connection_closed_mid_reply_is_a_link_error(instrument: FakeInstrument)
 
 
 def test_write_to_a_dropped_connection_is_a_link_error(instrument: FakeInstrument) -> None:
-    link = connect(instrument, Settings(timeout_s=2))
+    link = connect(instrument, LinkSettings(timeout_s=2))
     try:
         with pytest.raises(LinkError):
             link.query("DROP?")
@@ -208,7 +208,7 @@ def test_clear_drops_pending_bytes_and_waits_only_for_quiet(instrument: FakeInst
 
 
 def test_delay_spaces_consecutive_writes(instrument: FakeInstrument) -> None:
-    link = connect(instrument, Settings(timeout_s=1, delay_ms=200))
+    link = connect(instrument, LinkSettings(timeout_s=1, delay_ms=200))
     try:
         link.write("*IDN?")
         started = time.monotonic()
@@ -227,7 +227,7 @@ def test_close_is_idempotent(instrument: FakeInstrument) -> None:
 
 
 def test_close_from_another_thread_interrupts_a_blocked_read(instrument: FakeInstrument) -> None:
-    link = connect(instrument, Settings(timeout_s=10))
+    link = connect(instrument, LinkSettings(timeout_s=10))
     errors: list[LinkError] = []
 
     def blocked() -> None:
@@ -253,7 +253,7 @@ def test_close_ends_a_blocked_read_even_where_shutdown_does_not_wake_it(
 ) -> None:
     """On the macOS runner a shutdown sometimes left the read blocked until its own timeout."""
     monkeypatch.setattr(socket.socket, "shutdown", lambda self, how: None)
-    link = connect(instrument, Settings(timeout_s=10))
+    link = connect(instrument, LinkSettings(timeout_s=10))
     errors: list[LinkError] = []
 
     def blocked() -> None:

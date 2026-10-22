@@ -15,8 +15,7 @@ import zelos_sdk
 
 from zelos_extension_instruments import ACTION_PREFIX, config
 from zelos_extension_instruments.config import InstrumentConfig
-from zelos_extension_instruments.link import Address, Link, LinkError, LinkTimeout
-from zelos_extension_instruments.link import Settings as LinkSettings
+from zelos_extension_instruments.link import Address, Link, LinkError, LinkSettings, LinkTimeout
 from zelos_extension_instruments.profile import Profile, load_file, shipped
 from zelos_extension_instruments.waveform import BlockError, block_payload
 

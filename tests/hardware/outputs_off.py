@@ -5,7 +5,7 @@ import os
 import sys
 
 from zelos_extension_instruments import engine
-from zelos_extension_instruments.link import LinkError, Settings, open_link
+from zelos_extension_instruments.link import LinkError, LinkSettings, open_link
 from zelos_extension_instruments.profile import by_id, shipped
 from zelos_extension_instruments.record import parse_address
 
@@ -18,7 +18,7 @@ def main() -> int:
         if profile is None or "output" not in profile.setters:
             continue
         link_defaults = profile.link
-        settings = Settings(
+        settings = LinkSettings(
             link_defaults.write_terminator,
             link_defaults.read_terminator,
             link_defaults.timeout_s,

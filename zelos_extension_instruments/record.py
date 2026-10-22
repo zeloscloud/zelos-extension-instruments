@@ -18,8 +18,8 @@ from . import engine
 from .link import (
     Link,
     LinkError,
+    LinkSettings,
     SerialAddress,
-    Settings,
     TcpAddress,
     VisaAddress,
     open_link,
@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no profile is named {args.profile}")
         return 2
     address = parse_address(args.address, profile, args.baud)
-    settings = Settings(
+    settings = LinkSettings(
         profile.link.write_terminator,
         profile.link.read_terminator,
         profile.link.timeout_s,

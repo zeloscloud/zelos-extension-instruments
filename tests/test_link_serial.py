@@ -8,13 +8,13 @@ import pytest
 import serialx
 from test_link_tcp import IDN, FakeInstrument, closed_port, instrument  # noqa: F401
 
-from zelos_extension_instruments.link import LinkError, LinkTimeout, SerialAddress, Settings
+from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, SerialAddress
 from zelos_extension_instruments.link.serial import open_serial
 
-FAST = Settings(timeout_s=0.3)
+FAST = LinkSettings(timeout_s=0.3)
 
 
-def connect(server: FakeInstrument, settings: Settings = FAST):
+def connect(server: FakeInstrument, settings: LinkSettings = FAST):
     return open_serial(SerialAddress(f"socket://127.0.0.1:{server.port}"), settings)
 
 
@@ -28,7 +28,7 @@ def test_query_over_a_serialx_url(instrument: FakeInstrument) -> None:  # noqa: 
 
 
 def test_write_appends_the_write_terminator_and_echoes(instrument: FakeInstrument) -> None:  # noqa: F811
-    link = connect(instrument, Settings(write_terminator="\r\n", timeout_s=0.3))
+    link = connect(instrument, LinkSettings(write_terminator="\r\n", timeout_s=0.3))
     try:
         assert link.query("ECHO hi") == "hi"
         assert instrument.received == ["ECHO hi"]
@@ -37,7 +37,7 @@ def test_write_appends_the_write_terminator_and_echoes(instrument: FakeInstrumen
 
 
 def test_reply_split_across_two_sends_is_joined(instrument: FakeInstrument) -> None:  # noqa: F811
-    link = connect(instrument, Settings(timeout_s=2))
+    link = connect(instrument, LinkSettings(timeout_s=2))
     try:
         assert link.query("SPLIT?") == "HELLO"
     finally:
@@ -95,7 +95,7 @@ def test_clear_drops_pending_bytes(instrument: FakeInstrument) -> None:  # noqa:
 def test_connection_closed_mid_reply_is_a_link_error(
     instrument: FakeInstrument,  # noqa: F811
 ) -> None:
-    link = connect(instrument, Settings(timeout_s=2))
+    link = connect(instrument, LinkSettings(timeout_s=2))
     try:
         with pytest.raises(LinkError) as caught:
             link.query("DROP?")
@@ -106,7 +106,7 @@ def test_connection_closed_mid_reply_is_a_link_error(
 
 
 def test_delay_spaces_consecutive_writes(instrument: FakeInstrument) -> None:  # noqa: F811
-    link = connect(instrument, Settings(timeout_s=1, delay_ms=200))
+    link = connect(instrument, LinkSettings(timeout_s=1, delay_ms=200))
     try:
         link.write("*IDN?")
         started = time.monotonic()
@@ -127,7 +127,7 @@ def test_close_is_idempotent_and_ends_the_link(instrument: FakeInstrument) -> No
 def test_close_from_another_thread_ends_a_blocked_read(
     instrument: FakeInstrument,  # noqa: F811
 ) -> None:
-    link = connect(instrument, Settings(timeout_s=1))
+    link = connect(instrument, LinkSettings(timeout_s=1))
     errors: list[LinkError] = []
 
     def blocked() -> None:
