@@ -1,12 +1,12 @@
 name = "Instruments"
-version = "0.1.0"
-description = "Record and control bench instruments over SCPI: power supplies, electronic loads, multimeters, AC sources and oscilloscopes."
+version = "0.2.0"
+description = "Record and control bench instruments over SCPI: power supplies, electronic loads, multimeters, AC sources, oscilloscopes, function generators and data acquisition units."
 author = "Zelos"
 repository = "https://github.com/zeloscloud/zelos-extension-instruments"
 homepage = "https://github.com/zeloscloud/zelos-extension-instruments"
 # Search matches substrings of these, the name and the description, so a word the description holds
 # is wasted here. Zelos AI reads the keywords too; the page shows the first three categories.
-keywords = ["power supply", "psu", "dc load", "dmm", "waveform", "test equipment", "pyvisa", "lxi", "usbtmc", "gpib", "serial", "keysight", "agilent", "rigol", "siglent", "keithley", "rohde & schwarz", "fluke", "b&k precision", "gw instek"]
+keywords = ["power supply", "psu", "dc load", "dmm", "waveform", "test equipment", "pyvisa", "lxi", "usbtmc", "gpib", "awg", "daq", "keysight", "agilent", "rigol", "siglent", "keithley", "rohde & schwarz", "fluke", "tektronix"]
 categories = ["Test & Measurement", "Embedded", "Industrial"]
 
 icon = "assets/icon.png"

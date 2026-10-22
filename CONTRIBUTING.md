@@ -13,11 +13,12 @@ The Zelos guide to [developing extensions](https://docs.zeloscloud.io/sdk/how-to
 
 | Path | Holds |
 | ---- | ----- |
-| `profiles/<category>/<id>.toml` | One profile per instrument family. [docs/profiles.md](docs/profiles.md) is the format. |
-| `zelos_extension_instruments/profile.py`, `engine.py` | The profile model and the engine that runs any profile. |
+| `profiles/<category>/<id>.toml` | One profile per instrument family, in `psu`, `load`, `dmm`, `acsource`, `scope`, `fgen`, `daq` and `generic`. [docs/profiles.md](docs/profiles.md) is the format. |
+| `zelos_extension_instruments/profile.py`, `profile_load.py`, `engine.py` | The profile model, the loader that checks a profile file, and the engine that runs any profile. `profile_system.py`, `profile_scope.py` and `profile_daq.py` hold the format's `[system]`, `[scope]` and `[daq]` parts. |
 | `zelos_extension_instruments/link/` | Raw TCP, serial and VISA links behind one interface. |
 | `zelos_extension_instruments/worker.py` | One thread per instrument: identify, poll, serve requests, reconnect. |
-| `zelos_extension_instruments/sim/` | A fake instrument served from any profile, with fault hooks, for tests and the demo. |
+| `zelos_extension_instruments/serve.py`, `system_ops.py`, `scope_ops.py`, `daq_ops.py` | What the worker does for a request: sets and reads, the system actions, scope measurements and waveforms, and data-acquisition scans. |
+| `zelos_extension_instruments/sim/` | A fake instrument served from any profile, including generators, scopes and data-acquisition units, with fault hooks, for tests and the demo. |
 | `zelos_extension_instruments/record.py` | The transcript recorder. |
 | `tests/transcripts/<id>/` | Transcripts recorded from real units; each replays against its profile in CI. |
 | `tests/hardware/` | The nightly bench job's tests and scripts. |
@@ -32,7 +33,7 @@ The Zelos guide to [developing extensions](https://docs.zeloscloud.io/sdk/how-to
 | `just test` | Run the tests (`uv run pytest -m perf` adds the cadence gates) |
 | `just profiles [paths]` | Check every shipped profile, and any paths given |
 | `just sim <profile> [--port N]` | Serve a fake instrument from a profile on a TCP port |
-| `just record <profile> <address>` | Record a transcript from a real instrument |
+| `just record <profile> <address>` | Record a transcript from a real instrument (`--set` rewrites each level to its current value, and never sends a switch, label or command) |
 | `just run` | Run the extension against `./config.json` |
 | `just package` | Package for the Zelos marketplace |
 | `just release VERSION` | Bump version, check, test, commit, tag |
@@ -61,7 +62,7 @@ zelos extensions logs local.instruments
 just sim rigol-dp800 --port 5555
 ```
 
-Then configure a LAN instrument at `127.0.0.1:5555` with the profile `rigol-dp800`. The fake answers every query the profile makes, keeps setpoints, models a resistive load, and fills an error queue for unknown commands and out-of-range values. It proves that the engine executes the profile; only a transcript from a real unit proves the profile describes the instrument.
+Then configure a LAN instrument at `127.0.0.1:5555` with the profile `rigol-dp800`. The fake answers every query the profile makes, keeps setpoints, models a resistive load, answers the system functions, keeps a generator's settings and a data-acquisition unit's scan and relays, and fills an error queue for unknown commands and out-of-range values. It proves that the engine executes the profile; only a transcript from a real unit proves the profile describes the instrument. A data-acquisition unit also needs its Scan and Relays settings: see [docs/reference.md](docs/reference.md#data-acquisition-units).
 
 ## Add an instrument
 
@@ -73,7 +74,7 @@ Then configure a LAN instrument at `127.0.0.1:5555` with the profile `rigol-dp80
 ## Releasing
 
 ```bash
-just release 0.2.0
+just release VERSION
 git push --follow-tags
 ```
 
