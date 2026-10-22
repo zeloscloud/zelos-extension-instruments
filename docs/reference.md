@@ -24,7 +24,7 @@ All events go under one trace source, `Instruments` by default (**Prefix** in Ad
 | Event | Holds |
 |---|---|
 | `Instruments/<name>/ch<n>` | The channel's measurements every interval, and its setpoints, output, mode and protection once a second. Only the fields the instrument answers are registered. Field names are the same for every vendor: see [Signals](#signals). |
-| `Instruments/<name>/<function>` | A multimeter's reading, under the active function (`dc_voltage`, `resistance`, ...), so each keeps its unit. A function's event appears with its first reading. |
+| `Instruments/<name>/<function>` | A multimeter's reading in one signal named after the active function, such as `dc_voltage` or `resistance`, so each keeps its unit. A function's event appears with its first reading. |
 | `Instruments/<name>/ch<n>/waveform` | A scope channel's captured samples, `voltage`. The event appears with the channel's first capture. |
 | `Instruments/<name>/identity` | Who the instrument is and how it is reached: `manufacturer`, `model`, `serial`, `firmware`, `profile` and `address`, written at every connect. |
 | `Instruments/<name>/status` | `rtt_ms`, the round trip of the last measurement query; `rate_hz`, the readings per second achieved over the last 10 s; `errors`, the instrument errors seen since start; `connected`. |
@@ -41,7 +41,7 @@ In the Log panel, the **Source** column shows `action` for a set from the app or
 | Power supply | `voltage` V, `current` A, `power` W | `voltage_set` V, `current_set` A, `ovp_set` V, `ocp_set` A, `output`, `mode`, `protection` |
 | Electronic load | `voltage` V, `current` A, `power` W, `resistance` Ω | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ω, `output` (the input), `mode`, `protection` |
 | AC source | `voltage` V rms, `current` A rms, `power` W, `apparent_power` VA, `power_factor`, `frequency` Hz | `voltage_set` V, `frequency_set` Hz, `current_set` A, `output`, `protection` |
-| Multimeter | `value`, under the active function's event | `function` |
+| Multimeter | the reading, as `<function>` under `<name>/<function>` (`dc_voltage`, `resistance`, ...) | `function` |
 
 `mode` is `off`, `cv`, `cc`, `cp`, `cr`, `unregulated` or `unknown`; for a load it is the configured function. `protection` is `none`, `ovp`, `ocp`, `opp`, `otp` or `other`. Both show as labels in the app and come back as text from the SDK.
 

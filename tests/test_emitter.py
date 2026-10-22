@@ -189,14 +189,14 @@ def test_reading_writes_one_event_per_function_with_its_unit(
     emitter.reading("dmm", "dc_voltage", 3.4, 3 * SECOND)
     events = trace_file.events()
     assert events["dmm/dc_voltage"] == [
-        {TIME: 1.0, "value": 3.3},
-        {TIME: 3.0, "value": 3.4},
+        {TIME: 1.0, "dc_voltage": 3.3},
+        {TIME: 3.0, "dc_voltage": 3.4},
     ]
-    assert events["dmm/resistance"] == [{TIME: 2.0, "value": 470.0}]
+    assert events["dmm/resistance"] == [{TIME: 2.0, "resistance": 470.0}]
     # A function the meter never read has no event, so no empty signal in the trace.
     assert "dmm/continuity" not in events
-    assert spy.fields["dmm/dc_voltage"]["value"][1] == "V"
-    assert spy.fields["dmm/resistance"]["value"][1] == "Ohm"
+    assert spy.fields["dmm/dc_voltage"]["dc_voltage"][1] == "V"
+    assert spy.fields["dmm/resistance"]["resistance"][1] == "Ohm"
     assert "dmm/continuity" not in spy.fields
 
 
