@@ -25,10 +25,6 @@ class HostClock:
         self._wall = wall
         self._offset = wall() - now()
 
-    def now(self) -> int:
-        """The monotonic reading clock."""
-        return self._now()
-
     def epoch_ns(self, mono_ns: int) -> int:
         """A reading clock value as wall-clock nanoseconds."""
         offset = self._wall() - self._now()

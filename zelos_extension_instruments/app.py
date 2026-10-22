@@ -67,7 +67,7 @@ def run(
     actions.workers.clear()
     try:
         for cfg in _with_default_names(settings.instruments):
-            worker = _worker(cfg, profiles, emitter, settings, open)
+            worker = _worker(cfg, profiles, emitter, open)
             worker.start()
             actions.workers[cfg.name] = worker
         # A timed wait: an untimed Event.wait() may not wake for Ctrl-C on Windows.
@@ -90,17 +90,16 @@ def _worker(
     cfg: InstrumentConfig,
     profiles: list[Profile],
     emitter: Emitter,
-    settings: Settings,
     open: Opener | None,
 ) -> InstrumentWorker:
     if cfg.connection == "demo":
         from .demo import CHANNELS, demo_opener
 
         cfg = dataclasses.replace(cfg, channels=cfg.channels or CHANNELS[cfg.category])
-        return InstrumentWorker(cfg, profiles, emitter, settings, open=demo_opener(cfg))
+        return InstrumentWorker(cfg, profiles, emitter, open=demo_opener(cfg))
     if open is None:
-        return InstrumentWorker(cfg, profiles, emitter, settings)
-    return InstrumentWorker(cfg, profiles, emitter, settings, open=open)
+        return InstrumentWorker(cfg, profiles, emitter)
+    return InstrumentWorker(cfg, profiles, emitter, open=open)
 
 
 def load_profiles() -> list[Profile]:

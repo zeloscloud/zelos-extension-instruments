@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import instrument_config, settings_for, wait_until
+from tests.conftest import instrument_config, wait_until
 from tests.test_worker import RecordingEmitter
 from zelos_extension_instruments.link import SerialAddress, TcpAddress
 from zelos_extension_instruments.profile import by_id, shipped
@@ -40,7 +40,7 @@ def _config(entry: dict[str, Any]) -> Any:
 def unit(request: Any):
     emitter = RecordingEmitter()
     cfg = _config(request.param)
-    worker = InstrumentWorker(cfg, shipped(), emitter, settings_for(cfg))
+    worker = InstrumentWorker(cfg, shipped(), emitter)
     worker.start()
     assert wait_until(lambda: worker.state in ("open", "failed"), timeout_s=20), worker.health
     assert worker.state == "open", worker.health

@@ -18,8 +18,6 @@ from .profile_scope import MEASUREMENT_FIELDS
 
 logger = logging.getLogger(__name__)
 
-STATUS_FIELDS = {"rtt_ms": "ms", "rate_hz": "Hz", "errors": None, "connected": None}
-
 
 IDENTITY_FIELDS = ("manufacturer", "model", "serial", "firmware", "profile", "address")
 

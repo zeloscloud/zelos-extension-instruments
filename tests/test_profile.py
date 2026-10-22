@@ -1001,3 +1001,10 @@ def test_every_profiles_own_identity_matches_exactly_one_profile(profiles: list[
         matching = [p.id for p in profiles if p.matches(idn)]
         assert matching == [profile.id], f"{idn.text} matches {matching}"
         assert find(profiles, idn) is profile
+
+
+def test_every_enumerated_field_ends_in_unknown_or_other() -> None:
+    """A reply not in a map reads as the table's last label."""
+    from zelos_extension_instruments.profile import ENUM_FIELDS
+
+    assert all(labels[-1] in ("unknown", "other") for labels in ENUM_FIELDS.values())

@@ -12,7 +12,6 @@ from tests.conftest import (
     ScriptedLink,
     instrument_config,
     opener_for,
-    settings_for,
     wait_until,
 )
 from zelos_extension_instruments import scope_ops
@@ -197,9 +196,7 @@ def start(
     link = ScriptedLink(handler, "127.0.0.1:5555")
     overrides.setdefault("rate_hz", 50)
     cfg = instrument_config(**overrides)
-    worker = InstrumentWorker(
-        cfg, [dp800], emitter, settings_for(cfg), open=opener or opener_for(link)
-    )
+    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener or opener_for(link))
     worker.start()
     return worker, link
 
@@ -341,9 +338,9 @@ def test_set_reports_a_readback_that_disagrees(running) -> None:
 
 def test_output_switches_and_verifies(running) -> None:
     worker, link, emitter, dp832 = running
-    assert ask(worker, "output", channel=2, on=True) == {"output": True}
+    assert ask(worker, "set", channel=2, output=True) == {"output": True}
     assert dp832.out[2] is True
-    assert ask(worker, "output", channel=2, on=False) == {"output": False}
+    assert ask(worker, "set", channel=2, output=False) == {"output": False}
     assert ("info", "set ch2 output off", "action") in emitter.notes
 
 
@@ -450,7 +447,7 @@ def test_a_refused_open_sets_health_with_advice_and_keeps_trying(dp800: Profile)
         raise LinkError("connection refused.", "refused")
 
     cfg = instrument_config(rate_hz=50)
-    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener)
+    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener)
     worker.start()
     try:
         assert wait_until(lambda: attempts >= 2, timeout_s=5)
@@ -494,7 +491,7 @@ def test_auto_profile_matches_the_identity(dp832: Dp832, profiles: list[Profile]
     emitter = RecordingEmitter()
     link = ScriptedLink(dp832)
     cfg = instrument_config(profile="auto", rate_hz=50)
-    worker = InstrumentWorker(cfg, profiles, emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, profiles, emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open")
@@ -508,7 +505,7 @@ def test_auto_profile_with_no_match_fails_with_advice(profiles: list[Profile]) -
     emitter = RecordingEmitter()
     link = ScriptedLink(lambda c: "ACME,PSU-1,1,1" if c == "*IDN?" else None)
     cfg = instrument_config(profile="auto", rate_hz=50)
-    worker = InstrumentWorker(cfg, profiles, emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, profiles, emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: "no profile matches ACME PSU-1" in worker.health, timeout_s=5)
@@ -569,7 +566,7 @@ def test_generic_profile_probes_and_drops_what_the_instrument_refuses() -> None:
     link = ScriptedLink(unit)
     cfg = instrument_config(profile="probe", rate_hz=50)
     worker = InstrumentWorker(
-        cfg, [from_dict(GENERIC, "probe.toml")], emitter, settings_for(cfg), open=opener_for(link)
+        cfg, [from_dict(GENERIC, "probe.toml")], emitter, open=opener_for(link)
     )
     worker.start()
     try:
@@ -617,7 +614,6 @@ def test_one_silent_reply_while_probing_does_not_cost_the_field() -> None:
         cfg,
         [from_dict(GENERIC, "probe.toml")],
         emitter,
-        settings_for(cfg),
         open=opener_for(ScriptedLink(unit)),
     )
     worker.start()
@@ -646,7 +642,7 @@ def test_poll_table_rows_are_read_and_recorded(dp800: Profile, dp832: Dp832) -> 
             "poll": [{"name": "temp", "query": "SYST:TEMP?", "unit": "degC", "every_s": 0.1}]
         },
     )
-    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: len(emitter.polls) >= 2, timeout_s=5)
@@ -714,7 +710,7 @@ def test_a_dmm_routes_readings_to_the_active_function() -> None:
     emitter = RecordingEmitter()
     link = ScriptedLink(meter)
     cfg = instrument_config(profile="meter", rate_hz=50)
-    worker = InstrumentWorker(cfg, [dmm], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [dmm], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: any(r[1] == "dc_voltage" for r in emitter.readings))
@@ -762,7 +758,7 @@ def test_select_style_sends_the_select_only_when_the_channel_changes(dp800: Prof
     emitter = RecordingEmitter()
     link = ScriptedLink(unit)
     cfg = instrument_config(profile="sel", rate_hz=50)
-    worker = InstrumentWorker(cfg, [profile], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(
@@ -807,7 +803,7 @@ def test_ack_profiles_read_the_reply_to_every_command() -> None:
     emitter = RecordingEmitter()
     link = ScriptedLink(unit)
     cfg = instrument_config(profile="ack", rate_hz=50)
-    worker = InstrumentWorker(cfg, [profile], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open")
@@ -862,7 +858,7 @@ def test_load_file_profile_path_in_config(dp832: Dp832, tmp_path: Any) -> None:
     emitter = RecordingEmitter()
     link = ScriptedLink(dp832)
     cfg = instrument_config(profile=str(path), rate_hz=50)
-    worker = InstrumentWorker(cfg, [], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open")
@@ -887,7 +883,7 @@ def test_a_reply_out_of_step_is_detected_and_the_link_resynchronized(
     emitter = RecordingEmitter()
     link = ScriptedLink(chatty)
     cfg = instrument_config(rate_hz=50)
-    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open")
@@ -916,7 +912,7 @@ def test_a_connection_the_instrument_accepts_but_never_answers_is_a_failed_open(
         return link
 
     cfg = instrument_config(rate_hz=50, profile=profile)
-    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener)
+    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener)
     worker.start()
     try:
         assert wait_until(lambda: len(links) >= 2, timeout_s=5)
@@ -957,7 +953,7 @@ def test_per_channel_poll_rows_get_a_field_per_channel_and_join_read(
             "poll": [{"name": "temp", "query": "SYST:TEMP? CH{ch}", "unit": "degC", "every_s": 0.1}]
         },
     )
-    worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: len(emitter.polls) >= 3, timeout_s=5)
@@ -1032,9 +1028,7 @@ def test_a_slot_scan_an_action_overtook_never_overwrites_its_result(
     fake = FakeInstrument(scope)
     link = ScriptedLink(fake.handle, "scope")
     cfg = instrument_config(name="scope", profile=scope.id)
-    worker = InstrumentWorker(
-        cfg, [scope], RecordingEmitter(), settings_for(cfg), open=opener_for(link)
-    )
+    worker = InstrumentWorker(cfg, [scope], RecordingEmitter(), open=opener_for(link))
     assert worker._connect()
     assert worker._plan is not None
     round_ = worker._slow_round()
@@ -1052,9 +1046,7 @@ def test_a_slot_turned_off_during_a_slot_scan_stays_off(profiles: list[Profile])
     fake = FakeInstrument(scope)
     link = ScriptedLink(fake.handle, "scope")
     cfg = instrument_config(name="scope", profile=scope.id)
-    worker = InstrumentWorker(
-        cfg, [scope], RecordingEmitter(), settings_for(cfg), open=opener_for(link)
-    )
+    worker = InstrumentWorker(cfg, [scope], RecordingEmitter(), open=opener_for(link))
     assert worker._connect()
     assert worker._plan is not None
     shown = scope_ops.measure(worker, 2, {"type": "frequency"})
@@ -1080,14 +1072,12 @@ def test_a_channel_command_selects_its_channel_whichever_way_the_profile_was_cho
     fake = FakeInstrument(profile, "HMP4040")
     link = ScriptedLink(fake.handle, "hmp")
     cfg = instrument_config(name="psu", profile=profile_choice, rate_hz=50)
-    worker = InstrumentWorker(
-        cfg, shipped(), RecordingEmitter(), settings_for(cfg), open=opener_for(link)
-    )
+    worker = InstrumentWorker(cfg, shipped(), RecordingEmitter(), open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
         assert worker.profile is not None and worker.profile.id == "rohde-schwarz-hmp"
-        assert ask(worker, "output", channel=3, on=True) == {"output": True}
+        assert ask(worker, "set", channel=3, output=True) == {"output": True}
         states = []
         for ch in (1, 2, 3, 4):
             fake.handle(f"INST:NSEL {ch}")
@@ -1125,7 +1115,7 @@ def test_stopping_answers_every_pending_request_even_after_one_was_abandoned(
     it went unanswered."""
     cfg = instrument_config(rate_hz=50)
     worker = InstrumentWorker(
-        cfg, [dp800], RecordingEmitter(), settings_for(cfg), open=opener_for(ScriptedLink(Dp832()))
+        cfg, [dp800], RecordingEmitter(), open=opener_for(ScriptedLink(Dp832()))
     )
     abandoned = worker.request("state")
     abandoned.cancel()

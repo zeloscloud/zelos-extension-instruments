@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator
 
 import pytest
 
-from tests.conftest import ScriptedLink, instrument_config, opener_for, settings_for, wait_until
+from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
 from tests.test_worker import RecordingEmitter, ask
 from zelos_extension_instruments.profile import by_id, shipped
 from zelos_extension_instruments.sim import FakeInstrument
@@ -26,9 +26,7 @@ def start(nge103: FakeInstrument) -> Iterator[Callable[[], tuple[InstrumentWorke
     def run() -> tuple[InstrumentWorker, ScriptedLink]:
         link = ScriptedLink(nge103.handle, "nge")
         cfg = instrument_config(name="psu", profile=nge103.profile.id, rate_hz=50)
-        worker = InstrumentWorker(
-            cfg, [nge103.profile], RecordingEmitter(), settings_for(cfg), open=opener_for(link)
-        )
+        worker = InstrumentWorker(cfg, [nge103.profile], RecordingEmitter(), open=opener_for(link))
         workers.append(worker)
         worker.start()
         assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
@@ -60,7 +58,7 @@ def test_an_armed_channel_delivers_only_with_the_master_on(nge103: FakeInstrumen
 def test_switching_on_raises_the_master_after_the_channel(start, nge103: FakeInstrument) -> None:
     worker, link = start()
     before = len(link.commands)
-    assert ask(worker, "output", channel=2, on=True) == {"output": True}
+    assert ask(worker, "set", channel=2, output=True) == {"output": True}
     assert _writes(link, before) == ["OUTP:SEL 1", "OUTP:GEN 1"]
     assert nge103.handle("OUTP:GEN?") == "1"
 
@@ -72,7 +70,7 @@ def test_switching_on_is_refused_while_another_channel_is_armed(
     _arm(nge103, 1, 3)
     worker, link = start()
     before = len(link.commands)
-    assert ask(worker, "output", channel=2, on=True) == {
+    assert ask(worker, "set", channel=2, output=True) == {
         "error": "the master output is off, and raising it would also switch on ch1, ch3; "
         "switch those off first"
     }
@@ -85,15 +83,15 @@ def test_with_the_master_on_only_the_channel_is_switched(start, nge103: FakeInst
     nge103.handle("OUTP:GEN 1")
     worker, link = start()
     before = len(link.commands)
-    assert ask(worker, "output", channel=2, on=True) == {"output": True}
+    assert ask(worker, "set", channel=2, output=True) == {"output": True}
     assert _writes(link, before) == ["OUTP:SEL 1"]
     assert "OUTP:SEL?" not in link.commands[before:]
 
 
 def test_switching_off_leaves_the_master_alone(start, nge103: FakeInstrument) -> None:
     worker, link = start()
-    ask(worker, "output", channel=1, on=True)
+    ask(worker, "set", channel=1, output=True)
     before = len(link.commands)
-    assert ask(worker, "output", channel=1, on=False) == {"output": False}
+    assert ask(worker, "set", channel=1, output=False) == {"output": False}
     assert _writes(link, before) == ["OUTP:SEL 0"]
     assert nge103.handle("OUTP:GEN?") == "1"

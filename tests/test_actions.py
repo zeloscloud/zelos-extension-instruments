@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from zelos_sdk.actions import ActionExecutionError, ValidationError
 
-from tests.conftest import ScriptedLink, instrument_config, settings_for, wait_until
+from tests.conftest import ScriptedLink, instrument_config, wait_until
 from tests.test_worker import Dp832, RecordingEmitter
 from zelos_extension_instruments import actions, discovery
 from zelos_extension_instruments.link import TcpAddress, VisaAddress
@@ -44,7 +44,7 @@ def bench(dp800: Profile) -> Iterator[tuple[Dp832, RecordingEmitter]]:
         def opener(address: Any, settings: Any, unit: Dp832 = unit, name: str = name) -> Any:
             return ScriptedLink(unit, name)
 
-        worker = InstrumentWorker(cfg, [dp800], emitter, settings_for(cfg), open=opener)
+        worker = InstrumentWorker(cfg, [dp800], emitter, open=opener)
         worker.start()
         actions.workers[name] = worker
     assert wait_until(lambda: all(w.state == "open" for w in actions.workers.values()))

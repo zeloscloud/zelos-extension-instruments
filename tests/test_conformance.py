@@ -8,7 +8,7 @@ import math
 
 import pytest
 
-from tests.conftest import ScriptedLink, instrument_config, opener_for, settings_for, wait_until
+from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
 from tests.test_worker import RecordingEmitter, ask
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.profile import (
@@ -133,7 +133,7 @@ def test_the_worker_records_every_field_from_the_fake(profile: Profile) -> None:
     link = ScriptedLink(fake.handle, profile.id)
     emitter = RecordingEmitter()
     cfg = instrument_config(name="unit", profile=profile.id, rate_hz=50)
-    worker = InstrumentWorker(cfg, [profile], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open", timeout_s=10), worker.health

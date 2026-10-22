@@ -37,7 +37,6 @@ _AUTOCONFIG_TIMEOUT_S = 30
 _LIST_SEARCH_S = 5.0
 _AUTOCONFIG_SEARCH_S = 15.0
 _MIN_SCPI_S, _MAX_SCPI_S = 0.1, 30.0
-_VALUES = ("voltage", "current", "power", "resistance", "frequency", "ovp", "ocp")
 _FUNCTIONS = ("cc", "cv", "cp", "cr", *profiles_module.FUNCTION_LABELS[:-1])
 
 
@@ -299,7 +298,7 @@ def set_values(
 @_channel
 @action.boolean("on", title="On", default=True)
 def output(instrument: str | None = None, channel: int = 1, *, on: bool = True) -> dict[str, Any]:
-    return _ask(instrument, "output", _TIMEOUT_S, channel=channel, on=on)
+    return _ask(instrument, "set", _TIMEOUT_S, channel=channel, output=on)
 
 
 @action(

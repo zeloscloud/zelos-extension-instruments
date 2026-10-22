@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import ScriptedLink, instrument_config, opener_for, settings_for, wait_until
+from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
 from tests.test_worker import Dp832, RecordingEmitter, ask
 from zelos_extension_instruments import discovery, waveform
 from zelos_extension_instruments.engine import format_value, verified
@@ -30,7 +30,7 @@ def _worker(
 ) -> tuple[InstrumentWorker, RecordingEmitter]:
     emitter = RecordingEmitter()
     cfg = instrument_config(rate_hz=50, **config)
-    worker = InstrumentWorker(cfg, [profile], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
     worker.start()
     assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
     return worker, emitter
@@ -163,7 +163,7 @@ def test_a_lost_cycle_waits_the_backoff_before_reconnecting(dp800: Profile) -> N
         return ScriptedLink(broken)
 
     cfg = instrument_config(rate_hz=50)
-    worker = InstrumentWorker(cfg, [dp800], RecordingEmitter(), settings_for(cfg), open=opener)
+    worker = InstrumentWorker(cfg, [dp800], RecordingEmitter(), open=opener)
     worker.start()
     try:
         time.sleep(2.0)
@@ -371,7 +371,7 @@ def test_measure_reuses_the_slot_that_already_shows_the_measurement() -> None:
     link = ScriptedLink(fake.handle, profile.id)
     emitter = RecordingEmitter()
     cfg = instrument_config(name="unit", profile=profile.id, rate_hz=50)
-    worker = InstrumentWorker(cfg, [profile], emitter, settings_for(cfg), open=opener_for(link))
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open", timeout_s=10), worker.health

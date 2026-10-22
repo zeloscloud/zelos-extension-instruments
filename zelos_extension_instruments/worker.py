@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from . import engine, scope_ops
 from .clock import HostClock
-from .config import InstrumentConfig, Settings, poll_key
+from .config import InstrumentConfig, poll_key
 from .emitter import Emitter
 from .engine import ParseError, RangeError, Selector, Step
 from .link import (
@@ -75,8 +75,6 @@ _RESYNC_READS = 8
 
 RequestKind = Literal[
     "set",
-    "output",
-    "function",
     "read",
     "state",
     "scpi",
@@ -90,9 +88,7 @@ RequestKind = Literal[
 ]
 _State = Literal["connecting", "open", "released", "failed", "stopped"]
 _Future = concurrent.futures.Future[dict[str, Any]]
-_WRITE_KINDS = frozenset(
-    {"set", "output", "function", "local", "measure", "command", "scpi", "waveform"}
-)
+_WRITE_KINDS = frozenset({"set", "local", "measure", "command", "scpi", "waveform"})
 # A block reply the SCPI action returns whole, as base64; longer ones return their size.
 _BLOCK_RETURN_MAX = 65536
 
@@ -142,20 +138,16 @@ class InstrumentWorker(threading.Thread):
         cfg: InstrumentConfig,
         profiles: list[Profile],
         emitter: Emitter,
-        settings: Settings,
         *,
         open: Opener = open_link,
-        now: Callable[[], int] = time.perf_counter_ns,
-        clock: HostClock | None = None,
     ) -> None:
         super().__init__(name=f"instrument {cfg.name}", daemon=True)
         self.cfg = cfg
         self._profiles = profiles
         self._emitter = emitter
-        self._settings = settings
         self._open = open
-        self._now = now
-        self._clock = clock or HostClock(now)
+        self._now = time.perf_counter_ns
+        self._clock = HostClock(self._now)
         self._stopping = threading.Event()
         self.where = cfg.where
         self._wake = threading.Event()
@@ -469,8 +461,6 @@ class InstrumentWorker(threading.Thread):
         return profile.channels_for(idn.model if idn else "")
 
     def _install(self, profile: Profile, idn: Idn | None, channels: int) -> None:
-        self.profile = profile
-        self.idn = idn
         self.channels = channels
         self._channel = {ch: _Channel() for ch in range(1, channels + 1)}
         model = idn.model if idn else ""
@@ -620,7 +610,7 @@ class InstrumentWorker(threading.Thread):
                 self._fast_at.setdefault(ch, (sent + done) // 2)
         now = self._now()
         for ch, values in fast_rows.items():
-            self._record(ch, values, self._fast_at.get(ch, now), fast=True)
+            self._record(ch, values, self._fast_at.get(ch, now))
         self._fast_times.append(now)
         while self._fast_times and self._fast_times[0] < now - _RATE_WINDOW_NS:
             self._fast_times.popleft()
@@ -677,7 +667,7 @@ class InstrumentWorker(threading.Thread):
                     rows.setdefault(step.channel, {})["protection"] = label
                 values = rows.pop(step.channel, None)
                 if values:
-                    self._record(step.channel, values, self._now(), fast=False)
+                    self._record(step.channel, values, self._now())
             yield
         if self.profile.scope is not None and self.profile.scope.slots is not None:
             scans = self._slot_scans
@@ -738,8 +728,8 @@ class InstrumentWorker(threading.Thread):
                     rows.setdefault(step.channel, {})[name] = engine.unknown_label(name)
             self._resync(f"{step.query} answered {reply.strip()!r}")
 
-    def _record(self, ch: int | None, values: dict[str, Any], at: int, *, fast: bool) -> None:
-        """Write one channel's values, stamped half a round trip before `at`, and note changes."""
+    def _record(self, ch: int | None, values: dict[str, Any], at: int) -> None:
+        """Write one channel's values, stamped at `at`, and note changes."""
         assert self.profile is not None
         time_ns = self._clock.epoch_ns(at)
         shared = INSTRUMENT_FIELDS[self.profile.category]
@@ -832,7 +822,7 @@ class InstrumentWorker(threading.Thread):
         assert self.profile is not None
         errors = self.profile.errors
         if errors is None:
-            return False
+            return 0
         found = 0
         for _ in range(errors.drain):
             try:
@@ -848,9 +838,7 @@ class InstrumentWorker(threading.Thread):
                 return found
             found += 1
             self._errors += 1
-            self._last_error = (
-                f"{error.code},{error.text}" if error.code is not None else error.text
-            )
+            self._last_error = f"{error.code},{error.text}"
             if not quiet:
                 self._log_once(
                     f"instrument error {error.code}",
@@ -1041,10 +1029,6 @@ class InstrumentWorker(threading.Thread):
             return self._clear(ch)
         if kind == "set":
             return self._set_many(ch, args)
-        if kind == "output":
-            return self._set_output(ch, bool(args["on"]))
-        if kind == "function":
-            return self._set_function(ch, str(args["function"]))
         if kind == "measure":
             return scope_ops.measure(self, ch, args)
         if kind == "waveform":
@@ -1174,9 +1158,6 @@ class InstrumentWorker(threading.Thread):
         if readback is None:
             return {"set": value, "readback": None, "unverified": "the profile has no readback"}
         return {"set": value, "readback": readback}
-
-    def _set_output(self, ch: int, on: bool) -> dict[str, Any]:
-        return self._set_switch(ch, "output", on)
 
     def _set_switch(self, ch: int, name: str, on: bool) -> dict[str, Any]:
         assert self.profile is not None
