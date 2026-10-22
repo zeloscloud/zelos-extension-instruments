@@ -8,8 +8,11 @@ The extension reads and sets the source side only; the sink side, constant-resis
 The current limit is 6.01 A up to 6 V and 3.01 A above 6 V; the range below carries the 6.01 A figure, and the instrument refuses a higher current at a higher voltage. \
 Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
 SYST:REM locks the front panel; the Local action (SYST:LOC) unlocks it. \
-OUTP switches the selected channel on and turns its output on; OUTP:SEL and OUTP:GEN are not used. \
+A channel delivers power only while its channel key (OUTP:SEL) and the general output (OUTP:GEN) are both on. \
 The manual says OUTP 1 switches on the previously selected channels, so it may also switch on other channels whose OUTP:SEL is on. A bench NGE100 does this; it was not measured on an NGL or NGM. \
+So switching a channel on sends OUTP:SEL 1, then OUTP:GEN 1 if the general output is off, as the manual's example does. \
+If another channel's key is on while the general output is off, switching a channel on is refused before anything is sent, because the general output would switch that channel on too. \
+Switching a channel off sends OUTP:SEL 0 and leaves the general output alone. \
 Mode reads the questionable condition register of the channel; zero is shown as off, which the manual does not state. \
 Protection reads OVP, OCP (CURR:PROT), OPP and over-temperature. The manual lists the FUSE commands as alternatives to CURR:PROT. The OVP, OCP and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
 The OVP level is 0.001 to 20.05 V. \
@@ -111,7 +114,8 @@ command = "VOLT:PROT {bit}"
 command = "CURR:PROT {bit}"
 
 [setters.output]
-command = "OUTP {bit}"
+command = "OUTP:SEL {bit}"
+master = { command = "OUTP:GEN {bit}", query = "OUTP:GEN?", armed = "OUTP:SEL?" }
 
 [setters.clear]
 command = ["VOLT:PROT:CLE", "CURR:PROT:CLE", "POW:PROT:CLE"]

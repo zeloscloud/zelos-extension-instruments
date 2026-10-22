@@ -5,7 +5,7 @@ category = "psu"
 notes = """Covers the HMP2020, HMP2030, HMP4030 and HMP4040. \
 Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
 SYST:REM locks the front panel; the Remote key or the Local action (SYST:LOC) unlocks it. \
-OUTP switches the selected channel on and turns the output on, and OUTP? reads the output state. The manual also lists OUTP:SEL and OUTP:GEN as separate steps; they are not used. \
+OUTP switches the selected channel on and turns the output on, and OUTP? reads the output state. The manual also lists OUTP:SEL and OUTP:GEN as separate steps, but both are setting only, so the extension cannot tell which other channels are activated and does not use them. \
 The general output switches on every channel activated with OUTP:SEL, so OUTP ON may also switch on other activated channels. A bench NGE100 does this; it was not measured on an HMP. \
 FUSE activates the electronic fuse function of the selected channel and FUSE? reads it; the manual gives *RST as off. \
 Constant-current and constant-voltage mode come from the questionable status register of the channel; a reading of zero is shown as off, which the manual does not state. \

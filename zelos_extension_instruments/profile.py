@@ -377,6 +377,16 @@ class Reader:
 
 
 @dataclass(frozen=True, slots=True)
+class Master:
+    """A switch that delivers power on every armed channel at once."""
+
+    command: str
+    query: str
+    # Whether a channel is armed, asked with that channel selected.
+    armed: str
+
+
+@dataclass(frozen=True, slots=True)
 class Setter:
     name: str
     command: str
@@ -388,6 +398,8 @@ class Setter:
     per_channel: bool
     # The value is sent divided by this: a slew rate the instrument takes in A/us is 1e6.
     scale: float = 1.0
+    # The output setter only arms a channel when the instrument has a master switch.
+    master: Master | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1141,7 +1153,7 @@ def _setters(
             c.fail(where, f"is not a setter of this category: {', '.join(allowed)}.")
             continue
         entry = c.table(entry, where)
-        c.unknown(entry, ("command", "verify", "range", "map", "channel", "scale"), where)
+        c.unknown(entry, ("command", "verify", "range", "map", "channel", "scale", "master"), where)
         raw_command = entry.get("command")
         if key == "clear" and isinstance(raw_command, list):
             if not raw_command or not all(isinstance(x, str) and x for x in raw_command):
@@ -1208,8 +1220,30 @@ def _setters(
             map=mapping,
             per_channel=c.boolean(entry, "channel", True, where),
             scale=scale,
+            master=_master(c, entry, key, where),
         )
     return setters
+
+
+def _master(c: _Check, entry: dict[str, Any], key: str, where: str) -> Master | None:
+    raw = entry.get("master")
+    if raw is None:
+        return None
+    where = f"{where}.master"
+    if key != "output":
+        c.fail(where, "is only for the output setter.")
+        return None
+    raw = c.table(raw, where)
+    c.unknown(raw, ("command", "query", "armed"), where)
+    command = c.required(raw, "command", where)
+    c.template(command, {"on", "bit"}, f"{where}.command")
+    if "{on}" not in command and "{bit}" not in command:
+        c.fail(f"{where}.command", "must contain {on} or {bit}.")
+    query = c.required(raw, "query", where)
+    c.template(query, set(), f"{where}.query")
+    armed = c.required(raw, "armed", where)
+    c.template(armed, {"ch"}, f"{where}.armed")
+    return Master(command, query, armed)
 
 
 def _dmm(c: _Check, raw: Any, category: str) -> Dmm | None:
