@@ -7,35 +7,12 @@ import sys
 import threading
 from collections import deque
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any, Self
 
 from .fake import FakeInstrument
 from .faults import Faults
 
 _GARBAGE = b"\xff\xfe??"
-
-
-def load_transcript(path: Path | str) -> list[tuple[str, str | None]]:
-    """The (command, reply) pairs of a transcript: `> command` and `< reply` lines, `#` comments.
-
-    A command with no `<` line after it has no reply.
-    """
-    pairs: list[tuple[str, str | None]] = []
-    for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
-        text = line.strip()
-        if not text or text.startswith("#"):
-            continue
-        mark, body = text[0], text[1:].strip()
-        if mark == ">":
-            pairs.append((body, None))
-        elif mark == "<" and pairs and pairs[-1][1] is None:
-            pairs[-1] = (pairs[-1][0], body)
-        else:
-            raise ValueError(
-                f"{Path(path).name}:{number}: expected '> command', or one '< reply' after it"
-            )
-    return pairs
 
 
 class FakeServer:

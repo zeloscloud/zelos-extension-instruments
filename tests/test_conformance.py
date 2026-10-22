@@ -22,7 +22,7 @@ from zelos_extension_instruments.profile import (
     shipped,
 )
 from zelos_extension_instruments.profile_scope import MEASUREMENT_FIELDS
-from zelos_extension_instruments.sim import FakeInstrument
+from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 
 PROFILES = shipped()

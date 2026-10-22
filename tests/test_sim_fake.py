@@ -13,7 +13,7 @@ from zelos_extension_instruments.profile import (
     load_file,
     parse_idn,
 )
-from zelos_extension_instruments.sim import FakeInstrument
+from zelos_extension_instruments.sim.fake import FakeInstrument
 
 RIGOL = SHIPPED_DIR / "psu" / "rigol-dp800.toml"
 EVIDENCE = {"badge": "manual", "source": "test", "date": "2026-10-20"}

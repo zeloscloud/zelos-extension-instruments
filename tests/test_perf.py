@@ -13,7 +13,7 @@ import pytest
 from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
 from tests.test_worker import RecordingEmitter
 from zelos_extension_instruments.profile import Profile, by_id, shipped
-from zelos_extension_instruments.sim import FakeInstrument
+from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 
 SOAK_S = float(os.environ.get("SOAK_MINUTES", "0.1")) * 60
