@@ -1,0 +1,58 @@
+schema = 1
+id = "keysight-34980a"
+name = "Keysight 34980A"
+category = "daq"
+notes = """Transcribed from the 34980A programmer's reference and user's guide; never run on a unit. The manuals name no socket port, so this profile uses 5025, the port Keysight documents for its other data acquisition units. The scan needs the internal DMM installed and enabled. List the scan channels and the relays in the instrument's settings (Scan and Relays). An address is the slot (1 to 8) and the three-digit channel: 1003 is channel 003 in slot 1, 2015 is channel 015 in slot 2. At connect the profile sends one CONF command per function group (auto range, default resolution; frequency and period take the default range), then the integration times, then the scan list, and each poll sends READ?, which returns one scan of readings. CONF returns a channel's measurement settings to their defaults and replaces the scan list, so settings made on the front panel for a listed channel are reset at connect. CONF also turns off the channel field and the other extra fields, so READ? returns plain readings. Integration time takes 0.02, 0.2, 1, 2, 10, 20, 100 or 200 power line cycles and applies to DC voltage, DC current, resistance, 4-wire resistance and temperature. Thermocouples use a fixed 0 degC reference junction, the default after CONF. The internal reference junction works only on the 34921A with its 34921T terminal block, and the profile does not select it. Set the reference source and temperature on the instrument for accurate thermocouple readings, and note that the next connect resets them. Modules considered: the 34921A to 34925A multiplexers for scanning, and the 34931A to 34934A matrix, 34937A to 34939A general purpose switch, 34941A and 34942A RF and 34946A and 34947A microwave modules for relays. DC and AC current work only on channels 41 to 44 of the 34921A, and frequency and period only on the 34921A to 34925A. List only the source channel of a 4-wire measurement: the instrument pairs channel n with n+20 on the 34921A, 34923A and 34925A, and with n+35 on the 34922A and 34924A. The 34945A driver, 34950A digital I/O, 34951A DAC, 34952A multifunction and 34959A breadboard modules are not covered. Starting a scan opens every channel in a bank that holds a scan channel and every ABus1 relay, and the instrument refuses manual closes on those banks while it scans. Keep relay channels in banks that carry no scan channels. The 34925A closes one channel per bank at a time, and the reed modules limit how many relays can be closed at once. The RF and microwave modules answer no OPEN command; close another channel in the same bank to open one. The display text takes 18 characters, extra characters are cut without an error, and pressing any front-panel key clears it. Save and recall offer slots 1 to 5. The poll timeout is 30 s; raise it in the config for long integration times or large scans. The self-test takes about 20 seconds, and 15 more with a 34951A installed, so the self-test timeout is 60 s. The manuals list no Lock or Local command for this unit, so those actions are left out."""
+
+[evidence]
+badge = "manual"
+source = "Keysight 34980A Multifunction Switch/Measure Unit Programmer's Reference, 34980-90001 (9018-61230); 34980A Multifunction Switch/Measure Unit User's Guide (9018-02146)"
+url = "https://www.keysight.com/us/en/assets/9018-61230/programming-guides/9018-61230.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent|hewlett)'
+model = '^34980A$'
+
+[link]
+lan_port = 5025
+timeout_s = 30
+
+[errors]
+query = "SYST:ERR?"
+
+[system]
+self_test_timeout_s = 60
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 5 }
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 18
+display_clear = "DISP:TEXT:CLE"
+
+[daq]
+scan = "ROUT:SCAN (@{channels})"
+read = "READ?"
+channel_pattern = '[1-8](00[1-9]|0[1-9]\d|[1-9]\d\d)'
+
+[daq.configure]
+dc_voltage = "CONF:VOLT:DC AUTO,DEF,(@{channels})"
+ac_voltage = "CONF:VOLT:AC AUTO,DEF,(@{channels})"
+dc_current = "CONF:CURR:DC AUTO,DEF,(@{channels})"
+ac_current = "CONF:CURR:AC AUTO,DEF,(@{channels})"
+resistance = "CONF:RES AUTO,DEF,(@{channels})"
+resistance_4w = "CONF:FRES AUTO,DEF,(@{channels})"
+frequency = "CONF:FREQ DEF,DEF,(@{channels})"
+period = "CONF:PER DEF,DEF,(@{channels})"
+temperature = "CONF:TEMP TC,{tc},(@{channels})"
+
+[daq.nplc]
+command = "SENS:{function}:NPLC {value},(@{channels})"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES", temperature = "TEMP" }
+
+[setters.relay]
+command = "ROUT:CLOSE (@{ch})"
+off = "ROUT:OPEN (@{ch})"
+verify = "ROUT:CLOSE? (@{ch})"

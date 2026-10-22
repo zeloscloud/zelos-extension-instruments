@@ -1,0 +1,65 @@
+schema = 1
+id = "generic-fgen"
+name = "Generic SCPI function generator"
+category = "fgen"
+generic = true
+notes = """Used when no profile matches the instrument. It probes the SCPI-99 forms FUNC?, FREQ?, VOLT?, VOLT:OFFS? and OUTP?, and drops each one the instrument rejects at start, with one log line. Shapes read as sine, square, triangle, pulse, dc, arbitrary (USER) and noise (RAND, PRN); a shape word such as RAMP is not in SCPI-99 and reads as other. Frequency, amplitude and offset limits come from FREQ? MAX, FREQ? MIN, VOLT? MAX, VOLT? MIN, VOLT:OFFS? MAX and VOLT:OFFS? MIN, and a setter stays refused until the instrument answers them or the config names a limit. The amplitude is in the instrument's current voltage unit: SCPI-99 says the unit is the default or the one set under UNIT, so a generator set to Vrms or dBm reads and sets in that unit. For a multi-channel generator that follows the SCPI-99 INSTrument subsystem, set channels in the config to the channel count: the extension sends INST:NSEL <n> before each channel's commands. Generators that put the channel in the command (SOUR2:FREQ, OUTP2) need their own profile. Modulation, burst, sweep, trigger and the system functions beyond the IEEE 488.2 ones are not in this profile."""
+
+[evidence]
+badge = "manual"
+source = "SCPI-99 Standard Commands for Programmable Instruments, Volume 2"
+url = "https://www.ivifoundation.org/downloads/SCPI/scpi-99.pdf"
+date = "2026-10-22"
+
+[link]
+select = "INST:NSEL {ch}"
+
+[errors]
+query = "SYST:ERR?"
+
+[ranges]
+frequency = { max_query = "FREQ? MAX", min_query = "FREQ? MIN", digits = 6 }
+amplitude = { max_query = "VOLT? MAX", min_query = "VOLT? MIN", digits = 3 }
+offset = { max_query = "VOLT:OFFS? MAX", min_query = "VOLT:OFFS? MIN", digits = 3 }
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+optional = true
+
+[state.shape]
+query = "FUNC?"
+parse = "map"
+map = { SIN = "sine", SQU = "square", TRI = "triangle", PULS = "pulse", DC = "dc", USER = "arbitrary", RAND = "noise", PRN = "noise" }
+optional = true
+
+[state.frequency_set]
+query = "FREQ?"
+parse = "float"
+optional = true
+
+[state.amplitude_set]
+query = "VOLT?"
+parse = "float"
+optional = true
+
+[state.offset_set]
+query = "VOLT:OFFS?"
+parse = "float"
+optional = true
+
+[setters.output]
+command = "OUTP {on}"
+
+[setters.shape]
+command = "FUNC {value}"
+map = { sine = "SIN", square = "SQU", triangle = "TRI", pulse = "PULS", dc = "DC", arbitrary = "USER" }
+
+[setters.frequency]
+command = "FREQ {value}"
+
+[setters.amplitude]
+command = "VOLT {value}"
+
+[setters.offset]
+command = "VOLT:OFFS {value}"

@@ -2,6 +2,7 @@
 command."""
 
 import copy
+import math
 import re
 import shutil
 import tomllib
@@ -12,6 +13,7 @@ import pytest
 
 from tests.conftest import minimal, profile_from
 from zelos_extension_instruments import profile_load
+from zelos_extension_instruments.engine import parse_reply
 from zelos_extension_instruments.profile import Profile, by_id, parse_idn
 from zelos_extension_instruments.profile_load import (
     SHIPPED_DIR,
@@ -145,8 +147,10 @@ def test_shipped_badges_are_earned(profiles: list[Profile]) -> None:
     assert promoted == dict.fromkeys(recorded, "transcript")
 
 
-def test_shipped_has_a_generic_profile_for_each_category(profiles: list[Profile]) -> None:
-    assert {p.category for p in profiles if p.generic} == {"psu", "load", "dmm", "acsource"}
+def test_shipped_has_a_generic_profile_for_each_category_but_scopes_and_daq_units(
+    profiles: list[Profile],
+) -> None:
+    assert {p.category for p in profiles if p.generic} == {"psu", "load", "dmm", "acsource", "fgen"}
 
 
 def test_load_file_reports_an_unreadable_file(tmp_path: Path) -> None:
@@ -1145,6 +1149,27 @@ def test_a_map_catch_all_is_not_an_instrument_word() -> None:
     assert mode.words == {"cv": "CV"}
 
 
+@pytest.mark.parametrize(
+    ("profile_id", "high_z", "other"),
+    [
+        ("keysight-33500b", "+9.900000000000000E+37", "+1.000000000000000E+02"),
+        ("rigol-dg800-pro", "+9.900000000000000E+37", "+1.000000000000000E+02"),
+        ("rigol-dg800", "9.900000E+37", "1.000000E+02"),
+        ("rigol-dg1000z", "9.900000E+37", "1.000000E+02"),
+        ("siglent-sdg", "C1:OUTP ON,LOAD,HZ,PLRT,NOR", "C1:OUTP ON,LOAD,1000,PLRT,NOR"),
+    ],
+)
+def test_a_generator_reads_high_impedance_and_any_other_load(
+    profiles: list[Profile], profile_id: str, high_z: str, other: str
+) -> None:
+    profile = by_id(profiles, profile_id)
+    assert profile is not None
+    reader = profile.reader("output_load")
+    assert reader is not None
+    assert parse_reply(reader, high_z, 1) == {"output_load": "high_z"}
+    assert parse_reply(reader, other, 1) == {"output_load": "other"}
+
+
 def test_until_is_only_for_a_keyed_reader() -> None:
     raw = minimal()
     raw["signals"]["voltage"]["until"] = "CARR"
@@ -1152,6 +1177,22 @@ def test_until_is_only_for_a_keyed_reader() -> None:
         p.startswith('signals.voltage.until: is only for parse = "keyed".')
         for p in problems_of(raw)
     )
+
+
+def test_the_siglent_modulation_rate_is_never_the_carrier_frequency(
+    profiles: list[Profile],
+) -> None:
+    sdg = by_id(profiles, "siglent-sdg")
+    assert sdg is not None
+    rate = sdg.reader("modulation_frequency_set")
+    assert rate is not None
+    guide = (
+        "C1:MDWV AM,STATE,ON,MDSP,SINE,SRC,INT,FRQ,100HZ,DEPTH,100,CARR,WVTP,RAMP,FRQ,1000HZ,"
+        "AMP,4V,AMPVRMS,1.15473Vrms,OFST,0V,PHSE,0,SYM,50"
+    )
+    assert parse_reply(rate, guide, 1) == {"modulation_frequency_set": 100.0}
+    external = "C1:MDWV AM,STATE,ON,SRC,EXT,DEPTH,100,CARR,WVTP,SINE,FRQ,1000HZ"
+    assert math.isnan(parse_reply(rate, external, 1)["modulation_frequency_set"])
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,61 @@
+schema = 1
+id = "keysight-daq970a"
+name = "Keysight DAQ970A and DAQ973A"
+category = "daq"
+notes = """Transcribed from the DAQ970A/DAQ973A programming guide; never run on a unit. The unit takes LAN socket commands on port 5025. List the scan channels and the relays in the instrument's settings (Scan and Relays). An address is the slot and the two-digit channel: 101 is channel 01 in slot 1, 315 is channel 15 in slot 3. At connect the profile sends one CONF command per function group (auto range, default resolution), then the integration times, then the scan list, and each poll sends READ?, which returns one scan of readings. CONF returns a channel's measurement settings to their defaults and replaces the scan list, so settings made on the front panel for a listed channel are reset at connect. CONF also leaves the readings without units, channel or time fields, so READ? returns plain readings. Integration time takes 0.001, 0.002, 0.006, 0.02, 0.06, 0.2, 1, 2, 10, 20, 100 or 200 power line cycles and applies to DC voltage, DC current, resistance, 4-wire resistance and temperature. Thermocouples use the module's internal reference junction, the default. Modules considered: the DAQM900A, DAQM901A, DAQM902A, DAQM908A and DAQM910A multiplexers for scanning, and the DAQM903A actuator, DAQM904A matrix and DAQM905A RF multiplexer for relays. The guide limits DC and AC current to channels 21 and 22 of the DAQM901A, and AC voltage to the DAQM900A, DAQM901A and DAQM910A. Frequency, period and resistance need a multiplexer module, and 4-wire resistance is not supported on the DAQM908A. List only the source channel of a 4-wire measurement: the unit pairs channel n with n+10 (n+8 on the DAQM902A). The DAQM907A multifunction module and the DAQM909A digitizer are not covered. A multiplexer channel cannot be closed or opened by itself once any channel on its module is in the scan list, and starting a scan opens every channel on a module that has a scan channel. Keep relay channels on modules that carry no scan channels. The DAQM905A answers no OPEN command; close another channel in the same bank to open one. A unit renamed with SYST:PERS to 34970A or 34972A matches the 34970A profile instead. The factory-reset identity is the DAQ970A or DAQ973A, and the older Agilent and Hewlett-Packard manufacturer names the persona command allows still match. The display text takes 40 characters, replaces the readings on the display until cleared, and DISP OFF locks all keys except Local. Save and recall offer slots 1 to 5, because slot 0 holds the power-down state and is overwritten at power-up. The poll timeout is 30 s, set for a scan of up to 120 channels at 1 PLC (1 PLC is 20 ms on 50 Hz mains). Raise it in the config for long integration times. SYST:REM is sent at connect because the guide lists the error Not able to execute command in local mode, which the 34970A guide ties to READ?. In remote mode the front panel keeps only the Local key, the knob and the arrow keys until the extension stops. A Lock action is left out, because SYST:REM is not a full lockout and the guide's SYST:LOCK commands lock the interface instead. The thermocouple CONF form with TC is the one the guide shows in its examples."""
+
+[evidence]
+badge = "manual"
+source = "Keysight DAQ970A/DAQ973A Data Acquisition System Programming Guide, 9018-04756"
+url = "https://www.keysight.com/us/en/assets/9018-04756/programming-guides/9018-04756.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent|hewlett)'
+model = '^DAQ97[03]A$'
+
+[link]
+lan_port = 5025
+timeout_s = 30
+remote = "SYST:REM"
+local = "SYST:LOC"
+locks_panel = true
+needs_remote = true
+
+[errors]
+query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 5 }
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 40
+display_clear = "DISP:TEXT:CLE"
+
+[daq]
+scan = "ROUT:SCAN (@{channels})"
+read = "READ?"
+channel_pattern = '[1-3](0[1-9]|[1-3]\d|4[0-8])'
+
+[daq.configure]
+dc_voltage = "CONF:VOLT:DC AUTO,DEF,(@{channels})"
+ac_voltage = "CONF:VOLT:AC AUTO,DEF,(@{channels})"
+dc_current = "CONF:CURR:DC AUTO,DEF,(@{channels})"
+ac_current = "CONF:CURR:AC AUTO,DEF,(@{channels})"
+resistance = "CONF:RES AUTO,DEF,(@{channels})"
+resistance_4w = "CONF:FRES AUTO,DEF,(@{channels})"
+frequency = "CONF:FREQ AUTO,DEF,(@{channels})"
+period = "CONF:PER AUTO,DEF,(@{channels})"
+temperature = "CONF:TEMP TC,{tc},(@{channels})"
+
+[daq.nplc]
+command = "SENS:{function}:NPLC {value},(@{channels})"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES", temperature = "TEMP" }
+
+[setters.relay]
+command = "ROUT:CLOSE (@{ch})"
+off = "ROUT:OPEN (@{ch})"
+verify = "ROUT:CLOSE? (@{ch})"
