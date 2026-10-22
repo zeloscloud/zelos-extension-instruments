@@ -1,7 +1,7 @@
 [project]
 name = "zelos-extension-instruments"
 version = "0.1.0"
-description = "Record bench instruments (power supplies, electronic loads, multimeters, AC sources, oscilloscopes) over SCPI and control them from the app."
+description = "Record and control bench instruments over SCPI: power supplies, electronic loads, multimeters, AC sources and oscilloscopes."
 authors = [{ name = "Zeloscloud", email = "info@zeloscloud.io" }]
 readme = "README.md"
 license = { text = "MIT" }

@@ -1,12 +1,12 @@
 name = "Instruments"
 version = "0.1.0"
-description = "Record bench instruments (power supplies, electronic loads, multimeters, AC sources, oscilloscopes) over SCPI and control them from the app."
+description = "Record and control bench instruments over SCPI: power supplies, electronic loads, multimeters, AC sources and oscilloscopes."
 author = "Zelos"
 repository = "https://github.com/zeloscloud/zelos-extension-instruments"
 homepage = "https://github.com/zeloscloud/zelos-extension-instruments"
-# The app's search and its AI read these, with the name and description; the page shows the first
-# three categories.
-keywords = ["scpi", "visa", "lxi", "usbtmc", "vxi-11", "hislip", "gpib", "power supply", "electronic load", "multimeter", "dmm", "ac source", "oscilloscope", "test equipment", "keysight", "rigol", "siglent", "keithley", "rohde schwarz", "instrument"]
+# Search matches substrings of these, the name and the description, so a word the description holds
+# is wasted here. Zelos AI reads the keywords too; the page shows the first three categories.
+keywords = ["power supply", "psu", "dc load", "dmm", "waveform", "test equipment", "pyvisa", "lxi", "usbtmc", "gpib", "serial", "keysight", "agilent", "rigol", "siglent", "keithley", "rohde & schwarz", "fluke", "b&k precision", "gw instek"]
 categories = ["Test & Measurement", "Embedded", "Industrial"]
 
 icon = "assets/icon.png"
