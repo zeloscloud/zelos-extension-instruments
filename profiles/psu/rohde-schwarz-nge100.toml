@@ -2,17 +2,24 @@ schema = 1
 id = "rohde-schwarz-nge100"
 name = "Rohde & Schwarz NGE100B series"
 category = "psu"
-notes = """Covers the NGE102B (two channels) and NGE103B (three channels). \
+notes = """Covers the NGE102B and NGE102 (two channels) and the NGE103B and NGE103 (three channels). \
 Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
 Any command switches the instrument to remote control and locks the front panel until the Local action runs or the Remote key is held. \
-OUTP switches the selected channel on or off; OUTP:SEL (the channel key) and OUTP:GEN (the master output) are not used. \
-The manual documents no error-queue query, so sets are verified by readback only. \
+A channel delivers power only while its channel key (OUTP:SEL) and the master output (OUTP:GEN) are both on, and OUTP? reads whether it does. \
+OUTP ON also switches the master output on, and on a bench NGE103 that switched on every other channel whose key was on. \
+So the output setter sends OUTP:SEL only and never switches the master output. \
+With the master output off, switching a channel on only arms it, and the set fails its readback until the Output key is pressed. \
+The command reference lists no error query, but the manual's appendix clears the queue with SYST:ERR?, and a bench NGE103 answers it. \
 Protection reads the OVP, OCP (FUSE) and OPP tripped flags of the selected channel. The OVP, fuse and OPP functions each have an on/off state, and the manual gives *RST as off for the fuse; the OVP and fuse states are read and switched, the OPP state is not. \
 The manual prints the overtemperature query as OTP:TRIPped? but its example is OUTP:TRIP?, so overtemperature is not read. \
 The OVP level is 0.100 V (the MIN reply; the text says 0 mV) to 32.2 V in 100 mV steps. \
+A bench NGE103 accepts an OVP level of 32.5 V, so the NGE102 and NGE103 range carries 32.5 V. \
+Each channel is limited to 33.6 W. A bench NGE103 lowers a current limit above 33.6 W divided by the voltage without an error, so that set fails its readback. \
+On a bench NGE103, OPP is on at 33.6 W as shipped. \
+A bench NGE103 refuses a fuse change with error -221 while the channel output is on. \
 Clear resets the OVP, OCP (FUSE:TRIP:CLEar) and OPP (POW:PROT:CLEar) trips of the selected channel. \
 The LAN socket port is fixed at 5025; USB offers TMC or VCP, which is selected in the instrument menu. \
-The original NGE100 (not B) manual was not read."""
+The original NGE100 (not B) manual was not read. The NGE102 and NGE103 are matched from a driver measured on an NGE103 with firmware 1.40, which never sent OUTP:MODE? or VOLT:PROT?."""
 
 [evidence]
 badge = "manual"
@@ -22,11 +29,11 @@ date = "2026-10-21"
 
 [match]
 manufacturer = '(?i)^rohde\s*&\s*schwarz'
-model = '(?i)^NGE10[23]B$'
+model = '(?i)^NGE10[23]B?$'
 channels = 2
 
 [[match.models]]
-model = '(?i)^NGE103B$'
+model = '(?i)^NGE103B?$'
 channels = 3
 
 [link]
@@ -34,10 +41,17 @@ select = "INST:NSEL {ch}"
 local = "SYST:LOC"
 locks_panel = true
 
+[errors]
+query = "SYST:ERR?"
+
 [ranges]
 voltage = { min = 0, max = 32.2, digits = 2, step = 0.01 }
 current = { min = 0.003, max = 3.025, digits = 3 }
 ovp = { min = 0.1, max = 32.2, digits = 1 }
+
+[[ranges.models]]
+model = '(?i)^NGE10[23]$'
+ovp = { min = 0.1, max = 32.5, digits = 1 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"
@@ -103,7 +117,7 @@ command = "VOLT:PROT {bit}"
 command = "FUSE {bit}"
 
 [setters.output]
-command = "OUTP {bit}"
+command = "OUTP:SEL {bit}"
 
 [setters.clear]
 command = ["VOLT:PROT:CLE", "FUSE:TRIP:CLE", "POW:PROT:CLE"]

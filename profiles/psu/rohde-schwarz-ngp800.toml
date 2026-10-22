@@ -6,7 +6,11 @@ notes = """Covers the NGP802, NGP822 (two channels) and the NGP804, NGP824, NGP8
 The NGP802, NGP804 and channels 1 and 2 of the NGP814 are 32 V at 20 A; the NGP822, NGP824 and channels 3 and 4 of the NGP814 are 64 V at 10 A. Each channel is limited to 200 W. \
 Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
 SYST:REM locks the front panel; the Local action (SYST:LOC) unlocks it. \
-OUTP switches the selected channel on and turns its output on; OUTP:SEL (channel key) and OUTP:GEN (primary output key) are not used. \
+A channel delivers power only while its channel key (OUTP:SEL) and the primary output (OUTP:GEN, the Output key) are both on, and the primary output switches every selected channel at once. \
+A real NGP814 was found with all four channel keys on and the primary output off, and on a bench NGE100 OUTP ON switched the primary output on and with it every other selected channel. \
+So the output setter sends OUTP:SEL only and never switches the primary output. \
+With the primary output off, switching a channel on only selects it; press the Output key to deliver power. \
+Output reads OUTP?, and what it answers while a channel is selected and the primary output is off was not seen on a unit. \
 Mode reads the questionable condition register of the channel: bit 0 is constant current and bit 1 is constant voltage; zero is shown as off, which the manual does not state. \
 Protection reads OVP, fuse (OCP), OPP and over-temperature. The OVP, fuse (OCP) and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
 Clear resets the OVP, OCP (FUSE:TRIP:CLEar) and OPP trips of the selected channel. \
@@ -125,7 +129,7 @@ command = "VOLT:PROT {bit}"
 command = "FUSE {bit}"
 
 [setters.output]
-command = "OUTP {bit}"
+command = "OUTP:SEL {bit}"
 
 [setters.clear]
 command = ["VOLT:PROT:CLE", "FUSE:TRIP:CLE", "POW:PROT:CLE"]

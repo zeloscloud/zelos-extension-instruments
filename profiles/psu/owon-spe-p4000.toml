@@ -6,8 +6,10 @@ notes = """Covers the SPE3103, SPE6103, P4305 and P4603 single-output supplies. 
 The programming manual gives no ratings and names no series; its IDN example is for a P4305: OWON,P4305,1715040,FV:V1.0.2. \
 The ranges are the models' published ratings, which no manual read for this profile states: SPE3103 30 V at 10 A, SPE6103 60 V at 10 A, P4305 30 V at 5 A, P4603 60 V at 3 A. The P4000 user manual's factory limits, 61.00 V and 3.10 A, fit a 60 V, 3 A unit. \
 The manual does not say that remote mode must be set first, so no remote command is sent; the Local action sends SYST:LOC. \
+A P4603 driver says SYST:REM and SYST:LOC do not work on that model. \
 VOLT:LIM and CURR:LIM are the overvoltage and overcurrent protection values, not setpoint limits. \
-MEAS:ALL:INFO? reports the operating mode and the OVP, OCP and OTP faults, but separates its values with spaces, which the profile format cannot split, so mode and protection are not read. \
+MEAS:ALL:INFO? reports the operating mode and the OVP, OCP and OTP faults. The manual shows its values separated by spaces, but real units separate them with commas, as in 57.430,0.059,3.390,OFF,OFF,OFF,1, so mode and protection are read from it. \
+Mode 0 is standby, read as off; mode 3, a failure, reads as unknown. \
 The manual documents no error query, so sets are verified by readback only, and no protection clear command. \
 The P4000 user manual gives the RS-232 factory default as 115200 baud, 8 data bits, no parity and 1 stop bit, and the profile uses 115200 baud. The serial defaults of the SPE models are not in the manuals read: set the baud rate in the config if a unit differs. The LAN settings are not in any manual read and stay at the profile defaults."""
 
@@ -74,6 +76,19 @@ parse = "float"
 [state.output]
 query = "OUTP?"
 parse = "bool"
+
+[state.mode]
+query = "MEAS:ALL:INFO?"
+parse = "map"
+index = 6
+map = { "0" = "off", "1" = "cv", "2" = "cc" }
+
+[state.protection]
+flags = [
+  { query = "MEAS:ALL:INFO?", parse = "bool", index = 3, value = "ovp" },
+  { query = "MEAS:ALL:INFO?", parse = "bool", index = 4, value = "ocp" },
+  { query = "MEAS:ALL:INFO?", parse = "bool", index = 5, value = "otp" },
+]
 
 [setters.voltage]
 command = "VOLT {value}"

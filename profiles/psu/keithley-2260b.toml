@@ -10,6 +10,7 @@ The OVP level accepts 0 to 110 % of the rated voltage and the OCP level 10 to 11
 :CURR:PROT:STAT switches OCP on and off; the manual has no OVP switch. \
 Mode reads CV or CC from the Operation Status condition register; it reads off when neither bit is set, which the manual does not say means the output is off. \
 Protection reads the Questionable Status condition register: OV, OC and OT. Clear a trip with the Clear action. \
+On four real 2260B units the Questionable Status condition register read 0 in every state seen, including constant current, and the Operation Status register was not tried, so mode and protection are unverified on a unit. \
 Serial settings are not given in the manuals and are left at the defaults."""
 
 [evidence]

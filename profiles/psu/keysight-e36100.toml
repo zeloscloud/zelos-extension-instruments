@@ -2,7 +2,7 @@ schema = 1
 id = "keysight-e36100"
 name = "Keysight E36100A/B series"
 category = "psu"
-notes = "The grammar is transcribed from the E36100B guide. The older E36102A to E36106A are matched on the assumption that they take the same commands: the guide covers only the B models, so confirm an A model before relying on it. CV and CC come from the Operation condition register (STAT:OPER:COND?, bit 8 is CV and bit 10 is CC), and a reading of 0 is shown as off. Protection comes from the Questionable condition register (STAT:QUES:COND?, bit 0 OV, bit 1 OC, bit 4 OT). The same register has bit 10 for unregulated, which this profile does not read. After *RST, overvoltage and overcurrent protection are both off (VOLT:PROT:STAT, CURR:PROT:STAT), so the trip flags stay quiet until protection is switched on; this profile reads both states and can switch them. Overcurrent has no level, so there is no OCP setpoint. The OVP level range comes from VOLT:PROT? MIN and MAX, because the guide gives its maximum only as varying by model. The guide gives no power measurement, so power is left out. The ranges are the nominal ratings, though the guide says the programmable values are 3 percent above them and specifications are guaranteed only up to the nominal values. Remote sense is read from VOLT:SENS? (0 for internal, 1 for external). A remote command puts the supply in remote mode by itself, and any front-panel key or SYST:LOC returns it to local."
+notes = "The grammar is transcribed from the E36100B guide. The older E36102A to E36106A are matched on the assumption that they take the same commands: the guide covers only the B models, so confirm an A model before relying on it. CV and CC come from the Operation condition register (STAT:OPER:COND?, bit 8 is CV and bit 10 is CC), and a reading of 0 is shown as off. Protection comes from the Questionable condition register (STAT:QUES:COND?, bit 0 OV, bit 1 OC, bit 4 OT). The same register has bit 10 for unregulated, which this profile does not read. After *RST, overvoltage and overcurrent protection are both off (VOLT:PROT:STAT, CURR:PROT:STAT), so the trip flags stay quiet until protection is switched on; this profile reads both states and can switch them. Overcurrent has no level, so there is no OCP setpoint. The OVP level range comes from VOLT:PROT? MIN and MAX, because the guide gives its maximum only as varying by model. The guide gives no power measurement, so power is left out. The ranges are the nominal ratings, though the guide says the programmable values are 3 percent above them and specifications are guaranteed only up to the nominal values. Remote sense is read from VOLT:SENS? (0 for internal, 1 for external) on the B models; a driver written for the A models reads a reply starting with I or E, which this profile cannot parse, so an A model drops the field. With external sense selected and the sense leads open or shorted, the supply can raise its output up to the OVP level or the setpoints. Clear sends VOLT:PROT:CLE and CURR:PROT:CLE, which the B guide lists and the A-model driver uses. A remote command puts the supply in remote mode by itself, and any front-panel key or SYST:LOC returns it to local."
 
 [evidence]
 badge = "manual"
@@ -79,6 +79,7 @@ parse = "bool"
 [state.remote_sense]
 query = "VOLT:SENS?"
 parse = "bool"
+optional = true
 
 [state.output]
 query = "OUTP?"
@@ -116,4 +117,4 @@ command = "CURR:PROT:STAT {on}"
 command = "OUTP {on}"
 
 [setters.clear]
-command = "OUTP:PROT:CLE"
+command = ["VOLT:PROT:CLE", "CURR:PROT:CLE"]

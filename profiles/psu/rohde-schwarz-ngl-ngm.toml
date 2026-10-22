@@ -9,6 +9,7 @@ The current limit is 6.01 A up to 6 V and 3.01 A above 6 V; the range below carr
 Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
 SYST:REM locks the front panel; the Local action (SYST:LOC) unlocks it. \
 OUTP switches the selected channel on and turns its output on; OUTP:SEL and OUTP:GEN are not used. \
+The manual says OUTP 1 switches on the previously selected channels, so it may also switch on other channels whose OUTP:SEL is on. A bench NGE100 does this; it was not measured on an NGL or NGM. \
 Mode reads the questionable condition register of the channel; zero is shown as off, which the manual does not state. \
 Protection reads OVP, OCP (CURR:PROT), OPP and over-temperature. The manual lists the FUSE commands as alternatives to CURR:PROT. The OVP, OCP and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
 The OVP level is 0.001 to 20.05 V. \
