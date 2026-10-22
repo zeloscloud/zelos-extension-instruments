@@ -30,10 +30,10 @@ def test_versions_agree() -> None:
     assert zelos_extension_instruments.__version__ == __version__
 
 
-def test_manifest_uses_the_agent_table() -> None:
-    assert "host" not in MANIFEST
-    assert MANIFEST["agent"]["runtime"] == "python"
-    assert MANIFEST["agent"]["entry"] == "main.py"
+def test_manifest_hosts_an_agent() -> None:
+    assert "agent" not in MANIFEST
+    assert MANIFEST["host"]["type"] == "agent"
+    assert MANIFEST["host"]["agent"]["entry"] == "main.py"
 
 
 @pytest.mark.parametrize("relative", MANIFEST["package"]["paths"])
@@ -47,7 +47,7 @@ def test_referenced_file_exists(key: str) -> None:
 
 
 def test_entry_point_is_packaged() -> None:
-    assert MANIFEST["agent"]["entry"] in MANIFEST["package"]["paths"]
+    assert MANIFEST["host"]["agent"]["entry"] in MANIFEST["package"]["paths"]
 
 
 def test_config_schema_is_valid_and_its_examples_validate() -> None:
@@ -67,7 +67,7 @@ def test_inventory_holds_the_three_read_only_standalone_actions(tmp_path: Path) 
     subprocess.run(
         [
             *(sys.executable, "-m", "zelos_sdk.extensions.actions", "dump"),
-            *("--entry", MANIFEST["agent"]["entry"], "--out", str(out)),
+            *("--entry", MANIFEST["host"]["agent"]["entry"], "--out", str(out)),
         ],
         cwd=REPO_ROOT,
         check=True,

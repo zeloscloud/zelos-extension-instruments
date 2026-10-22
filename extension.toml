@@ -13,20 +13,22 @@ icon = "assets/icon.png"
 readme = "README.md"
 
 [zelos]
-version = ">=26.0.10"
+version = ">=26.0.9"
 
 [config]
 schema = "config.schema.json"
 
-[agent]
-runtime = "python"
+[host]
+type = "agent"
+
+[host.agent]
 entry = "main.py"
 python_version = "3.11"
 
 # Linux and macOS: SIGTERM, then SIGKILL after this many seconds. Workers stop within one query
 # timeout (2 s) and the app waits for them before it flushes; the rest is headroom for the SDK's
 # atexit drain. Windows: the agent terminates the job after at most 1 s.
-[agent.stop]
+[host.agent.stop]
 grace_seconds = 5
 
 # The packager adds extension.toml, the readme, icon and config schema, pyproject.toml, uv.lock and
