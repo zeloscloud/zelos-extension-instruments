@@ -12,14 +12,18 @@ The manual does not state the reply form of the function query; the profile acce
 SYST:REM puts the load in remote mode and locks every front-panel key except LOCAL and SHIFT. \
 The protection state reads the questionable status condition register. The trip bits stay set until the condition is removed and PROT:CLE is programmed. The manual names PROT:CLE in the status register description but has no command entry for it (the frame protocol lists a clear-protection frame), so the Clear setter sends it, untested. The user manual says that once an overcurrent or overpower trip is cleared the input re-enables automatically, so adjust the source before clearing. \
 The manual says that when the selected mode is in operation, selecting another mode automatically disables the input, so a function change on a running load may switch the input off. \
-The manual gives the current slew rate (CURR:SLEW) in A/us and the current range (CURR:RANGE?) as a number, neither of which the slew and current range fields can hold, so neither is read or set. \
+The slew rate is in A/us and the profile scales it to A/s. The rise and fall rates are read and set apart (CURR:SLEW:RISE and CURR:SLEW:FALL); the both-edges command is not used. \
+The current and voltage range commands take MIN for the low range and MAX for the high range. The range query returns a number that depends on the model, so the ranges are set but not read, and the voltage auto range (VOLT:RANG:AUTO) is not offered. \
+The input and short commands are sent as SOUR:INP:STAT and SOUR:INP:SHOR. The manual lists the input setter as [SOURce:]INPut and its query as INPut[:STATe]?, so STAT is an optional node and the profile keeps it. \
+Save takes 0 to 99 and recall takes 0 to 9, so the profile offers 0 to 9. The manual prints the self-test query without its asterisk (TST?); the reply is 0 for a pass and an error code otherwise. \
+SYST:RWL locks the whole panel including LOCAL until SYST:LOC; the manual words SYST:REM and SYST:LOC for RS-232 operation. \
 Each current and voltage setting is accepted inside the active range only (the low range is 3 A, 12 A or 24 A and the low voltage range is 18 V or 50 V depending on the model)."""
 
 [evidence]
 badge = "manual"
 source = "B&K Precision 8500B Series Programmable DC Electronic Loads Programming Manual (SCPI and frame commands), version July 23, 2019; 8500B Series User Manual, version December 6, 2023"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/8500B_Series_programming_manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^b&?k'
@@ -33,6 +37,13 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+lock = "SYST:RWL"
+unlock = "SYST:LOC"
 
 [ranges]
 voltage = { min = 0.1, max = 150, digits = 3 }
@@ -103,6 +114,20 @@ query = "SOUR:FUNC?"
 parse = "map"
 map = { CURR = "cc", CURRENT = "cc", VOLT = "cv", VOLTAGE = "cv", POW = "cp", POWER = "cp", RES = "cr", RESISTANCE = "cr" }
 
+[state.short]
+query = "SOUR:INP:SHOR?"
+parse = "bool"
+
+[state.slew_rise_set]
+query = "SOUR:CURR:SLEW:RISE?"
+parse = "float"
+scale = 1e6
+
+[state.slew_fall_set]
+query = "SOUR:CURR:SLEW:FALL?"
+parse = "float"
+scale = 1e6
+
 [state.protection]
 flags = [
   { query = "STAT:QUES:COND?", parse = "bits", mask = 8192, shift = 13, value = "ovp" },
@@ -129,6 +154,25 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = "SOUR:INP:STAT {on}"
+
+[setters.short]
+command = "SOUR:INP:SHOR {on}"
+
+[setters.current_range]
+command = "SOUR:CURR:RANG {value}"
+map = { low = "MIN", high = "MAX" }
+
+[setters.voltage_range]
+command = "SOUR:VOLT:RANG {value}"
+map = { low = "MIN", high = "MAX" }
+
+[setters.slew_rise]
+command = "SOUR:CURR:SLEW:RISE {value}"
+scale = 1e6
+
+[setters.slew_fall]
+command = "SOUR:CURR:SLEW:FALL {value}"
+scale = 1e6
 
 [setters.clear]
 command = "PROT:CLE"

@@ -2,13 +2,13 @@ schema = 1
 id = "keithley-2000"
 name = "Keithley Model 2000"
 category = "dmm"
-notes = """Transcribed from the Model 2000 User's Manual; never run on a unit. Only the 2000 is covered: the manual used does not describe the 2001 or 2010, so they need their own profile. A DMM6500 in its SCPI 2000 language identifies as a Model 2000, so this profile matches it too; that mode was not checked against these commands. The meter must be in its SCPI language; RS-232 works in SCPI only; the 196/199 and 8840A languages use other commands. The GPIB primary address is 16 at the factory. RS-232 is fixed at 8 data bits, no parity and 1 stop bit, the factory baud rate is 4800, and the meter has no hardware handshake; set the baud rate on both ends. Set the TX TERM on the front panel to LF, because the meter ends each reply with the terminator chosen there. READ? aborts, initiates and fetches one reading per poll. It fails with error -225 when the sample count is above 1 and readings sit in the buffer, so leave the sample count at 1. With continuous initiation on, each READ? queues error -213 (init ignored) and still returns the reading. The function setter sends SENS:FUNC rather than CONFigure, because CONFigure resets the function's settings, disables math and buffer operation, and turns continuous initiation off. SYST:LOC, SYST:REM and SYST:RWLock work over RS-232 only, and the meter stays in local during RS-232 use with front-panel keys active, so this profile sends none of them. The manual says program messages end with LF and also that over RS-232 incoming commands are processed after the CR character is received; if commands do nothing over RS-232, set the write terminator to CR. READ? ends in :FETCh?, which returns the latest post-processed reading, so with REL or a math calculation on the reading may not be in the function's unit; :UNIT sets the temperature unit and the AC and DC volts units (dB, dBm); this profile reads none of them."""
+notes = """Transcribed from the Model 2000 User's Manual; never run on a unit. Only the 2000 is covered: the manual used does not describe the 2001 or 2010, so they need their own profile. A DMM6500 in its SCPI 2000 language identifies as a Model 2000, so this profile matches it too; that mode was not checked against these commands. The meter must be in its SCPI language; RS-232 works in SCPI only; the 196/199 and 8840A languages use other commands. The GPIB primary address is 16 at the factory. RS-232 is fixed at 8 data bits, no parity and 1 stop bit, the factory baud rate is 4800, and the meter has no hardware handshake; set the baud rate on both ends. Set the TX TERM on the front panel to LF, because the meter ends each reply with the terminator chosen there. READ? aborts, initiates and fetches one reading per poll. It fails with error -225 when the sample count is above 1 and readings sit in the buffer, so leave the sample count at 1. With continuous initiation on, each READ? queues error -213 (init ignored) and still returns the reading. The function setter sends SENS:FUNC rather than CONFigure, because CONFigure resets the function's settings, disables math and buffer operation, and turns continuous initiation off. SYST:LOC, SYST:REM and SYST:RWLock work over RS-232 only, and the meter stays in local during RS-232 use with front-panel keys active, so this profile sends none of them. The manual says program messages end with LF and also that over RS-232 incoming commands are processed after the CR character is received; if commands do nothing over RS-232, set the write terminator to CR. READ? ends in :FETCh?, which returns the latest post-processed reading, so with REL or a math calculation on the reading may not be in the function's unit; :UNIT sets the temperature unit and the AC and DC volts units (dB, dBm); this profile reads none of them. The range and auto range setters act on the current function and send, for example, :SENS:VOLT:DC:RANG, and the meter picks the range that covers the value; a valid range command turns auto range off. They cover DC and AC volts, DC and AC amps, 2-wire and 4-wire resistance; frequency, period, temperature, diode and continuity have no range, so the setters refuse them. The integration time takes 0.01 to 10 cycles on DC and AC volts, DC and AC amps, both resistance functions and temperature; for AC it sets the rate. Each setter reads its own value back with the function's query, but Get State does not show the range, auto range or integration time. The manual says the meter saves and recalls one setup, number 0, and its self-test is a ROM checksum that returns 0 for a pass. The beeper command only switches the beeper on or off, so the profile has no beep action. The display text takes up to 12 characters and shows only while the text message mode is on, so the text action sends :DISP:TEXT:DATA and :DISP:TEXT:STAT ON, and the clear action sends :DISP:TEXT:STAT OFF. The manual says the message stays only while the meter is in remote, and the meter is normally in local during RS-232 use, so the message may not show until a remote command such as :SYST:REM is sent; this was not checked. The display switch sends :DISP:ENAB, which freezes the display and disables every front-panel key except LOCAL. Lock sends :SYST:RWL and unlock sends :SYST:LOC, which the manual lists for RS-232 only."""
 
 [evidence]
 badge = "manual"
 source = "Keithley Model 2000 Multimeter User's Manual, 2000-900-01 Rev. J, August 2010"
 url = "https://static.rapidonline.com/pdf/1164897_an_en_01.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -19,6 +19,9 @@ baud = 4800
 
 [errors]
 query = ":SYST:ERR?"
+
+[ranges]
+nplc = { min = 0.01, max = 10, digits = 2 }
 
 [signals.value]
 query = ":READ?"
@@ -49,3 +52,29 @@ continuity = "Ohm"
 [setters.function]
 command = ':SENS:FUNC "{function}"'
 map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = ":SENS:{function}:RANG {value}"
+verify = ":SENS:{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES" }
+
+[setters.autorange]
+command = ":SENS:{function}:RANG:AUTO {on}"
+verify = ":SENS:{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES" }
+
+[setters.nplc]
+command = ":SENS:{function}:NPLC {value}"
+verify = ":SENS:{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", temperature = "TEMP" }
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 0 }
+display = ":DISP:ENAB {on}"
+display_text = ':DISP:TEXT:DATA "{text}";:DISP:TEXT:STAT ON'
+display_text_max = 12
+display_clear = ":DISP:TEXT:STAT OFF"
+lock = ":SYST:RWL"
+unlock = ":SYST:LOC"

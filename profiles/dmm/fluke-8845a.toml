@@ -2,13 +2,13 @@ schema = 1
 id = "fluke-8845a"
 name = "Fluke 8845A and 8846A"
 category = "dmm"
-notes = """Transcribed from the 8845A/8846A Programmers Manual; never run on a unit. The meter must be in its 8845A/46A command set, which follows the Agilent 34401A SCPI set. The 8842A and Fluke 45 emulation modes use other commands, and Fluke 45 mode does not work over Ethernet. Choose the language on the front panel under the interface setup. On RS-232 select Computer mode, not Terminal mode: Terminal mode echoes characters and returns prompts. RS-232 is 9600 baud, 8 data bits, no parity, 1 stop bit and no flow control at the factory. The LAN socket port is 3490, and once a client connects, the LAN server rejects connection attempts from other computers. The manual shows the *IDN? reply as Fluke, 884XA, ... with 884XA standing for the model. The meter must receive SYST:REM before READ? or MEAS? over RS-232 or Ethernet, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 and Ethernet only, so on GPIB each one adds error 514 to the error queue. After a query over RS-232, wait for the reply before sending the next query, or the second query is discarded with an error. READ? waits for the trigger and puts the reading in the output buffer; read every reading out, or the meter stops measuring and stale data shows up in later replies. With a sample count above 1, readings return comma separated. The manual says FUNC? returns the measurement mode but does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC". Ratio (VOLT:DC:RAT) has no label and reads as unknown. The function setter selects 2-wire temperature (TEMP:RTD); 4-wire temperature (TEMP:FRTD) reads as temperature but has no setter. CONF presets the function's range and resolution. A driver tested on a meter over LAN waits 50 ms before each measurement to avoid an error on the instrument, so the profile waits 50 ms between commands. An 8846A owner reports that after a dropped Telnet connection the meter sometimes refuses new connections on port 3490 until its measurement program restarts."""
+notes = """Transcribed from the 8845A/8846A Programmers Manual; never run on a unit. The meter must be in its 8845A/46A command set, which follows the Agilent 34401A SCPI set. The 8842A and Fluke 45 emulation modes use other commands, and Fluke 45 mode does not work over Ethernet. Choose the language on the front panel under the interface setup. On RS-232 select Computer mode, not Terminal mode: Terminal mode echoes characters and returns prompts. RS-232 is 9600 baud, 8 data bits, no parity, 1 stop bit and no flow control at the factory. The LAN socket port is 3490, and once a client connects, the LAN server rejects connection attempts from other computers. The manual shows the *IDN? reply as Fluke, 884XA, ... with 884XA standing for the model. The meter must receive SYST:REM before READ? or MEAS? over RS-232 or Ethernet, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 and Ethernet only, so on GPIB each one adds error 514 to the error queue. After a query over RS-232, wait for the reply before sending the next query, or the second query is discarded with an error. READ? waits for the trigger and puts the reading in the output buffer; read every reading out, or the meter stops measuring and stale data shows up in later replies. With a sample count above 1, readings return comma separated. The manual says FUNC? returns the measurement mode but does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC". Ratio (VOLT:DC:RAT) has no label and reads as unknown. The function setter selects 2-wire temperature (TEMP:RTD); 4-wire temperature (TEMP:FRTD) reads as temperature but has no setter. CONF presets the function's range and resolution. A driver tested on a meter over LAN waits 50 ms before each measurement to avoid an error on the instrument, so the profile waits 50 ms between commands. An 8846A owner reports that after a dropped Telnet connection the meter sometimes refuses new connections on port 3490 until its measurement program restarts. The range, auto range and integration time setters act on the meter's current function: the profile sends, for example, VOLT:DC:RANG, and the meter picks the range that covers the value. Each setter reads its own value back with the function's query, but Get State does not show the range, auto range or integration time, because those queries need the function word. Frequency and period take the input voltage range (FREQ:VOLT, PER:VOLT), and capacitance has its own range; temperature, diode and continuity have none, so the setters refuse them. The integration time takes 0.02, 0.2, 1, 10 or 100 cycles and works on DC volts, DC amps and 2-wire and 4-wire resistance; the manual also lists it for temperature, but the profile cannot tell the 2-wire from the 4-wire probe, so the setter refuses temperature. The meter has no save or recall of setups. The display text takes up to 12 characters, and the meter must be in remote mode to show it. Lock sends SYSTem:RWLock and unlock sends SYSTem:REMote, which like SYST:LOC work over RS-232 and Ethernet only."""
 
 [evidence]
 badge = "manual"
 source = "Fluke 8845A/8846A Digital Multimeter Programmers Manual, September 2006"
 url = "https://assets.fluke.com/manuals/8845A___pmeng0300.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^fluke'
@@ -26,6 +26,9 @@ single_client = true
 
 [errors]
 query = "SYST:ERR?"
+
+[ranges]
+nplc = { choices = [0.02, 0.2, 1, 10, 100], digits = 2 }
 
 [signals.value]
 query = "READ?"
@@ -57,3 +60,27 @@ continuity = "Ohm"
 [setters.function]
 command = "CONF:{function}"
 map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP:RTD", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = "{function}:RANG {value}"
+verify = "{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.autorange]
+command = "{function}:RANG:AUTO {on}"
+verify = "{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.nplc]
+command = "{function}:NPLC {value}"
+verify = "{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES" }
+
+[system]
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 12
+display_clear = "DISP:TEXT:CLE"
+lock = "SYSTem:RWLock"
+unlock = "SYSTem:REMote"

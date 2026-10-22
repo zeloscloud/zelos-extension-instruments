@@ -2,13 +2,13 @@ schema = 1
 id = "siglent-sdm3000"
 name = "Siglent SDM3045X, SDM3055, SDM3065X"
 category = "dmm"
-notes = """Transcribed from the SDM Series Programming Guide, EN02A, which covers the SDM3045X, SDM3055 and SDM3065X, and from the SDM3065X Remote Manual; never run on a unit. The guide names *IDN? but shows no reply format, and it documents no error-queue query, so this profile has no error query and sets are verified by readback only. The match assumes a manufacturer field starting with Siglent, and the model pattern is not anchored, so scan-card variants match too. LAN uses the raw socket on port 5025, which the guide's socket example uses, and Telnet on 5024, from Siglent's instrument port table; an application note comment also lists 5024 for these models. The manual says FUNC? returns the short form in quotes, such as "CONT", "CURR:AC", "CURR" or "DIOD"; it does not list the other functions. The manual's READ? wording is unclear: it says READ? reads and erases stored readings, and also lists it among the commands that clear reading memory. READ? also waits for the trigger and returns every reading the trigger count and sample count ask for, so leave the trigger source on IMM and both counts at 1. The manual lists CONF:CAP and CONF:TEMP for all three models. UNIT:TEMPerature selects C, F or K, and the profile labels temperature as degC whatever the unit is. CONF sets all measurement and trigger parameters to their defaults, which includes range AUTO. A driver written for the SDM3045X says capacitance and 4-wire readings can take 2 to 3 s, so the profile allows 5 s per reply. An SDM3055 owner reports that the meter stays in remote mode after a script ends, and the Shift/Local key returns it to local."""
+notes = """Transcribed from the SDM Series Programming Guide, EN02A, which covers the SDM3045X, SDM3055 and SDM3065X, and from the SDM3065X Remote Manual; never run on a unit. The guide names *IDN? but shows no reply format, and it documents no error-queue query, so this profile has no error query and sets are verified by readback only. The match assumes a manufacturer field starting with Siglent, and the model pattern is not anchored, so scan-card variants match too. LAN uses the raw socket on port 5025, which the guide's socket example uses, and Telnet on 5024, from Siglent's instrument port table; an application note comment also lists 5024 for these models. The manual says FUNC? returns the short form in quotes, such as "CONT", "CURR:AC", "CURR" or "DIOD"; it does not list the other functions. The manual's READ? wording is unclear: it says READ? reads and erases stored readings, and also lists it among the commands that clear reading memory. READ? also waits for the trigger and returns every reading the trigger count and sample count ask for, so leave the trigger source on IMM and both counts at 1. The manual lists CONF:CAP and CONF:TEMP for all three models. UNIT:TEMPerature selects C, F or K, and the profile labels temperature as degC whatever the unit is. CONF sets all measurement and trigger parameters to their defaults, which includes range AUTO. A driver written for the SDM3045X says capacitance and 4-wire readings can take 2 to 3 s, so the profile allows 5 s per reply. An SDM3055 owner reports that the meter stays in remote mode after a script ends, and the Shift/Local key returns it to local. The range and auto range setters act on the current function and send, for example, VOLT:DC:RANG, and the meter takes the fixed range you ask for and turns autorange off. Frequency and period take the input voltage range (FREQ:VOLT, PER:VOLT), and capacitance has its own range; temperature, diode and continuity have none, so the setters refuse them. The integration time works on DC volts, DC amps and 2-wire and 4-wire resistance; the AC functions have none. The SDM3045X and SDM3055 take 0.3, 1 or 10 cycles. The SDM3065X takes 100, 10, 1, 0.5, 0.05 and 0.005 cycles, with 0.6 and 0.006 on 60 Hz power; the profile offers 100, 10, 1 and 0.05 only, because the manual does not say which of the others a given line frequency accepts. Each setter reads its own value back with the function's query, but Get State does not show the range, auto range or integration time. The manual documents only *RST, *IDN? and *CLS as common commands, so the profile has no self-test, no operation-complete query, no save or recall, and no lock. The beeper command only switches the beeper on or off, and the meter has no display commands, so the profile has no beep or display action."""
 
 [evidence]
 badge = "manual"
 source = "Siglent SDM Series Digital Multimeter Programming Guide, EN02A (158 pages); SDM3065X Remote Manual, RC06036-E01A, 2017; Siglent Instrument Socket and Telnet Port Information"
 url = "https://siglentna.com/download/2563/"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^siglent'
@@ -17,6 +17,13 @@ model = '(?i)^SDM30(45X|55|65X)'
 [link]
 lan_port = 5025
 timeout_s = 5
+
+[ranges]
+nplc = { choices = [0.3, 1, 10], digits = 2 }
+
+[[ranges.models]]
+model = '(?i)^SDM3065X'
+nplc = { choices = [0.05, 1, 10, 100], digits = 2 }
 
 [signals.value]
 query = "READ?"
@@ -48,3 +55,22 @@ continuity = "Ohm"
 [setters.function]
 command = "CONF:{function}"
 map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = "{function}:RANG {value}"
+verify = "{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.autorange]
+command = "{function}:RANG:AUTO {on}"
+verify = "{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.nplc]
+command = "{function}:NPLC {value}"
+verify = "{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES" }
+
+[system]
+self_test = false
+opc = false

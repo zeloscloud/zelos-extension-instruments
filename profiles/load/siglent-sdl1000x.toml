@@ -6,13 +6,16 @@ notes = """\
 Transcribed from the programming guide, not tried on a unit. The guide has no error-queue query, no protection-status query and no remote or local command, so none are used and set commands are checked by readback only. \
 The mode reply is read as the full word the guide shows (RESISTANCE); a unit that answers with the short form reads as unknown. The LED function has no label here and reads as unknown. \
 The guide names no LAN socket port; Siglent's port table lists 5025 for the socket. The setpoint queries return the preset of the selected function, so each is meaningful only while that function is the active one. \
-The Current Range field reads the CC-mode static current range; the guide shows only the reply 30 (the 30 A range) and the profile also reads 5 as the 5 A range. The SDL1000X-E models measure with 1 mV and 1 mA resolution."""
+The Current Range field reads the CC-mode static current range; the guide shows only the reply 30 (the 30 A range) and the profile also reads 5 as the 5 A range. The SDL1000X-E models measure with 1 mV and 1 mA resolution. \
+The short setter sends :SOURce:SHORt:STATe. The current range setter sends 5 for the low range and 30 for the high range, the two values the profile reads back; the guide gives no range table, and its examples send IRANGe a plain number such as 10. \
+The slew rise and fall commands (:SOURce:CURRent:SLEW:POSitive and :NEGative) take a value with no unit in the guide, so the profile does not set or read them, and the voltage range values are not given either. \
+The guide has no save and recall commands and no panel lock, and says *TST? is used by some instruments and shows the reply 0."""
 
 [evidence]
 badge = "manual"
 source = "Siglent SDL1000X Programmable DC Electronic Load Programming Guide, E02B (87 pages); SDL1000X datasheet DS0801X-E01F (ranges)"
 url = "https://www.int.siglent.com/u_file/download/23_10_09/SDL1000X_programming_guide_E02B.pdf"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^siglent'
@@ -65,6 +68,10 @@ query = ":SOUR:CURR:IRANG?"
 parse = "map"
 map = { "30" = "high", "5" = "low" }
 
+[state.short]
+query = ":SOUR:SHOR:STAT?"
+parse = "bool"
+
 [state.output]
 query = ":SOUR:INP:STAT?"
 parse = "bool"
@@ -92,3 +99,10 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = ":SOUR:INP:STAT {on}"
+
+[setters.short]
+command = ":SOUR:SHOR:STAT {on}"
+
+[setters.current_range]
+command = ":SOUR:CURR:IRANG {value}"
+map = { low = "5", high = "30" }

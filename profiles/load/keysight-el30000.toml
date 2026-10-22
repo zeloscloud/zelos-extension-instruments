@@ -9,13 +9,16 @@ Current, power and resistance each have several ranges that the instrument selec
 The EL34243A limits halve in the parallel input pairing for resistance and double for current and power; the profile uses the single-input limits. \
 Reading the questionable status condition register gives the protection state: bit 0 or 5 overvoltage, bit 1 overcurrent, bit 3 positive power limit (set while the input is only limited as well as when it is disabled), bit 4 overtemperature and bit 9 under-voltage. \
 The Slew setter sets the positive current slew rate in amps per second; the minimum comes from CURR:SLEW? MIN and the maximum is 9.9E+37, which reads back as not a number because it means the fastest rate, and the negative slew rate is set separately and tracks the positive one only when CURR:SLEW:COUP is on. The Clear setter releases a latched protection trip and restores the input to the state it had before the trip, so use it only once the fault is gone. \
+The Slew setter and its reading are the rising edge (CURR:SLEW is CURR:SLEW:POS), and the Slew fall setter sets and reads CURR:SLEW:NEG, in the same units and with the same limits. \
+The short setter sends INP:SHOR. The current and voltage range commands take MIN for the lowest range and MAX for the highest; the EL34143A and EL34243A have a middle current range that has no word, and the range queries return a number that depends on the model, so the ranges are set but not read. \
+Save and recall take the ten locations 0 to 9. The display message takes 30 characters; DISP OFF turns the display off until the load returns to local mode. SYST:COMM:RLST RWL, the same as SYST:RWL, locks every front-panel key until SYST:COMM:RLST LOC. \
 The identity reply is Keysight Technologies,EL34243A,serial,firmware."""
 
 [evidence]
 badge = "manual"
 source = "Keysight EL30000 Series DC Electronic Loads Programming Guide, EL34243-90007, Edition 1, September 2021"
 url = "https://www.keysight.com/us/en/assets/9923-02387/programming-guides/EL34243-90007-Programming-Guide.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keysight'
@@ -28,6 +31,18 @@ channels = 2
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 30
+display_clear = "DISP:TEXT:CLE"
+lock = "SYST:COMM:RLST RWL"
+unlock = "SYST:COMM:RLST LOC"
 
 [ranges]
 voltage = { min = 0, max = 153, digits = 3 }
@@ -87,6 +102,14 @@ query = "FUNC? (@{ch})"
 parse = "map"
 map = { CURR = "cc", VOLT = "cv", POW = "cp", RES = "cr" }
 
+[state.short]
+query = "INP:SHOR? (@{ch})"
+parse = "bool"
+
+[state.slew_fall_set]
+query = "CURR:SLEW:NEG? (@{ch})"
+parse = "float"
+
 [state.protection]
 flags = [
   { query = "STAT:QUES:COND? (@{ch})", parse = "bits", mask = 33, value = "ovp" },
@@ -117,6 +140,20 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = "INP {on},(@{ch})"
+
+[setters.short]
+command = "INP:SHOR {on},(@{ch})"
+
+[setters.current_range]
+command = "CURR:RANG {value},(@{ch})"
+map = { low = "MIN", high = "MAX" }
+
+[setters.voltage_range]
+command = "VOLT:RANG {value},(@{ch})"
+map = { low = "MIN", high = "MAX" }
+
+[setters.slew_fall]
+command = "CURR:SLEW:NEG {value},(@{ch})"
 
 [setters.clear]
 command = "INP:PROT:CLE (@{ch})"

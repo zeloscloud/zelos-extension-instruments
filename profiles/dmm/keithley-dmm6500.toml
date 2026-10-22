@@ -2,13 +2,13 @@ schema = 1
 id = "keithley-dmm6500"
 name = "Keithley DMM6500 and DMM7510"
 category = "dmm"
-notes = """Transcribed from the DMM6500 and DMM7510 reference manuals; never run on a unit. The meter must be in its native SCPI command set. Send *LANG SCPI on the instrument and reboot it, or choose SCPI under System, Settings, Command Set; the TSP, SCPI 2000 and 34401 emulation sets are different command sets. The meter allows one remote interface at a time. LAN uses the raw socket on port 5025. RS-232 exists on the DMM6500 only with the optional KTTI-RS232 card, and the card's documentation gives the serial format; set the serial settings on the instrument and in the config. READ? makes the number of readings set by SENS:COUN, stores them in defbuffer1 and returns the last one. Each poll takes a new reading. The function query returns NONE while a digitize function is active; that reads as unknown, and the digitize functions have no label here. Voltage ratio reads as unknown. Temperature, and DC volts when set to dB, read in the unit the meter is set to. Per the manual, :SENS:FUNC opens all other channels when a channel is closed at the time a function is assigned to it. The native command set has no CONFigure command, so the function setter sends SENS:FUNC. The manuals do not document a remote or local command for this meter."""
+notes = """Transcribed from the DMM6500 and DMM7510 reference manuals; never run on a unit. The meter must be in its native SCPI command set. Send *LANG SCPI on the instrument and reboot it, or choose SCPI under System, Settings, Command Set; the TSP, SCPI 2000 and 34401 emulation sets are different command sets. The meter allows one remote interface at a time. LAN uses the raw socket on port 5025. RS-232 exists on the DMM6500 only with the optional KTTI-RS232 card, and the card's documentation gives the serial format; set the serial settings on the instrument and in the config. READ? makes the number of readings set by SENS:COUN, stores them in defbuffer1 and returns the last one. Each poll takes a new reading. The function query returns NONE while a digitize function is active; that reads as unknown, and the digitize functions have no label here. Voltage ratio reads as unknown. Temperature, and DC volts when set to dB, read in the unit the meter is set to. Per the manual, :SENS:FUNC opens all other channels when a channel is closed at the time a function is assigned to it. The native command set has no CONFigure command, so the function setter sends SENS:FUNC. The manuals do not document a remote or local command for this meter. The range and auto range setters act on the current function and send, for example, :SENS:VOLT:DC:RANG; the meter selects the closest fixed range large enough for the value, and a manual range turns auto range off. They cover DC and AC volts, DC and AC amps, 2-wire and 4-wire resistance and capacitance; frequency, period, temperature, diode and continuity list no ranges, so the setters refuse them. The integration time covers DC volts, DC amps, both resistance functions and temperature: AC functions use a detector bandwidth, and the manual says frequency and period cannot be set by NPLC. The manual allows 0.0005 to 15 cycles on 60 Hz power and 0.0005 to 12 on 50 or 400 Hz, so the profile accepts up to 12. Each setter reads its own value back with the function's query, but Get State does not show the range, auto range or integration time. The system functions come from the DMM6500 manual; the DMM7510 manual was not rechecked for them. Save and recall take setups 0 to 4. The meter accepts *TST? and returns 0 without running a self-test, so the profile has no self-test action. The beep action sends :SYST:BEEP 500,1, a 500 Hz tone for 1 s, the manual's own example. The meter has no display on or off command; its backlight command takes brightness levels. The text action writes the first line of the USER swipe screen, up to 20 characters, and then shows that screen; the clear action clears the screen's text. The meter has no reboot command over SCPI."""
 
 [evidence]
 badge = "manual"
 source = "DMM6500 6½-Digit Multimeter with Scanning Reference Manual, DMM6500-901-01 Rev. A, April 2018; DMM7510 7½-Digit Graphical Sampling Multimeter Reference Manual, DMM7510-901-01 Rev. B, May 2015"
 url = "https://www.audentia-gestion.fr/KEITHLEY/PDF/DMM6500-901-01_A_April_2018_Ref_DMM6500-901-01A.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -19,6 +19,9 @@ lan_port = 5025
 
 [errors]
 query = ":SYST:ERR?"
+
+[ranges]
+nplc = { min = 0.0005, max = 12, digits = 4 }
 
 [signals.value]
 query = ":READ?"
@@ -50,3 +53,28 @@ continuity = "Ohm"
 [setters.function]
 command = ':SENS:FUNC "{function}"'
 map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = ":SENS:{function}:RANG {value}"
+verify = ":SENS:{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", capacitance = "CAP" }
+
+[setters.autorange]
+command = ":SENS:{function}:RANG:AUTO {on}"
+verify = ":SENS:{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", capacitance = "CAP" }
+
+[setters.nplc]
+command = ":SENS:{function}:NPLC {value}"
+verify = ":SENS:{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES", temperature = "TEMP" }
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 4 }
+beep = ":SYST:BEEP 500,1"
+display_text = ':DISP:USER1:TEXT "{text}";:DISP:SCR SWIPE_USER'
+display_text_max = 20
+display_clear = ":DISP:CLE"

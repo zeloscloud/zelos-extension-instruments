@@ -2,13 +2,13 @@ schema = 1
 id = "bk-8600"
 name = "B&K Precision 8600 series"
 category = "load"
-notes = """Transcribed from the programming manual and the data sheet, not tried on a unit. The programming manual lists the 8600, 8601, 8602, 8610, 8612, 8614 and 8616. The 8620, 8622, 8624 and 8625 are in the data sheet as the same SCPI family but not in that manual, so their commands are assumed to match. The ratings in ranges come from the data sheet. The data sheet also lists the B models (8600B, 8601B, 8602B, 8610B, 8612B, 8614B), which have no GPIB interface (the 8616 and larger models have no B version); no manual shows their identity reply, so the match accepts the model with or without a B. The data sheet lists USB (USBTMC), RS-232 and GPIB and no LAN port, so this extension reaches the load over RS-232 only. The manual offers 4800, 9600, 19200, 38400, 57600 and 115200 baud, with 8 data bits and no parity, and does not name a default; match the front-panel System menu (Shift + 8). SYST:REM puts the load in remote mode and disables every front-panel key except Local. The function query reply form is not stated; the profile accepts the short and the long word. A protection trip latches the input off until PROT:CLE, which the Clear setter sends once the fault is removed. The manual says clearing restores the input to the state it was in before the fault, so Clear can switch the input back on. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage. The manual documents MEAS:VOLT?, MEAS:CURR? and FETC:POW? as the measurement queries and has no power measure or resistance measure query, so power reads the last fetched value, which stays the same until the load has a new reading, and resistance is not read. The manual gives the current slew rate in A/us and the current range as a number, neither of which the slew and current range fields can hold, so neither is read or set. Voltage ranges start at 0.1 V. Each current setting is accepted inside the active range only, and each model has a low and a high current range."""
+notes = """Transcribed from the programming manual and the data sheet, not tried on a unit. The programming manual lists the 8600, 8601, 8602, 8610, 8612, 8614 and 8616. The 8620, 8622, 8624 and 8625 are in the data sheet as the same SCPI family but not in that manual, so their commands are assumed to match. The ratings in ranges come from the data sheet. The data sheet also lists the B models (8600B, 8601B, 8602B, 8610B, 8612B, 8614B), which have no GPIB interface (the 8616 and larger models have no B version); no manual shows their identity reply, so the match accepts the model with or without a B. The data sheet lists USB (USBTMC), RS-232 and GPIB and no LAN port, so this extension reaches the load over RS-232 only. The manual offers 4800, 9600, 19200, 38400, 57600 and 115200 baud, with 8 data bits and no parity, and does not name a default; match the front-panel System menu (Shift + 8). SYST:REM puts the load in remote mode and disables every front-panel key except Local. The function query reply form is not stated; the profile accepts the short and the long word. A protection trip latches the input off until PROT:CLE, which the Clear setter sends once the fault is removed. The manual says clearing restores the input to the state it was in before the fault, so Clear can switch the input back on. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage. The manual documents MEAS:VOLT?, MEAS:CURR? and FETC:POW? as the measurement queries and has no power measure or resistance measure query, so power reads the last fetched value, which stays the same until the load has a new reading, and resistance is not read. The slew rate is in A/us and the profile scales it to A/s; the rise rate is CURR:SLEW:POS and the fall rate is CURR:SLEW:NEG, and the both-edges command is not used. The current range command takes an amp value and the voltage range has a single range, so neither range is set. Save takes 0 to 100 and recall takes 0 to 9, so the profile offers 0 to 9. SYST:RWL locks every key including Local until SYST:LOC, and the manual words both for RS-232 operation. Voltage ranges start at 0.1 V. Each current setting is accepted inside the active range only, and each model has a low and a high current range."""
 
 [evidence]
 badge = "manual"
 source = "B&K Precision 8600 Series Programmable DC Electronic Loads Programming Manual (models 8600 to 8616), v051118; 8600/B Series Data Sheet 2025"
 url = "https://bkpmedia.s3.amazonaws.com/downloads/programming_manuals/en-us/8600_Series_programming_manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^b&?k'
@@ -21,6 +21,13 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+lock = "SYST:RWL"
+unlock = "SYST:LOC"
 
 [ranges]
 voltage = { min = 0.1, max = 120, digits = 3 }
@@ -135,6 +142,20 @@ query = "SOUR:FUNC?"
 parse = "map"
 map = { CURR = "cc", CURRENT = "cc", VOLT = "cv", VOLTAGE = "cv", POW = "cp", POWER = "cp", RES = "cr", RESISTANCE = "cr" }
 
+[state.short]
+query = "SOUR:INP:SHOR:STAT?"
+parse = "bool"
+
+[state.slew_rise_set]
+query = "SOUR:CURR:SLEW:POS?"
+parse = "float"
+scale = 1e6
+
+[state.slew_fall_set]
+query = "SOUR:CURR:SLEW:NEG?"
+parse = "float"
+scale = 1e6
+
 [state.protection]
 flags = [
   { query = "STAT:QUES:COND?", parse = "bits", mask = 4096, shift = 12, value = "ovp" },
@@ -161,6 +182,17 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = "SOUR:INP:STAT {on}"
+
+[setters.short]
+command = "SOUR:INP:SHOR:STAT {on}"
+
+[setters.slew_rise]
+command = "SOUR:CURR:SLEW:POS {value}"
+scale = 1e6
+
+[setters.slew_fall]
+command = "SOUR:CURR:SLEW:NEG {value}"
+scale = 1e6
 
 [setters.clear]
 command = "SOUR:PROT:CLE"

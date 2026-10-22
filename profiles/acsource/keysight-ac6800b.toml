@@ -8,13 +8,17 @@ The CURR setting range is 0.1 to 5.2 A, 0.2 to 10.5 A, 0.4 to 21.0 A and 0.8 to 
 The current setpoint is the rms current limit, not a load current. \
 OUTP:COUP AC|DC|ACDC selects the output coupling, and the profile sets AC quantities only, so use AC coupling with it: the DC voltage and DC current are separate commands (VOLT:OFFS and CURR:OFFS) that the profile does not set. \
 The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 512 overpower, 16 overtemperature, and 4, 32, 64 and 8192 for hardware failure, watchdog, remote inhibit and sense fault. The Clear setter resets the latched protection. \
-Remote connection is LAN (raw socket on port 5025, VXI-11, HiSLIP), USB, and optional GPIB."""
+Remote connection is LAN (raw socket on port 5025, VXI-11, HiSLIP), USB, and optional GPIB. \
+*TST? does not run a test: it returns the result of the most recent power-on self-test, 0 for a pass and a nonzero value for a failure, so a pass means the unit passed at power-on. \
+Save and recall: the command reference lists locations 0 to 10 and the front-panel text says 0 to 9, so the profile offers 0 to 9. \
+The beep command sounds one beep even when the beeper state is off. DISP:STAT OFF turns off the display backlight and disables every front-panel key until DISP:STAT ON, and the display text takes 127 characters and survives *RST and *RCL. \
+SYST:COMM:RLST RWL locks out the front panel and the rear Sense switch, and SYST:COMM:RLST REM returns to remote control with the panel working."""
 
 [evidence]
 badge = "manual"
 source = "Keysight AC6800B Series Basic AC Sources Operating and Service Guide, AC6800-90901, Edition 2, April 2019"
 url = "https://transcat.ca/media/pdf/keysight-AC6800B-user-manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keysight'
@@ -25,6 +29,18 @@ lan_port = 5025
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = "SYST:BEEP"
+display = "DISP:STAT {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 127
+display_clear = "DISP:TEXT:CLE"
+lock = "SYST:COMM:RLST RWL"
+unlock = "SYST:COMM:RLST REM"
 
 [ranges]
 voltage = { min = 0, max = 315, max_query = "VOLT? MAX", digits = 3 }

@@ -7,7 +7,11 @@ The PEL-3031 and the H and E variants are not matched. \
 The programming manual has no rating table, so the voltage, current, power and resistance limits of each model were not checked against it. It shows one front-panel figure labelled 1.5 - 150V 175W 0 - 35A, captioned PEL-3021 / PEL-3041. \
 The manual has no resistance measurement query, so resistance is not read. Static setpoints use the A value (:CURRent:VA and so on), and each current range keeps its own A value; the current range is read with :CRANge?. Replies carry a unit letter, for example 1.0A, which the reader accepts. \
 The switching mode is Dynamic by default (:MODE:DYNamic), and the manual says the A-value commands apply to static modes. \
-The slew rate (:CURRent:SRATe) is in mA/us; the profile scales it to A/s. \
+The slew rate (:CURRent:SRATe) is the constant-current static one, and the rise and fall rates (:CURRent:RISE and :CURRent:FALL) are the constant-current dynamic ones; all three are in mA/us and the profile scales them to A/s. \
+The short setter sends :INPut:SHORt; the manual prints its query as :INPutSHORt? without the colon, and the profile sends :INP:SHOR?. \
+The current range takes HIGH, MIDDle or LOW and the voltage range takes HIGH or LOW; the replies come back as High, Mid or Low. \
+Save and recall take memory numbers 1 to 256. \
+The manual says *TST? runs no self-test and always returns 0, so the profile has no self-test. \
 Remote interfaces are USB (virtual serial port), RS-232 and GPIB. RS-232 offers 2400, 4800, 9600, 19200 or 38400 baud, 1 or 2 stop bits and no, odd or even parity, set on the front panel with Shift + Help, and the manual names no default. The RS-232 cable is a null modem. \
 :UTILity:REMote turns remote control on or off; the manual does not say it must be on, so the profile sends nothing at connect and has no Local action. The optional :UTILity:REMote:MODE FAST deactivates the panel. \
 The :MODE query also returns CCCV, CRCV and CPCV for the combined modes, which read as unknown. \
@@ -17,7 +21,7 @@ The protection state reads the questionable status condition register: weight 1 
 badge = "manual"
 source = "GW Instek DC Electronic Load PEL-3000 Programming Manual, version 1.40"
 url = "https://netes.com.tr/dosya/gw-instek-pel-3000-serisi-programlama-kilavuzu222222222"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(gw|good)'
@@ -28,6 +32,12 @@ baud = 9600
 
 [errors]
 query = ":SYST:ERR?"
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 256 }
 
 [ranges]
 voltage = { min = 1.5, max = 150, digits = 3 }
@@ -83,7 +93,26 @@ scale = 1e3
 [state.current_range]
 query = ":CRAN?"
 parse = "map"
-map = { High = "high", Mid = "mid", Low = "low" }
+map = { High = "high", Mid = "mid", MIDDLE = "mid", MIDD = "mid", Low = "low" }
+
+[state.voltage_range]
+query = ":VRAN?"
+parse = "map"
+map = { High = "high", Low = "low" }
+
+[state.short]
+query = ":INP:SHOR?"
+parse = "bool"
+
+[state.slew_rise_set]
+query = ":CURR:RISE?"
+parse = "float"
+scale = 1e3
+
+[state.slew_fall_set]
+query = ":CURR:FALL?"
+parse = "float"
+scale = 1e3
 
 [state.output]
 query = ":INP?"
@@ -101,10 +130,6 @@ flags = [
   { query = ":STAT:QUES:COND?", parse = "bits", mask = 8, shift = 3, value = "opp" },
   { query = ":STAT:QUES:COND?", parse = "bits", mask = 16, shift = 4, value = "otp" },
 ]
-
-[setters.slew]
-command = ":CURRent:SRATe {value}"
-scale = 1e3
 
 [setters.current]
 command = ":CURR:VA {value}"
@@ -124,3 +149,26 @@ map = { cc = "CC", cv = "CV", cp = "CP", cr = "CR" }
 
 [setters.output]
 command = ":INP {on}"
+
+[setters.slew]
+command = ":CURRent:SRATe {value}"
+scale = 1e3
+
+[setters.short]
+command = ":INP:SHOR {on}"
+
+[setters.current_range]
+command = ":CRAN {value}"
+map = { low = "LOW", mid = "MIDDle", high = "HIGH" }
+
+[setters.voltage_range]
+command = ":VRAN {value}"
+map = { low = "LOW", high = "HIGH" }
+
+[setters.slew_rise]
+command = ":CURR:RISE {value}"
+scale = 1e3
+
+[setters.slew_fall]
+command = ":CURR:FALL {value}"
+scale = 1e3

@@ -12,13 +12,13 @@ The meter has a secondary display and a second function; this profile reads and 
 The function query answers TEMP for every temperature probe. \
 Temperature reads in the unit set by SENS:UNIT (C, F or K), so the temperature reading carries no unit label. \
 CONF takes an optional range and resolution, and this profile sends neither. CONF:TEMP is sent without a probe type, which the manual does not describe. \
-Range, autorange and NPLC are read and set per function (for example SENS:VOLT:DC:RANG?), so the profile reads none of them."""
+Range, autorange and NPLC are read and set per function (for example SENS:VOLT:DC:RANG?), so the profile reads none of them. The range and auto range setters act on the current function, and each reads its own value back with the function's query; the meter picks the range that covers the value. They cover DC and AC volts, DC and AC amps, 2-wire and 4-wire resistance and capacitance; frequency and period have a voltage and a current range of their own, so the setters refuse them. The integration time setter covers DC volts, DC amps and 2-wire and 4-wire resistance, with 0.006, 0.0083, 0.0125, 0.025, 0.05, 0.15, 0.6, 1, 3 or 12 cycles. Temperature (1, 3 or 12 cycles), diode and continuity (0.15, 0.6 or 1 cycle) take shorter lists, so their setters are refused. The meter has no *TST? command. Save takes memory 1 to 5, and recall takes the same; *RCL 0 loads the factory defaults and is not offered. The manual states no length limit for the display text, so the profile has no display text action. Lock sends SYSTem:RWLock and unlock sends SYSTem:LOCal, both listed as RS-232 commands."""
 
 [evidence]
 badge = "manual"
 source = "GW Instek GDM-9060/9061 Dual Measurement Multimeter User Manual, 82DM-90610E01"
 url = "https://www.gmciuk.com/manuals/gw-instek-gdm-9061_manual_762347.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^gw\s*-?\s*instek'
@@ -31,6 +31,9 @@ local = "SYST:LOC"
 
 [errors]
 query = "SYST:ERR?"
+
+[ranges]
+nplc = { choices = [0.006, 0.0083, 0.0125, 0.025, 0.05, 0.15, 0.6, 1, 3, 12], digits = 4 }
 
 [signals.value]
 query = "READ?"
@@ -62,3 +65,28 @@ continuity = "Ohm"
 [setters.function]
 command = "CONF:{function}"
 map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = "SENS:{function}:RANG {value}"
+verify = "SENS:{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", capacitance = "CAP" }
+
+[setters.autorange]
+command = "SENS:{function}:RANG:AUTO {on}"
+verify = "SENS:{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", capacitance = "CAP" }
+
+[setters.nplc]
+command = "SENS:{function}:NPLC {value}"
+verify = "SENS:{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES" }
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 5 }
+beep = "SYST:BEEP:IMM"
+display = "DISP {on}"
+lock = "SYSTem:RWLock"
+unlock = "SYSTem:LOCal"
