@@ -107,22 +107,33 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
         prefer="visa" if connection == "visa" else "socket",
     )
     choices = []
+    visa_only: list[str] = []
     for f in found:
-        if connection == "visa":
-            value = _visa_value(f.address)
-        elif isinstance(f.address, TcpAddress):
-            value = _lan_value(f.address)
-        else:
-            value = f.address.where
         holder = _holder(f.address)
         idn = f.idn or (holder.idn if holder else None)
         who = f"{idn.manufacturer} {idn.model}".strip() if idn else ""
         label = f"{who} ({f.address.where})" if who else f.address.where
+        if connection == "visa":
+            value = _visa_value(f.address)
+        elif isinstance(f.address, TcpAddress):
+            value = _lan_value(f.address)
+        elif connection == "lan":
+            # A resource string is not a host: the instrument belongs under VISA resource.
+            visa_only.append(label)
+            continue
+        else:
+            value = f.address.where
         detail = f.error or (f.profile_id and f"profile {f.profile_id}") or None
         choices.append({"value": value, "label": label, "detail": detail})
-    if not choices:
-        return {"status": "success", "choices": [], "message": _nothing_found(tried)}
-    return {"status": "success", "choices": choices}
+    result: dict[str, Any] = {"status": "success", "choices": choices}
+    if visa_only:
+        result["message"] = (
+            f"Reachable only as a VISA resource: {', '.join(visa_only)}. "
+            "Set Connection to VISA resource to use it."
+        )
+    elif not choices:
+        result["message"] = _nothing_found(tried)
+    return result
 
 
 @action(
