@@ -288,6 +288,8 @@ class LinkDefaults:
     read_terminator: str
     timeout_s: float
     delay_ms: int
+    # The pause after a command that sends no reply, when longer than `delay_ms`.
+    command_delay_ms: int
     lan_port: int
     baud: int
     data_bits: int
@@ -788,6 +790,7 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         "read_terminator",
         "timeout_s",
         "delay_ms",
+        "command_delay_ms",
         "lan_port",
         "baud",
         "data_bits",
@@ -835,6 +838,7 @@ def _link(c: _Check, raw: dict[str, Any]) -> LinkDefaults:
         else "\n",
         timeout_s=timeout or 2.0,
         delay_ms=c.integer(raw, "delay_ms", 0, "link"),
+        command_delay_ms=c.integer(raw, "command_delay_ms", 0, "link"),
         lan_port=c.integer(raw, "lan_port", 5025, "link", low=1),
         baud=c.integer(raw, "baud", 9600, "link", low=50),
         data_bits=c.integer(raw, "data_bits", 8, "link", low=5),

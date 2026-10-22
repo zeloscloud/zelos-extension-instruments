@@ -241,7 +241,8 @@ Connection defaults for this family. The config can override each.
 | `write_terminator` | `"\n"` | Appended to every command. |
 | `read_terminator` | `"\n"` | Ends every reply. |
 | `timeout_s` | `2.0` | How long one query may take. |
-| `delay_ms` | `0` | A pause the vendor documents between commands. Only set it when the manual or an application note says so. |
+| `delay_ms` | `0` | A pause between commands, queries included. Set it when the manual, an application note or a real unit needs it. |
+| `command_delay_ms` | `0` | A longer pause after a command that sends no reply, for an instrument that drops a command sent too soon after another. A query is paced by its own reply. |
 | `lan_port` | `5025` | The raw socket port. |
 | `baud`, `data_bits`, `parity`, `stop_bits`, `flow_control` | `9600`, `8`, `"none"`, `1`, `"none"` | Serial defaults. |
 | `remote` | none | Sent once after connect, for instruments that need it before they accept commands (`SYST:REM`, `SYST:LOCK 1`). |

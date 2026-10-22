@@ -66,7 +66,7 @@ class SerialLink:
         self.where = where
         self._port = port
         self._settings = settings
-        self._pacer = Pacer(settings.delay_ms)
+        self._pacer = Pacer(settings.delay_ms, settings.command_delay_ms)
         self._lines = Lines(settings.read_terminator)
         self._closed = False
 
@@ -82,7 +82,7 @@ class SerialLink:
             ) from exc
         except Exception as exc:
             raise self._broken(exc) from exc
-        self._pacer.mark()
+        self._pacer.mark(command)
 
     def read(self, timeout_s: float | None = None) -> str:
         deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)

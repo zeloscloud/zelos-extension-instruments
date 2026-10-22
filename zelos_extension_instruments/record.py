@@ -209,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         profile.link.read_terminator,
         profile.link.timeout_s,
         profile.link.delay_ms,
+        command_delay_ms=profile.link.command_delay_ms,
     )
     try:
         link = open_link(address, settings)

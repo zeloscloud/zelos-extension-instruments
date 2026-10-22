@@ -143,7 +143,7 @@ class VisaLink:
         self.where = where
         self._inst = inst
         self._settings = settings
-        self._pacer = Pacer(settings.delay_ms)
+        self._pacer = Pacer(settings.delay_ms, settings.command_delay_ms)
         self._closed = False
 
     def write(self, command: str) -> None:
@@ -152,7 +152,7 @@ class VisaLink:
             self._inst.write(command)
         except Exception as exc:
             raise self._failure(exc, reading=False) from exc
-        self._pacer.mark()
+        self._pacer.mark(command)
 
     def read(self, timeout_s: float | None = None) -> str:
         return self._text(self._read_raw(timeout_s, terminated=True), timeout_s)
