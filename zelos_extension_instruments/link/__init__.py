@@ -171,15 +171,16 @@ class Lines:
     def feed(self, chunk: bytes) -> None:
         self._buffer += chunk
 
-    def pop(self) -> str | None:
-        """The next complete line without its terminator, or None until one has arrived."""
+    def _skip_after_block(self) -> None:
+        """Drop the line endings an instrument sent behind a block, however late they came."""
         if self._after_block:
             while self._buffer[:1] in _LINE_ENDS:
                 del self._buffer[:1]
-            if self._buffer:
-                self._after_block = False
-            else:
-                return None
+            self._after_block = not self._buffer
+
+    def pop(self) -> str | None:
+        """The next complete line without its terminator, or None until one has arrived."""
+        self._skip_after_block()
         end = self._buffer.find(self._terminator) if self._terminator else len(self._buffer) or -1
         if end < 0:
             return None
@@ -189,6 +190,7 @@ class Lines:
 
     def starts_block(self) -> bool | None:
         """True when the buffered reply is a block, False when a line, None while empty."""
+        self._skip_after_block()
         if not self._buffer:
             return None
         if self._buffer[:1] != b"#":
@@ -202,6 +204,7 @@ class Lines:
         """The payload of the next complete definite-length block, or None until it has arrived;
         raises BlockError when the buffer does not start with a block. The terminator bytes an
         instrument sends after a block are dropped with it."""
+        self._skip_after_block()
         header = block_header(bytes(self._buffer[:12]))
         if header is None:
             return None
