@@ -7,16 +7,11 @@ from contextlib import suppress
 
 import serialx
 
-from ..waveform import BlockError
-from . import Lines, Link, LinkError, LinkTimeout, Pacer, SerialAddress, Settings
+from . import LineLink, Link, LinkError, SerialAddress, Settings, seconds
 
 _WRITE_TIMEOUT_S = 1.0
 _CHUNK = 256
 _ERROR_ACCESS_DENIED = 5  # Windows reports a COM port held by another program this way
-
-
-def _seconds(value: float) -> str:
-    return f"{value:g} s"
 
 
 def _open_failure(port: str, exc: Exception) -> LinkError:
@@ -61,76 +56,30 @@ def open_serial(address: SerialAddress, settings: Settings) -> Link:
     return SerialLink(port, address.where, settings)
 
 
-class SerialLink:
-    def __init__(self, port: serialx.BaseSerial, where: str, settings: Settings) -> None:
-        self.where = where
-        self._port = port
-        self._settings = settings
-        self._pacer = Pacer(settings.delay_ms, settings.command_delay_ms)
-        self._lines = Lines(settings.read_terminator)
-        self._closed = False
+class SerialLink(LineLink):
+    line_chunk = _CHUNK
+    block_chunk = _CHUNK
 
-    def write(self, command: str) -> None:
-        data = (command + self._settings.write_terminator).encode()
-        self._pacer.wait()
+    def __init__(self, port: serialx.BaseSerial, where: str, settings: Settings) -> None:
+        super().__init__(where, settings)
+        self._port = port
+
+    def _send(self, data: bytes) -> None:
         try:
             self._port.write(data)
         except TimeoutError as exc:
             raise LinkError(
-                f"{self.where} did not accept a command within {_seconds(_WRITE_TIMEOUT_S)}.",
+                f"{self.where} did not accept a command within {seconds(_WRITE_TIMEOUT_S)}.",
                 "timeout",
             ) from exc
         except Exception as exc:
             raise self._broken(exc) from exc
-        self._pacer.mark(command)
 
-    def read(self, timeout_s: float | None = None) -> str:
-        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
-        while True:
-            line = self._lines.pop()
-            if line is not None:
-                return line
-            self._receive(deadline)
-
-    def query(self, command: str) -> str:
-        self.write(command)
-        return self.read()
-
-    def read_block(self, timeout_s: float | None = None) -> bytes:
-        # A block keeps arriving in pieces: each piece restarts the clock.
-        wait = timeout_s or self._settings.timeout_s
-        while True:
-            block = self._pop_block()
-            if block is not None:
-                return block
-            self._receive(time.monotonic() + wait)
-
-    def read_any(self, timeout_s: float | None = None) -> str | bytes:
-        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
-        while True:
-            kind = self._lines.starts_block()
-            if kind is True:
-                block = self._pop_block()
-                if block is not None:
-                    return block
-            elif kind is False:
-                line = self._lines.pop()
-                if line is not None:
-                    return line
-            self._receive(deadline)
-
-    def _pop_block(self) -> bytes | None:
-        try:
-            return self._lines.pop_block()
-        except BlockError as exc:
-            self._lines.clear()
-            raise LinkError(f"{self.where} did not answer with a block: {exc}", "reply") from exc
-
-    def _receive(self, deadline: float) -> None:
+    def _receive(self, deadline: float, size: int) -> None:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise self._no_reply()
-        chunk = bytearray(_CHUNK)
+        chunk = bytearray(size)
         try:
             count = self._port.readinto(chunk, timeout=remaining)
         except Exception as exc:
@@ -148,11 +97,6 @@ class SerialLink:
         self._closed = True
         with suppress(Exception):
             self._port.close()
-
-    def _no_reply(self) -> LinkTimeout:
-        return LinkTimeout(
-            f"no reply from {self.where} within {_seconds(self._settings.timeout_s)}"
-        )
 
     def _broken(self, exc: Exception | None) -> LinkError:
         if self._closed:

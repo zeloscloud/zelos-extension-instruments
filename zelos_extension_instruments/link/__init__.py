@@ -6,10 +6,11 @@ may call from another thread to interrupt a blocked read.
 """
 
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from ..waveform import block_header
+from ..waveform import BlockError, block_header
 
 Kind = Literal[
     "not_found",
@@ -221,6 +222,85 @@ class Lines:
     def clear(self) -> None:
         self._buffer.clear()
         self._after_block = False
+
+
+def seconds(value: float) -> str:
+    """A duration as a message shows it: `2 s`, `0.5 s`."""
+    return f"{value:g} s"
+
+
+class LineLink(ABC):
+    """What a raw socket and a serial port share: commands go out with the write terminator, and
+    replies are split into lines and #-blocks here. A subclass moves the bytes."""
+
+    # How much one receive asks for while a line, or a block, is awaited.
+    line_chunk = 256
+    block_chunk = 256
+
+    def __init__(self, where: str, settings: Settings) -> None:
+        self.where = where
+        self._settings = settings
+        self._pacer = Pacer(settings.delay_ms, settings.command_delay_ms)
+        self._lines = Lines(settings.read_terminator)
+        self._closed = False
+
+    @abstractmethod
+    def _send(self, data: bytes) -> None:
+        """Write the bytes; raises LinkError."""
+
+    @abstractmethod
+    def _receive(self, deadline: float, size: int) -> None:
+        """Feed one more chunk of up to `size` bytes into the lines, or raise by `deadline`."""
+
+    def write(self, command: str) -> None:
+        self._pacer.wait()
+        self._send((command + self._settings.write_terminator).encode())
+        self._pacer.mark(command)
+
+    def read(self, timeout_s: float | None = None) -> str:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
+        while True:
+            line = self._lines.pop()
+            if line is not None:
+                return line
+            self._receive(deadline, self.line_chunk)
+
+    def query(self, command: str) -> str:
+        self.write(command)
+        return self.read()
+
+    def read_block(self, timeout_s: float | None = None) -> bytes:
+        # A block keeps arriving in pieces: each piece restarts the clock.
+        wait = timeout_s or self._settings.timeout_s
+        while True:
+            block = self._pop_block()
+            if block is not None:
+                return block
+            self._receive(time.monotonic() + wait, self.block_chunk)
+
+    def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        deadline = time.monotonic() + (timeout_s or self._settings.timeout_s)
+        while True:
+            kind = self._lines.starts_block()
+            if kind is True:
+                block = self._pop_block()
+                if block is not None:
+                    return block
+            elif kind is False:
+                line = self._lines.pop()
+                if line is not None:
+                    return line
+            self._receive(deadline, self.block_chunk)
+
+    def _pop_block(self) -> bytes | None:
+        try:
+            return self._lines.pop_block()
+        except BlockError as exc:
+            self._lines.clear()
+            raise LinkError(f"{self.where} did not answer with a block: {exc}", "reply") from exc
+
+    def _no_reply(self) -> LinkTimeout:
+        return LinkTimeout(f"no reply from {self.where} within {seconds(self._settings.timeout_s)}")
 
 
 def open_link(address: Address, settings: Settings) -> Link:
