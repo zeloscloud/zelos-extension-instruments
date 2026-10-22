@@ -175,3 +175,48 @@ def test_the_demo_bench_records_all_four_instruments(
     assert any(r.get("frequency") == 50.0 for r in events["demo acsource/ch1"])
     assert any(r["message"] == "set ch2 voltage 4.000" for r in events["demo psu/log"])
     assert any(r["message"] == "set ch1 output off" for r in events["demo load/log"])
+
+
+def test_stopping_several_instruments_lets_them_wind_down_together(
+    trace_file: Recording, profiles: list[Profile]
+) -> None:
+    """Each stop waited for its own worker before the next was asked: three supplies that each
+    take 0.6 s to hand the panel back took 1.8 s."""
+    hosts = ("192.168.1.41", "192.168.1.42", "192.168.1.43")
+    settings = config.from_dict(
+        {"instruments": [{"connection": "lan", "host": h, "port": 5555} for h in hosts]}
+    )
+
+    def opener(address: Any, link_settings: Any) -> ScriptedLink:
+        unit = Dp832()
+
+        def answer(command: str) -> str | None:
+            if command == "SYST:LOCAL":
+                time.sleep(0.6)
+            return unit(command)
+
+        return ScriptedLink(answer, address.where)
+
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=app.run,
+        kwargs={
+            "source": trace_file.source,
+            "settings": settings,
+            "profiles": profiles,
+            "open": opener,
+            "stop": stop,
+        },
+        daemon=True,
+    )
+    thread.start()
+    assert wait_until(
+        lambda: (
+            len(actions.workers) == 3 and all(w.state == "open" for w in actions.workers.values())
+        )
+    )
+    started = time.monotonic()
+    stop.set()
+    thread.join(5)
+    assert not thread.is_alive()
+    assert time.monotonic() - started < 1.5
