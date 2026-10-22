@@ -27,6 +27,8 @@ Kind = Literal[
 
 # Short, because a blocked connect holds the worker's thread: Get State and stop wait behind it.
 CONNECT_TIMEOUT_S = 2.0
+# How soon a read blocked on another thread notices a close.
+CLOSE_CHECK_S = 0.25
 
 
 class LinkError(Exception):
