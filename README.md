@@ -21,7 +21,7 @@ Record your bench instruments in Zelos, on the same timeline as the device you a
 | **Oscilloscopes** | Siglent SDS |
 | **Anything else that speaks SCPI** | A generic profile for each category except oscilloscopes reads the standard commands, and your own instrument is one TOML file away: see [profiles](https://github.com/zeloscloud/zelos-extension-instruments/blob/main/docs/profiles.md). |
 
-Instruments connect over LAN, USB-TMC, a serial port, or any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), on Linux, macOS and Windows, with Zelos 26.0.10 or later.
+Instruments connect over LAN, USB-TMC, a serial port, or any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), on Linux, macOS and Windows, with Zelos 26.0.9 or later.
 
 ## Get started
 
