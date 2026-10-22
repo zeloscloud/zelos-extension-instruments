@@ -2,12 +2,18 @@
 
 import dataclasses
 import json
+import math
+import re
 import struct
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from tests.conftest import profile_from
 from zelos_extension_instruments import waveform
+from zelos_extension_instruments.profile_load import ProfileError
+from zelos_extension_instruments.profile_scope import LINEAR_TERMS, ByteOrder, Encoding, Part
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -156,3 +162,143 @@ def test_a_byte_wide_descriptor_reads_one_byte_per_sample() -> None:
     gain = decoded.vertical_gain / decoded.code_per_div * decoded.probe
     offset = decoded.vertical_offset * decoded.probe
     assert values.tolist() == pytest.approx([-offset, 64 * gain - offset, -64 * gain - offset])
+
+
+@pytest.mark.parametrize(
+    ("encoding", "byte_order", "raw", "codes"),
+    [
+        ("i1", "big", b"\x7f\x80\xff", [127, -128, -1]),
+        ("i1", "little", b"\x7f\x80\xff", [127, -128, -1]),
+        ("u1", "big", b"\x7f\x80\xff", [127, 128, 255]),
+        ("u1", "little", b"\x7f\x80\xff", [127, 128, 255]),
+        ("i2", "big", b"\xff\xfe\x01\x00", [-2, 256]),
+        ("i2", "little", b"\xff\xfe\x01\x00", [-257, 1]),
+        ("u2", "big", b"\xff\xfe\x01\x00", [65534, 256]),
+        ("u2", "little", b"\xff\xfe\x01\x00", [65279, 1]),
+    ],
+)
+def test_linear_codes_follow_the_encoding_and_byte_order(
+    encoding: Encoding, byte_order: ByteOrder, raw: bytes, codes: list[int]
+) -> None:
+    assert waveform.linear_codes(raw, encoding, byte_order).tolist() == codes
+
+
+def test_a_trailing_partial_sample_is_dropped() -> None:
+    assert waveform.linear_codes(b"\x00\x01\x02", "u2", "big").tolist() == [1]
+
+
+LINEAR = waveform.LinearScale(x_inc=1e-6, x_zero=-1e-3, x_ref=2, y_mult=0.01, y_zero=0.5, y_ref=128)
+
+
+def test_linear_samples_are_offset_by_the_reference_code_then_scaled() -> None:
+    codes = waveform.linear_codes(bytes([128, 228, 28]), "u1", "big")
+    assert waveform.linear_samples(LINEAR, codes).tolist() == pytest.approx([0.5, 1.5, -0.5])
+
+
+def test_linear_times_count_from_the_reference_sample() -> None:
+    times = waveform.linear_offsets_ns(LINEAR, 4).tolist()
+    assert times == [-1_002_000, -1_001_000, -1_000_000, -999_000]
+
+
+def part(**changes: Any) -> Part:
+    return dataclasses.replace(Part(value=None, field=None, query=None), **changes)
+
+
+@pytest.mark.parametrize(
+    ("modifiers", "expected"),
+    [
+        ({}, 4.0),
+        ({"invert": True}, 0.25),
+        ({"multiply": -7}, -28.0),
+        ({"divide": 25}, 0.16),
+        ({"negate": True}, -4.0),
+        ({"times_interval": True}, 12.0),
+        # Inverted before it is multiplied, divided, negated and stretched.
+        (
+            {"invert": True, "multiply": 2, "divide": 4, "negate": True, "times_interval": True},
+            -0.375,
+        ),
+    ],
+)
+def test_each_modifier_adjusts_a_part(modifiers: dict[str, Any], expected: float) -> None:
+    assert part(**modifiers).apply(4.0, interval=3) == pytest.approx(expected)
+
+
+def test_inverting_zero_is_infinite_not_an_exception() -> None:
+    assert part(invert=True).apply(0.0, interval=1) == math.inf
+
+
+def linear_scope(**waveform_keys: Any) -> dict[str, Any]:
+    terms: dict[str, Any] = dict.fromkeys(LINEAR_TERMS, 0)
+    terms.update(x_inc=1e-6, y_mult=0.01)
+    return {
+        "schema": 1,
+        "id": "acme-scope",
+        "name": "Acme scope",
+        "category": "scope",
+        "evidence": {"badge": "manual", "source": "Acme manual", "date": "2026-10-20"},
+        "match": {"manufacturer": "(?i)^acme", "model": "^S1$"},
+        "scope": {"waveform": {"format": "linear", "data": "WAV? {ch}", **terms, **waveform_keys}},
+    }
+
+
+def test_a_term_is_a_number_a_table_or_a_list_of_tables() -> None:
+    profile = profile_from(
+        linear_scope(
+            preamble="PRE? {ch},{points}",
+            x_inc={"query": "SARA?", "invert": True, "times_interval": True},
+            x_zero=[{"query": "TRDL?"}, {"query": "TDIV?", "multiply": -7}],
+            y_mult={"field": 7, "divide": 25},
+            y_zero={"query": "C{ch}:OFST?", "negate": True},
+            encoding="i2",
+            byte_order="big",
+        )
+    )
+    assert profile.scope is not None and profile.scope.waveform is not None
+    linear = profile.scope.waveform.linear
+    assert linear is not None
+    assert (linear.encoding, linear.byte_order) == ("i2", "big")
+    assert linear.x_ref == (Part(value=0.0, field=None, query=None),)
+    assert linear.x_inc == (part(query="SARA?", invert=True, times_interval=True),)
+    assert linear.x_zero == (part(query="TRDL?"), part(query="TDIV?", multiply=-7.0))
+    assert linear.y_mult == (part(field=7, divide=25.0),)
+    assert linear.y_zero == (part(query="C{ch}:OFST?", negate=True),)
+
+
+def test_a_linear_waveform_defaults_to_unsigned_bytes_without_a_preamble() -> None:
+    profile = profile_from(linear_scope())
+    assert profile.scope is not None and profile.scope.waveform is not None
+    assert profile.scope.waveform.preamble is None
+    linear = profile.scope.waveform.linear
+    assert linear is not None and (linear.encoding, linear.byte_order) == ("u1", "little")
+
+
+@pytest.mark.parametrize(
+    ("changes", "complaint"),
+    [
+        ({"x_ref": None}, "scope.waveform.x_ref: missing"),
+        ({"y_ref": {"field": 9}}, "y_ref.field: needs scope.waveform.preamble"),
+        ({"y_ref": {"value": 1, "query": "Y?"}}, "exactly one of value, field or query"),
+        ({"y_ref": {}}, "exactly one of value, field or query"),
+        ({"y_mult": {"query": "Y?", "divide": 0}}, "y_mult.divide: must not be zero"),
+        ({"y_mult": {"query": "Y?", "scale": 2}}, "unknown key scale"),
+        ({"y_mult": "Y?"}, "must be a number, a table or a list of tables"),
+        ({"y_mult": {"query": "{slot}"}}, "unknown placeholder slot"),
+        ({"data": "WAV? {interval}"}, "data: unknown placeholder interval"),
+        ({"encoding": "f4"}, "encoding: must be one of i1, u1, i2, u2"),
+        ({"byte_order": "middle"}, "byte_order: must be one of big, little"),
+        ({"format": "wavedesc", "preamble": "PRE?"}, "x_inc: is only for format linear"),
+        ({"format": "wavedesc"}, "preamble: missing or empty"),
+    ],
+)
+def test_a_linear_waveform_that_cannot_be_scaled_is_refused(
+    changes: dict[str, Any], complaint: str
+) -> None:
+    raw = linear_scope()
+    for key, value in changes.items():
+        if value is None:
+            raw["scope"]["waveform"].pop(key)
+        else:
+            raw["scope"]["waveform"][key] = value
+    with pytest.raises(ProfileError, match=re.escape(complaint)):
+        profile_from(raw)

@@ -26,6 +26,7 @@ import zeroconf
 from pyvisa_py.tcpip import TCPIPInstrVxi11
 
 from . import connect, naming
+from .config import Connection
 from .link import (
     CONNECT_TIMEOUT_S,
     Address,
@@ -571,7 +572,7 @@ def _identify(found: Found, profiles: list[Profile], timeout_s: float, deadline:
             if e.kind not in ("timeout", "other"):
                 break
             continue
-        profile = find(profiles, idn)
+        profile = find(profiles, idn, connection_of(candidate))
         return dataclasses.replace(
             found,
             address=candidate,
@@ -887,5 +888,13 @@ def config_entry(found: Found) -> dict[str, Any]:
             "baud": address.baud,
             "profile": profile,
         }
-    connection = "usb" if address.resource.upper().startswith("USB") else "visa"
-    return {"connection": connection, "resource": address.resource, "profile": profile}
+    return {"connection": connection_of(address), "resource": address.resource, "profile": profile}
+
+
+def connection_of(address: Address) -> Connection:
+    """The configured connection kind that reaches `address`."""
+    if isinstance(address, TcpAddress):
+        return "lan"
+    if isinstance(address, SerialAddress):
+        return "serial"
+    return "usb" if address.resource.upper().startswith("USB") else "visa"

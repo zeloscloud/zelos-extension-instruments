@@ -78,7 +78,13 @@
           "name": { "type": "string", "title": "Reading name", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_][A-Za-z0-9 _-]*$" },
           "query": { "type": "string", "title": "Query", "minLength": 1, "description": "{ch} is the channel number. A query without it is read once per interval." },
           "unit": { "type": "string", "title": "Unit", "maxLength": 32 },
-          "every_s": { "type": "number", "title": "Every (s)", "default": 1, "exclusiveMinimum": 0 } }, "required": ["name", "query"] } }
+          "every_s": { "type": "number", "title": "Every (s)", "default": 1, "exclusiveMinimum": 0 } }, "required": ["name", "query"] } },
+        "scan": { "type": "array", "title": "Scan", "description": "The channels a data-acquisition unit reads every pass, each with what it measures.", "default": [], "items": { "type": "object", "title": "Scan channel", "additionalProperties": false, "properties": {
+          "channel": { "type": "integer", "title": "Channel", "description": "The channel's address, such as 101 for slot 1, channel 1.", "minimum": 1, "maximum": 9999 },
+          "function": { "type": "string", "title": "Function", "enum": ["dc_voltage", "ac_voltage", "dc_current", "ac_current", "resistance", "resistance_4w", "frequency", "period", "temperature"], "ui:enumNames": ["DC voltage", "AC voltage", "DC current", "AC current", "Resistance", "4-wire resistance", "Frequency", "Period", "Temperature"] },
+          "thermocouple": { "type": "string", "title": "Thermocouple", "description": "The thermocouple type of a temperature channel.", "enum": ["B", "E", "J", "K", "N", "R", "S", "T"] },
+          "nplc": { "type": "number", "title": "Integration (NPLC)", "description": "Power-line cycles per reading. Empty uses the instrument's default.", "exclusiveMinimum": 0 } }, "required": ["channel", "function"] } },
+        "relays": { "type": "array", "title": "Relays", "description": "The switch channels of a data-acquisition unit, opened and closed with the Relay action.", "default": [], "items": { "type": "integer", "title": "Relay channel", "minimum": 1, "maximum": 9999 } }
       }
     }
   },

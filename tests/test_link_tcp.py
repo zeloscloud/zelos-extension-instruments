@@ -438,3 +438,46 @@ def test_a_reply_that_is_not_a_block_is_refused_and_the_link_stays_usable(
         assert link.query("*IDN?") == IDN
     finally:
         link.close()
+
+
+def test_raw_bytes_come_back_exactly_as_the_instrument_sent_them() -> None:
+    server = _listener()
+    try:
+        link = open_tcp(TcpAddress("127.0.0.1", server.getsockname()[1]), FAST)
+        peer, _ = server.accept()
+        try:
+            peer.sendall(b"BM\n\x00")
+            time.sleep(0.05)
+            peer.sendall(b"\xff\r\n")
+            assert link.read_bytes(3) == b"BM\n"
+            assert link.read_bytes(4) == b"\x00\xff\r\n"
+            with pytest.raises(LinkTimeout):
+                link.read_bytes(1)
+        finally:
+            peer.close()
+            link.close()
+    finally:
+        server.close()
+
+
+def test_a_block_written_goes_out_whole_whatever_bytes_it_holds() -> None:
+    server = _listener()
+    try:
+        link = open_tcp(
+            TcpAddress("127.0.0.1", server.getsockname()[1]),
+            LinkSettings(write_terminator="\r\n", timeout_s=0.3),
+        )
+        peer, _ = server.accept()
+        try:
+            link.write_block(":SYST:SET ", b"\n\x00\xff")
+            expected = b":SYST:SET #13\n\x00\xff\r\n"
+            received = b""
+            peer.settimeout(1)
+            while len(received) < len(expected):
+                received += peer.recv(64)
+            assert received == expected
+        finally:
+            peer.close()
+            link.close()
+    finally:
+        server.close()

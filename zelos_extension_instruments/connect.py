@@ -49,6 +49,7 @@ def link_settings(cfg: InstrumentConfig, profile: Profile) -> LinkSettings:
         delay_ms=link.delay_ms if cfg.delay_ms is None else cfg.delay_ms,
         command_delay_ms=link.command_delay_ms,
         device_clear=link.device_clear,
+        skip_blank=link.skip_blank,
     )
 
 

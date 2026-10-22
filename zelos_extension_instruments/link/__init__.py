@@ -59,6 +59,8 @@ class LinkSettings:
     command_delay_ms: int = 0
     # Whether clear() may send a VISA device clear; some scopes hang on one.
     device_clear: bool = True
+    # Drop an empty line where a reply is expected; some units send one before the reply.
+    skip_blank: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +134,15 @@ class Link(Protocol):
         """A line, or a block's payload when the reply is a definite-length block."""
         ...
 
+    def read_bytes(self, count: int, timeout_s: float | None = None) -> bytes:
+        """Exactly `count` bytes as they arrive, for a reply sent with no block header; raise
+        LinkTimeout when they stop arriving for `timeout_s`, or the settings' timeout."""
+        ...
+
+    def write_block(self, command: str, payload: bytes) -> None:
+        """Send `command`, then `payload` as a definite-length block, then the write terminator."""
+        ...
+
     def clear(self) -> None:
         """Drop pending bytes, and clear the device where the transport can (VISA, USB-TMC)."""
         ...
@@ -139,6 +150,12 @@ class Link(Protocol):
     def close(self) -> None:
         """Close the link; safe to call twice and from another thread."""
         ...
+
+
+def definite_block(payload: bytes) -> bytes:
+    """`payload` as an IEEE 488.2 definite-length block: `#<digits><length><payload>`."""
+    length = str(len(payload))
+    return f"#{len(length)}{length}".encode() + payload
 
 
 class Pacer:
@@ -170,8 +187,9 @@ _LINE_ENDS = (b"\n", b"\r")
 class Lines:
     """Bytes received so far, handed out one terminated line at a time."""
 
-    def __init__(self, terminator: str) -> None:
+    def __init__(self, terminator: str, skip_blank: bool = False) -> None:
         self._terminator = terminator.encode()
+        self._skip_blank = skip_blank
         self._buffer = bytearray()
         # After a block, the line endings an instrument sends behind it may still be on the way.
         self._after_block = False
@@ -186,9 +204,17 @@ class Lines:
                 del self._buffer[:1]
             self._after_block = not self._buffer
 
+    def _skip_blank_lines(self) -> None:
+        """Drop whole lines that hold nothing but spaces, when the link skips blank lines."""
+        if not self._skip_blank or not self._terminator:
+            return
+        while (end := self._buffer.find(self._terminator)) >= 0 and not self._buffer[:end].strip():
+            del self._buffer[: end + len(self._terminator)]
+
     def pop(self) -> str | None:
         """The next complete line without its terminator, or None until one has arrived."""
         self._skip_after_block()
+        self._skip_blank_lines()
         end = self._buffer.find(self._terminator) if self._terminator else len(self._buffer) or -1
         if end < 0:
             return None
@@ -199,6 +225,7 @@ class Lines:
     def starts_block(self) -> bool | None:
         """True when the buffered reply is a block, False when a line, None while empty."""
         self._skip_after_block()
+        self._skip_blank_lines()
         if not self._buffer:
             return None
         if self._buffer[:1] != b"#":
@@ -226,6 +253,16 @@ class Lines:
         self._after_block = not self._buffer
         return payload
 
+    def pop_bytes(self, count: int) -> bytes | None:
+        """The next `count` bytes as they came, or None until that many have arrived."""
+        self._skip_after_block()
+        if len(self._buffer) < count:
+            return None
+        data = bytes(self._buffer[:count])
+        del self._buffer[:count]
+        self._after_block = False
+        return data
+
     def clear(self) -> None:
         self._buffer.clear()
         self._after_block = False
@@ -247,7 +284,7 @@ class LineLink(ABC):
         self.where = where
         self._settings = settings
         self._pacer = Pacer(settings.delay_ms, settings.command_delay_ms)
-        self._lines = Lines(settings.read_terminator)
+        self._lines = Lines(settings.read_terminator, settings.skip_blank)
         self._closed = False
 
     @abstractmethod
@@ -297,6 +334,21 @@ class LineLink(ABC):
                 if line is not None:
                     return line
             self._receive(deadline, self.block_chunk)
+
+    def read_bytes(self, count: int, timeout_s: float | None = None) -> bytes:
+        # Raw bytes keep arriving in pieces too: each piece restarts the clock.
+        wait = timeout_s or self._settings.timeout_s
+        while True:
+            data = self._lines.pop_bytes(count)
+            if data is not None:
+                return data
+            self._receive(time.monotonic() + wait, self.block_chunk)
+
+    def write_block(self, command: str, payload: bytes) -> None:
+        self._pacer.wait()
+        terminator = self._settings.write_terminator.encode()
+        self._send(command.encode() + definite_block(payload) + terminator)
+        self._pacer.mark(command)
 
     def _pop_block(self) -> bytes | None:
         try:

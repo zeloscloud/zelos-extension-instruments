@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from tests.conftest import Dp832, Recording, ScriptedLink, wait_until
-from zelos_extension_instruments import actions, app, config
+from zelos_extension_instruments import actions, actions_common, app, config
 from zelos_extension_instruments.profile import Profile
 
 
@@ -40,8 +40,8 @@ def test_run_records_a_supply_and_serves_actions(
     )
     thread.start()
     try:
-        assert wait_until(lambda: "192_168_1_40_5555" in actions.workers)
-        worker = actions.workers["192_168_1_40_5555"]
+        assert wait_until(lambda: "192_168_1_40_5555" in actions_common.workers)
+        worker = actions_common.workers["192_168_1_40_5555"]
         assert wait_until(lambda: worker.state == "open")
         assert opened == ["192.168.1.40:5555"]
         assert (
@@ -148,12 +148,12 @@ def test_the_demo_bench_records_all_four_instruments(
     try:
         assert wait_until(
             lambda: (
-                len(actions.workers) == 4
-                and all(w.state == "open" for w in actions.workers.values())
+                len(actions_common.workers) == 4
+                and all(w.state == "open" for w in actions_common.workers.values())
             ),
             timeout_s=15,
-        ), {n: w.health for n, w in actions.workers.items()}
-        psu = actions.workers["demo psu"]
+        ), {n: w.health for n, w in actions_common.workers.items()}
+        psu = actions_common.workers["demo psu"]
         assert wait_until(lambda: psu._channel[1].values.get("voltage") is not None, timeout_s=10)
         result = actions.set_values._action.execute(
             instrument="demo psu", channel=2, voltage=4.0, current=0.5
@@ -162,7 +162,7 @@ def test_the_demo_bench_records_all_four_instruments(
         assert actions.output._action.execute(
             instrument="demo load", channel=1, on=False
         ).value == {"output": False}
-        bench = actions.workers
+        bench = actions_common.workers
         assert wait_until(
             lambda: (
                 bench["demo load"]._channel[1].values.get("current") is not None
@@ -217,7 +217,8 @@ def test_stopping_several_instruments_lets_them_wind_down_together(
     thread.start()
     assert wait_until(
         lambda: (
-            len(actions.workers) == 3 and all(w.state == "open" for w in actions.workers.values())
+            len(actions_common.workers) == 3
+            and all(w.state == "open" for w in actions_common.workers.values())
         )
     )
     started = time.monotonic()

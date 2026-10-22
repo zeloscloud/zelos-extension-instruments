@@ -24,7 +24,7 @@ from .link import (
     VisaAddress,
     open_link,
 )
-from .profile import Idn, Profile, by_id, parse_idn
+from .profile import VALUE_SETTERS, Idn, Profile, by_id, parse_idn
 from .profile_load import load_file, shipped
 
 TRANSCRIPTS = Path(__file__).resolve().parent.parent / "tests" / "transcripts"
@@ -147,14 +147,19 @@ class Recorder:
             slots = scope.slots
             if slots.ready_query is not None:
                 self.query(slots.ready_query)
-            for slot in range(1, slots.count + 1):
-                reply = self.query(engine.render(slots.enabled, slot=slot))
-                try:
-                    on = reply is not None and engine.parse_bool(reply)
-                except engine.ParseError:
-                    on = False
-                if not on:
-                    continue
+            if slots.list_query is not None:
+                numbers = slots.listed(self.query(slots.list_query) or "")
+            else:
+                numbers = list(range(1, slots.count + 1))
+            for slot in numbers:
+                if slots.enabled is not None:
+                    reply = self.query(engine.render(slots.enabled, slot=slot))
+                    try:
+                        on = reply is not None and engine.parse_bool(reply)
+                    except engine.ParseError:
+                        on = False
+                    if not on:
+                        continue
                 self.query(engine.render(slots.type, slot=slot))
                 self.query(engine.render(slots.source, slot=slot))
                 self.query(engine.render(slots.value, slot=slot))
@@ -170,7 +175,14 @@ class Recorder:
             self.lines.append("# setters, each rewritten to its current value")
             for name, setter in profile.setters.items():
                 verify = profile.verify_query(setter)
-                if verify is None or name in ("output", "function", "clear"):
+                # Only a level is rewritten: a switch, label or command could change the bench.
+                if verify is None or name not in VALUE_SETTERS:
+                    continue
+                if any(
+                    "{" in t.replace("{ch}", "").replace("{value}", "")
+                    for t in (setter.command, verify)
+                ):
+                    self.lines.append(f"# {name} skipped: it names instrument state besides {{ch}}")
                     continue
                 for ch in range(1, channels + 1):
                     self.select(ch if setter.per_channel else None)

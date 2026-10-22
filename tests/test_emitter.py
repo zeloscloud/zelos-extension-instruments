@@ -7,6 +7,7 @@ import pytest
 import zelos_sdk
 
 from tests.conftest import TIME, Recording
+from tests.test_daq_ops import KEYSIGHT_STYLE
 from zelos_extension_instruments.config import PollRow
 from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.profile import ENUM_FIELDS, Profile
@@ -513,3 +514,35 @@ def test_an_instrument_without_acquisition_settings_has_no_acquisition_event(
     emitter.acquisition_row("psu", {"timebase": 0.0005}, SECOND)
     assert "psu/acquisition" not in spy.fields
     assert "psu/acquisition" not in trace_file.events()
+
+
+def test_a_daq_channel_records_its_own_function_or_its_relay_state(
+    trace_file: Recording, spy: SpySource
+) -> None:
+    profile = from_dict(KEYSIGHT_STYLE, "acme-daq.toml")
+    emitter = emitter_for(spy)
+    emitter.add_instrument("daq", profile, 3)
+    emitter.add_channels("daq", {101: {"dc_voltage"}, 103: {"temperature"}, 110: {"closed"}})
+    assert spy.fields["daq/ch101"] == {"dc_voltage": (zelos_sdk.DataType.Float64, "V")}
+    assert spy.fields["daq/ch103"] == {"temperature": (zelos_sdk.DataType.Float64, "degC")}
+    assert list(spy.fields["daq/ch110"]) == ["closed"]
+    assert spy.fields["daq/ch110"]["closed"][0] == zelos_sdk.DataType.Boolean
+    emitter.row("daq", 101, {"dc_voltage": 1.5, "temperature": 20.0}, SECOND)
+    emitter.row("daq", 110, {"closed": True}, SECOND)
+    events = trace_file.events()
+    assert events["daq/ch101"] == [{TIME: 1.0, "dc_voltage": 1.5}]
+    assert events["daq/ch110"] == [{TIME: 1.0, "closed": True}]
+
+
+def test_a_per_channel_poll_row_gets_a_field_per_channel_the_instrument_has(
+    trace_file: Recording, spy: SpySource
+) -> None:
+    """A daq unit's channels are its addresses, not 1 to N."""
+    profile = from_dict(KEYSIGHT_STYLE, "acme-daq.toml")
+    emitter = emitter_for(spy)
+    poll = (PollRow("temp", "TEMP? (@{ch})", "degC", 1.0), PollRow("fan", "FAN?", None, 1.0))
+    emitter.add_instrument("daq", profile, 2, poll)
+    emitter.add_channels("daq", {101: {"dc_voltage"}, 110: {"closed"}})
+    assert list(spy.fields["daq/poll"]) == ["temp_ch101", "temp_ch110", "fan"]
+    emitter.poll_value("daq", "temp_ch110", 31.5, SECOND)
+    assert [r["temp_ch110"] for r in trace_file.events()["daq/poll"]] == [31.5]

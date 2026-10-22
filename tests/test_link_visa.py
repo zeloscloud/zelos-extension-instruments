@@ -33,6 +33,7 @@ class FakeResource(MessageBasedResource):
         self.flushed: list[Any] = []
         self.read_timeouts: list[Any] = []
         self.chunk_sizes: list[int | None] = []
+        self.raw_written: list[bytes] = []
 
     @property
     def read_termination(self) -> str:
@@ -48,6 +49,12 @@ class FakeResource(MessageBasedResource):
         if self.write_error:
             raise self.write_error
         self.written.append(message)
+        return len(message)
+
+    def write_raw(self, message: bytes) -> int:
+        if self.write_error:
+            raise self.write_error
+        self.raw_written.append(message)
         return len(message)
 
     # Bytes a byte-count read left behind for the next read.
@@ -520,3 +527,56 @@ def test_a_missing_device_that_is_not_usb_comes_with_no_usb_advice(fake_visa: Fa
     with pytest.raises(LinkError) as caught:
         open_visa(VisaAddress("GPIB0::5::INSTR", "py"), FAST)
     assert str(caught.value) == "No instrument answers at GPIB0::5::INSTR."
+
+
+def test_raw_bytes_are_read_by_count_in_their_own_timeout(fake_visa: FakeVisa) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), FAST)
+    fake_visa.resource.replies = [b"BM\n\x00\xff\n"]
+    assert link.read_bytes(3, 7) == b"BM\n"
+    assert link.read_bytes(3) == b"\x00\xff\n"
+    assert fake_visa.resource.read_timeouts == [7000]
+    assert fake_visa.resource.timeout == 300
+
+
+def test_a_raw_read_that_times_out_is_a_link_timeout(fake_visa: FakeVisa) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), FAST)
+    fake_visa.resource.replies = [errors.VisaIOError(STATUS.error_timeout)]
+    with pytest.raises(LinkTimeout, match="within 0.3 s"):
+        link.read_bytes(6)
+
+
+def test_a_block_is_written_raw_after_the_command_with_the_terminator(fake_visa: FakeVisa) -> None:
+    link = open_visa(
+        VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), LinkSettings(write_terminator="\r\n")
+    )
+    link.write_block(":SYST:SET ", b"\n\x00\xff")
+    assert fake_visa.resource.raw_written == [b":SYST:SET #13\n\x00\xff\r\n"]
+    assert fake_visa.resource.written == []
+
+
+def test_a_failed_block_write_is_a_link_error(fake_visa: FakeVisa) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), FAST)
+    fake_visa.resource.write_error = OSError("pipe broke")
+    with pytest.raises(LinkError, match="pipe broke"):
+        link.write_block(":SYST:SET ", b"x")
+
+
+def test_a_blank_line_is_a_reply_unless_the_link_skips_blank_lines(fake_visa: FakeVisa) -> None:
+    address = VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py")
+    kept = open_visa(address, LinkSettings())
+    fake_visa.resource.replies = [b"\n", b"1.5\n"]
+    assert kept.read() == ""
+    assert kept.read() == "1.5"
+    skipping = open_visa(address, LinkSettings(skip_blank=True))
+    fake_visa.resource.replies = [b"\n", b" \n", b"1.5\n"]
+    assert skipping.read() == "1.5"
+
+
+def test_read_any_skips_blank_lines_when_its_settings_say_so(fake_visa: FakeVisa) -> None:
+    link = open_visa(
+        VisaAddress("TCPIP::10.0.0.5::5025::SOCKET", "py"),
+        LinkSettings(read_terminator="\r\n", skip_blank=True),
+    )
+    fake_visa.resource.replies = [b"\r\n", b" \r\n", b"#15hello\r\n", b"\r\n", b"OK\r\n"]
+    assert link.read_any() == b"hello"
+    assert link.read_any() == "OK"

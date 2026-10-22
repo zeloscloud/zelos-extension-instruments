@@ -27,6 +27,7 @@ _LINE_ENDINGS = {"LF": "\n", "CRLF": "\r\n", "CR": "\r"}
 
 Connection = Literal["lan", "usb", "serial", "visa", "demo"]
 Category = Literal["psu", "load", "dmm", "acsource"]
+Thermocouple = Literal["B", "E", "J", "K", "N", "R", "S", "T"]
 
 
 class ConfigError(Exception):
@@ -66,6 +67,16 @@ class PollRow:
 
 
 @dataclass(frozen=True, slots=True)
+class ScanChannel:
+    """One channel a data-acquisition unit reads every pass."""
+
+    channel: int
+    function: str
+    thermocouple: Thermocouple | None = None
+    nplc: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentConfig:
     """One configured instrument, with every default applied."""
 
@@ -89,6 +100,8 @@ class InstrumentConfig:
     poll: tuple[PollRow, ...]
     # The entry as configured, to hand back to a form that lacks it.
     entry: dict[str, Any] = field(compare=False)
+    scan: tuple[ScanChannel, ...] = ()
+    relays: tuple[int, ...] = ()
 
     @property
     def where(self) -> str:
@@ -156,6 +169,7 @@ def from_dict(raw: Any) -> Settings:
                     f"{_where(index, item)}, Extra readings: '{row.name}' is listed twice."
                 )
             seen.add(row.name.casefold())
+        problems += _channel_problems(_where(index, item), cfg)
         instruments.append(cfg)
     if problems:
         raise ConfigError(problems)
@@ -209,7 +223,48 @@ def _instrument(item: dict[str, Any]) -> InstrumentConfig:
         line_ending=_LINE_ENDINGS[line_ending] if line_ending else None,
         poll=rows,
         entry=item,
+        scan=tuple(
+            ScanChannel(
+                channel=int(row["channel"]),
+                function=row["function"],
+                thermocouple=row.get("thermocouple"),
+                nplc=_optional_float(row.get("nplc")),
+            )
+            for row in adv.get("scan", []) or []
+        ),
+        relays=tuple(int(ch) for ch in adv.get("relays", []) or []),
     )
+
+
+def _channel_problems(where: str, cfg: InstrumentConfig) -> list[str]:
+    """What the schema cannot say about scan and relay channels."""
+    problems: list[str] = []
+    scanned: set[int] = set()
+    for row in cfg.scan:
+        if row.channel in scanned:
+            problems.append(f"{where}, Scan: channel {row.channel} is listed twice.")
+        scanned.add(row.channel)
+        if row.function == "temperature" and row.thermocouple is None:
+            problems.append(
+                f"{where}, Scan: channel {row.channel} reads temperature, so it needs a "
+                "thermocouple type."
+            )
+        elif row.function != "temperature" and row.thermocouple is not None:
+            problems.append(
+                f"{where}, Scan: channel {row.channel} reads {row.function}; only a temperature "
+                "channel takes a thermocouple type."
+            )
+    relays: set[int] = set()
+    for ch in cfg.relays:
+        if ch in relays:
+            problems.append(f"{where}, Relays: channel {ch} is listed twice.")
+        elif ch in scanned:
+            problems.append(
+                f"{where}, Relays: channel {ch} is also in Scan; a channel is scanned or a relay, "
+                "not both."
+            )
+        relays.add(ch)
+    return problems
 
 
 _HOST_PORT = re.compile(r"^(?:\[(?P<v6>[^\]]+)\]|(?P<host>[^:\s]+)):(?P<port>\d{1,5})$")

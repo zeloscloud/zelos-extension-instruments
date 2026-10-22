@@ -1,5 +1,8 @@
 """The profile model: finding a profile by identity, ranges, channels, queries and fields."""
 
+import dataclasses
+from typing import Any
+
 import pytest
 
 from tests.conftest import minimal, profile_from
@@ -11,6 +14,7 @@ from zelos_extension_instruments.profile import (
     find,
     is_identity,
     parse_idn,
+    readback_field,
 )
 from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.sim.fake import FakeInstrument
@@ -280,3 +284,111 @@ def test_every_enumerated_field_ends_in_unknown_or_other() -> None:
 )
 def test_an_identity_names_a_maker(reply: str, expected: bool) -> None:
     assert is_identity(reply) is expected
+
+
+def minimal_fgen() -> dict[str, Any]:
+    raw = minimal()
+    raw.update(id="acme-fgen", category="fgen", signals={})
+    raw["state"] = {"frequency_set": {"query": "FREQ? {ch}", "parse": "float"}}
+    return raw
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "field"),
+    [
+        ("psu", "voltage", "voltage_set"),
+        ("psu", "ovp_delay", "ovp_delay_set"),
+        ("psu", "tracking", "tracking"),
+        ("psu", "remote_sense", "remote_sense"),
+        ("psu", "clear", ""),
+        ("load", "function", "mode"),
+        ("load", "slew_rise", "slew_rise_set"),
+        ("load", "short", "short"),
+        ("load", "voltage_range", "voltage_range"),
+        ("dmm", "function", "function"),
+        ("dmm", "range", "range"),
+        ("dmm", "nplc", "nplc"),
+        ("scope", "trigger_level", "trigger_level"),
+        ("scope", "averages", "averages"),
+        ("scope", "run", ""),
+        ("fgen", "frequency", "frequency_set"),
+        ("fgen", "burst_cycles", "burst_cycles_set"),
+        ("fgen", "modulation_type", "modulation_type"),
+        ("fgen", "trigger", ""),
+        ("daq", "relay", "closed"),
+    ],
+)
+def test_a_setter_reads_back_in_its_set_field_else_its_own_else_the_irregular_one(
+    category: str, name: str, field: str
+) -> None:
+    assert readback_field(category, name) == field
+
+
+def test_a_meters_function_reads_back_as_function_and_a_loads_as_mode() -> None:
+    raw = minimal()
+    raw.update(
+        id="acme-dmm",
+        category="dmm",
+        signals={"value": {"query": "READ?", "parse": "float"}},
+        dmm={"functions": {"dc_voltage": "V"}},
+        setters={"function": {"command": "CONF:{function}", "map": {"dc_voltage": "VOLT"}}},
+    )
+    meter = profile_from(raw)
+    assert meter.verify_field(meter.setters["function"]) == "function"
+    raw = minimal()
+    raw.update(
+        category="load", setters={"function": {"command": "F {function}", "map": {"cc": "C"}}}
+    )
+    load = profile_from(raw)
+    assert load.verify_field(load.setters["function"]) == "mode"
+
+
+def test_a_generator_range_bounds_its_setter_only_when_the_profile_gives_it() -> None:
+    raw = minimal_fgen()
+    raw["setters"] = {
+        "amplitude": {"command": "AMP {value}"},
+        "offset": {"command": "OFFS {value}"},
+        "phase": {"command": "PHAS {value}"},
+    }
+    raw["ranges"] = {
+        "offset": {"min": -5, "max": 5},
+        "models": [{"model": "^P1$", "amplitude": {"min": 0.001, "max": 10}}],
+    }
+    p = profile_from(raw)
+    assert p.range_key(p.setters["amplitude"]) == "amplitude"
+    assert p.range_key(p.setters["offset"]) == "offset"
+    assert p.range_key(p.setters["phase"]) is None
+    offset = p.range_for("offset", "P1", 1)
+    assert offset is not None and (offset.min, offset.max) == (-5.0, 5.0)
+
+
+def test_an_offset_without_a_range_in_the_profile_stays_unbounded() -> None:
+    raw = minimal()
+    raw["setters"] = {"voltage": {"command": "V {value}"}}
+    p = profile_from(raw)
+    offset = dataclasses.replace(p.setters["voltage"], name="offset")
+    assert p.range_key(offset) is None
+    assert p.range_key(p.setters["voltage"]) == "voltage"
+
+
+def test_a_profile_without_a_system_table_has_the_ieee_488_2_defaults() -> None:
+    system = profile_from(minimal()).system
+    assert (system.reset, system.self_test, system.opc) == ("*RST", "*TST?", "*OPC?")
+    assert system.self_test_ok.search("+0") and system.self_test_ok.search(" 0\n")
+    assert not system.self_test_ok.search("1")
+    assert (system.self_test_timeout_s, system.settle_timeout_s, system.reboot_s) == (30, 10, 30)
+    assert system.screenshot_framing == "block"
+    assert (system.save, system.slots, system.lock, system.screenshot) == (None, None, None, ())
+
+
+def test_a_profile_limited_to_serial_matches_only_over_serial() -> None:
+    raw = minimal()
+    raw["id"] = "acme-serial"
+    raw["match"] = {"manufacturer": "(?i)^acme", "model": "^P1[0-9]$", "connections": ["serial"]}
+    serial_only = profile_from(raw)
+    anywhere = with_model("acme-any", "^P1")
+    idn = parse_idn("ACME,P12,1,1")
+    assert find([serial_only, anywhere], idn, "serial") is serial_only
+    assert find([serial_only, anywhere], idn, "lan") is anywhere
+    assert find([serial_only], idn, "lan") is None
+    assert serial_only.matches(idn)

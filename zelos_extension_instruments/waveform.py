@@ -1,15 +1,19 @@
 """Waveform blocks: the IEEE 488.2 definite-length block and the descriptors inside it.
 
 A scope sends samples as `#<n><length><bytes>`. The descriptor that scales them is vendor
-specific; `wavedesc` is the LeCroy-style block Siglent SDS scopes return from the preamble query.
+specific; `wavedesc` is the LeCroy-style block Siglent SDS scopes return from the preamble query,
+and `linear` is six numbers the profile says where to find.
 """
 
 import math
 import struct
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+
+from .profile_scope import ByteOrder, Encoding
 
 
 class BlockError(ValueError):
@@ -147,3 +151,34 @@ def sample_offsets_ns(
     first = desc.horizontal_offset - timebase_s * grid / 2
     pitch = desc.horizontal_interval * desc.step
     return np.rint((first + np.arange(count) * pitch) * 1e9).astype(np.int64)
+
+
+@dataclass(frozen=True, slots=True)
+class LinearScale:
+    """The six numbers that place linear codes: V = (code - y_ref) * y_mult + y_zero and
+    t = (i - x_ref) * x_inc + x_zero, in seconds from the trigger."""
+
+    x_inc: float
+    x_zero: float
+    x_ref: float
+    y_mult: float
+    y_zero: float
+    y_ref: float
+
+
+def linear_codes(payload: bytes, encoding: Encoding, byte_order: ByteOrder) -> npt.NDArray[Any]:
+    """The integer codes of a data block; a trailing partial sample is dropped."""
+    order = ">" if byte_order == "big" else "<"
+    dtype = np.dtype(f"{order}{encoding}")
+    return np.frombuffer(payload, dtype=dtype, count=len(payload) // dtype.itemsize)
+
+
+def linear_samples(scale: LinearScale, codes: npt.NDArray[Any]) -> npt.NDArray[np.float64]:
+    """The codes in the channel's unit."""
+    return (codes.astype(np.float64) - scale.y_ref) * scale.y_mult + scale.y_zero
+
+
+def linear_offsets_ns(scale: LinearScale, count: int) -> npt.NDArray[np.int64]:
+    """Nanoseconds from the trigger for each of `count` samples."""
+    times = (np.arange(count) - scale.x_ref) * scale.x_inc + scale.x_zero
+    return np.rint(times * 1e9).astype(np.int64)

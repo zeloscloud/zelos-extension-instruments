@@ -11,7 +11,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
 
+from .config import Connection
 from .link import FlowControl, Parity
+from .profile_daq import DAQ_SIGNAL_FIELDS, DAQ_STATE_FIELDS, Daq
 from .profile_scope import (
     ACQUISITION_FIELDS,
     CHANNEL_STATE_FIELDS,
@@ -25,11 +27,11 @@ from .profile_scope import (
     Scope,
 )
 
-Category = Literal["psu", "load", "dmm", "acsource", "scope"]
+Category = Literal["psu", "load", "dmm", "acsource", "scope", "fgen", "daq"]
 CATEGORIES: tuple[Category, ...] = get_args(Category)
 Badge = Literal["manual", "transcript", "hardware"]
 BADGES: tuple[Badge, ...] = get_args(Badge)
-Parse = Literal["float", "floats", "int", "bool", "map", "bits", "str"]
+Parse = Literal["float", "floats", "int", "bool", "map", "bits", "str", "keyed"]
 PARSES: tuple[Parse, ...] = get_args(Parse)
 
 # The vocabulary: field name to unit, per category. None is a unitless field.
@@ -46,6 +48,8 @@ SIGNAL_FIELDS: dict[str, dict[str, str | None]] = {
     },
     "dmm": {"value": None},
     "scope": MEASUREMENT_FIELDS,
+    "fgen": {},
+    "daq": DAQ_SIGNAL_FIELDS,
 }
 STATE_FIELDS: dict[str, dict[str, str | None]] = {
     "psu": {
@@ -60,6 +64,7 @@ STATE_FIELDS: dict[str, dict[str, str | None]] = {
         "protection": None,
         "remote_sense": None,
         "tracking": None,
+        "ovp_delay_set": "s",
     },
     "load": {
         "current_set": "A",
@@ -71,6 +76,10 @@ STATE_FIELDS: dict[str, dict[str, str | None]] = {
         "output": None,
         "mode": None,
         "protection": None,
+        "short": None,
+        "slew_rise_set": "A/s",
+        "slew_fall_set": "A/s",
+        "voltage_range": None,
     },
     "acsource": {
         "voltage_set": "V",
@@ -81,6 +90,34 @@ STATE_FIELDS: dict[str, dict[str, str | None]] = {
     },
     "dmm": {"function": None, "range": None, "autorange": None, "nplc": None},
     "scope": CHANNEL_STATE_FIELDS,
+    "fgen": {
+        "output": None,
+        "shape": None,
+        "frequency_set": "Hz",
+        "amplitude_set": "Vpp",
+        "offset_set": "V",
+        "high_set": "V",
+        "low_set": "V",
+        "phase_set": "deg",
+        "duty_set": "%",
+        "symmetry_set": "%",
+        "width_set": "s",
+        "output_load": None,
+        "modulation": None,
+        "modulation_type": None,
+        "modulation_depth_set": "%",
+        "modulation_deviation_set": "Hz",
+        "phase_deviation_set": "deg",
+        "modulation_frequency_set": "Hz",
+        "burst": None,
+        "burst_cycles_set": None,
+        "burst_period_set": "s",
+        "sweep": None,
+        "sweep_start_set": "Hz",
+        "sweep_stop_set": "Hz",
+        "sweep_time_set": "s",
+    },
+    "daq": DAQ_STATE_FIELDS,
 }
 # Fields read once for the whole instrument, not per channel.
 INSTRUMENT_FIELDS: dict[str, dict[str, str | None]] = {
@@ -89,8 +126,24 @@ INSTRUMENT_FIELDS: dict[str, dict[str, str | None]] = {
     "acsource": {},
     "dmm": {},
     "scope": ACQUISITION_FIELDS,
+    "fgen": {},
+    "daq": {},
 }
-BOOL_FIELDS = frozenset({"output", "visible", "ovp_on", "ocp_on", "remote_sense", "autorange"})
+BOOL_FIELDS = frozenset(
+    {
+        "output",
+        "visible",
+        "ovp_on",
+        "ocp_on",
+        "remote_sense",
+        "autorange",
+        "short",
+        "modulation",
+        "burst",
+        "sweep",
+        "closed",
+    }
+)
 # Enumerated fields and their labels, in value-table order.
 MODE_LABELS = ("off", "cv", "cc", "cp", "cr", "unregulated", "unknown")
 PROTECTION_LABELS = ("none", "ovp", "ocp", "opp", "otp", "other")
@@ -111,23 +164,95 @@ FUNCTION_LABELS = (
 )
 TRACKING_LABELS = ("independent", "series", "parallel", "unknown")
 CURRENT_RANGE_LABELS = ("low", "mid", "high", "auto", "unknown")
+SHAPE_LABELS = ("sine", "square", "ramp", "triangle", "pulse", "noise", "dc", "arbitrary", "other")
+LOAD_LABELS = ("fifty_ohm", "high_z", "other")
+MODULATION_LABELS = ("am", "fm", "pm", "fsk", "pwm", "other")
+# A reader map key that labels every reply word the map does not name.
+MAP_ANY = "*"
 ENUM_FIELDS: dict[str, tuple[str, ...]] = {
     "mode": MODE_LABELS,
     "protection": PROTECTION_LABELS,
     "function": FUNCTION_LABELS,
     "tracking": TRACKING_LABELS,
     "current_range": CURRENT_RANGE_LABELS,
+    "voltage_range": CURRENT_RANGE_LABELS,
+    "shape": SHAPE_LABELS,
+    "output_load": LOAD_LABELS,
+    "modulation_type": MODULATION_LABELS,
     **SCOPE_ENUMS,
 }
 SETTERS: dict[str, tuple[str, ...]] = {
-    "psu": ("voltage", "current", "ovp", "ocp", "ovp_on", "ocp_on", "output", "clear"),
-    "load": ("current", "voltage", "power", "resistance", "slew", "function", "output", "clear"),
+    "psu": (
+        "voltage",
+        "current",
+        "ovp",
+        "ocp",
+        "ovp_on",
+        "ocp_on",
+        "output",
+        "clear",
+        "remote_sense",
+        "ovp_delay",
+        "tracking",
+    ),
+    "load": (
+        "current",
+        "voltage",
+        "power",
+        "resistance",
+        "slew",
+        "function",
+        "output",
+        "clear",
+        "short",
+        "current_range",
+        "voltage_range",
+        "slew_rise",
+        "slew_fall",
+    ),
     "acsource": ("voltage", "frequency", "current", "output", "clear"),
-    "dmm": ("function",),
-    "scope": SCOPE_SETTERS,
+    "dmm": ("function", "range", "autorange", "nplc", "clear"),
+    "scope": (*SCOPE_SETTERS, "clear"),
+    "fgen": (
+        "output",
+        "shape",
+        "frequency",
+        "amplitude",
+        "offset",
+        "high",
+        "low",
+        "phase",
+        "duty",
+        "symmetry",
+        "width",
+        "output_load",
+        "modulation",
+        "modulation_type",
+        "modulation_depth",
+        "modulation_deviation",
+        "phase_deviation",
+        "modulation_frequency",
+        "burst",
+        "burst_cycles",
+        "burst_period",
+        "sweep",
+        "sweep_start",
+        "sweep_stop",
+        "sweep_time",
+        "trigger",
+        "clear",
+    ),
+    "daq": ("relay", "clear"),
 }
 # Which range key bounds a value setter, when the setter's own name is not a range key.
-SETTER_RANGE = {"ovp": "voltage", "ocp": "current"}
+SETTER_RANGE = {
+    "ovp": "voltage",
+    "ocp": "current",
+    "sweep_start": "frequency",
+    "sweep_stop": "frequency",
+    "slew_rise": "slew",
+    "slew_fall": "slew",
+}
 RANGE_KEYS = (
     "voltage",
     "current",
@@ -137,7 +262,51 @@ RANGE_KEYS = (
     "ovp",
     "ocp",
     "slew",
+    "amplitude",
+    "high",
+    "low",
+    "phase",
+    "duty",
+    "symmetry",
+    "width",
+    "modulation_depth",
+    "modulation_deviation",
+    "phase_deviation",
+    "modulation_frequency",
+    "burst_cycles",
+    "burst_period",
+    "sweep_time",
+    "ovp_delay",
+    "nplc",
+    "averages",
+    "pulse_width",
+    "offset",
     *SCOPE_RANGE_KEYS,
+)
+# Range keys that bound their setter only when the profile gives the range: a scope's offset has
+# none and stays unchecked, while a generator's offset is bounded by its profile.
+_GIVEN_RANGE_KEYS = frozenset(
+    {
+        "amplitude",
+        "offset",
+        "high",
+        "low",
+        "phase",
+        "duty",
+        "symmetry",
+        "width",
+        "modulation_depth",
+        "modulation_deviation",
+        "phase_deviation",
+        "modulation_frequency",
+        "burst_cycles",
+        "burst_period",
+        "sweep_time",
+        "ovp_delay",
+        "nplc",
+        "averages",
+        "pulse_width",
+    }
 )
 VALUE_SETTERS = frozenset(
     {
@@ -149,41 +318,72 @@ VALUE_SETTERS = frozenset(
         "ovp",
         "ocp",
         "slew",
+        "amplitude",
+        "high",
+        "low",
+        "phase",
+        "duty",
+        "symmetry",
+        "width",
+        "modulation_depth",
+        "modulation_deviation",
+        "phase_deviation",
+        "modulation_frequency",
+        "burst_cycles",
+        "burst_period",
+        "sweep_start",
+        "sweep_stop",
+        "sweep_time",
+        "ovp_delay",
+        "slew_rise",
+        "slew_fall",
+        "range",
+        "nplc",
         *SCOPE_VALUE_SETTERS,
     }
 )
 # Setters that take one of a field's labels, sent as the instrument's word for it.
-LABEL_SETTERS = frozenset(SCOPE_LABEL_SETTERS)
+LABEL_SETTERS = frozenset(
+    {
+        "tracking",
+        "current_range",
+        "voltage_range",
+        "shape",
+        "output_load",
+        "modulation_type",
+        *SCOPE_LABEL_SETTERS,
+    }
+)
 # Setters that switch something on or off.
-SWITCH_SETTERS = frozenset({"output", "visible", "ovp_on", "ocp_on"})
+SWITCH_SETTERS = frozenset(
+    {
+        "output",
+        "visible",
+        "ovp_on",
+        "ocp_on",
+        "remote_sense",
+        "short",
+        "autorange",
+        "modulation",
+        "burst",
+        "sweep",
+        "relay",
+    }
+)
 # Setters that are a bare command.
-COMMAND_SETTERS = frozenset({"clear", *SCOPE_COMMAND_SETTERS})
-# The state field a value setter verifies with, by default.
-VERIFY_FIELD = {
-    "voltage": "voltage_set",
-    "current": "current_set",
-    "power": "power_set",
-    "resistance": "resistance_set",
-    "frequency": "frequency_set",
-    "ovp": "ovp_set",
-    "ocp": "ocp_set",
-    "output": "output",
-    "function": "mode",
-    "ovp_on": "ovp_on",
-    "ocp_on": "ocp_on",
-    "slew": "slew_set",
-    "visible": "visible",
-    "scale": "scale",
-    "offset": "offset",
-    "probe": "probe",
-    "coupling": "coupling",
-    "timebase": "timebase",
-    "delay": "delay",
-    "trigger_level": "trigger_level",
-    "trigger_source": "trigger_source",
-    "trigger_slope": "trigger_slope",
-    "trigger_mode": "trigger_mode",
-}
+COMMAND_SETTERS = frozenset({"clear", "trigger", *SCOPE_COMMAND_SETTERS})
+# The field a setter reads back in, where neither `<name>_set` nor `<name>` is a field.
+VERIFY_FIELD = {"function": "mode", "relay": "closed"}
+
+
+def readback_field(category: str, name: str) -> str:
+    """The field a setter named `name` reads back in: `<name>_set`, else `<name>`, else the
+    irregular name `VERIFY_FIELD` gives; empty when it has none."""
+    fields = {**SIGNAL_FIELDS[category], **STATE_FIELDS[category], **INSTRUMENT_FIELDS[category]}
+    for candidate in (f"{name}_set", name):
+        if candidate in fields:
+            return candidate
+    return VERIFY_FIELD.get(name, "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +437,8 @@ class Match:
     channels: int
     channels_query: str | None
     models: tuple[ModelChannels, ...]
+    # The connections the family's protocol runs on; empty for any.
+    connections: tuple[Connection, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +468,10 @@ class LinkDefaults:
     single_client: bool
     # The reply every command (not a query) gets, read and checked after each one; None for none.
     ack: str | None
+    # A query asked after `remote` and the reply it must give, or the open fails.
+    remote_check: tuple[str, str] | None = None
+    # An empty line where a reply is expected is dropped, not taken as the reply.
+    skip_blank: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +479,10 @@ class Errors:
     query: str
     ok: re.Pattern[str]
     drain: int
+    # Further error queries, asked in order after `query`.
+    then: tuple[str, ...] = ()
+    # The queries answer a bare number, the error code, instead of `code,"text"`.
+    bare: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +493,8 @@ class Range:
     step: float | None
     min_query: str | None
     max_query: str | None
+    # The only values a setter may send, sorted, when the instrument takes a fixed set.
+    choices: tuple[float, ...] = ()
 
     def with_bounds(self, low: float | None, high: float | None) -> "Range":
         return dataclasses.replace(self, min=low, max=high)
@@ -328,6 +540,10 @@ class Reader:
     flags: tuple[Flag, ...]
     # Multiplies a parsed number: a slew rate the instrument states in A/us is 1e6 A/s.
     scale: float = 1.0
+    # For parse = "keyed": the key whose value fills the field.
+    key: str | None = None
+    # For parse = "keyed": the key is looked for only before the first token equal to this.
+    until: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,7 +560,7 @@ class Master:
 class Setter:
     name: str
     command: str
-    # `clear` may send several commands; every other setter sends `command` alone.
+    # A command setter may send several commands; every other setter sends `command` alone.
     commands: tuple[str, ...]
     verify: str | None
     range: str | None
@@ -354,6 +570,8 @@ class Setter:
     scale: float = 1.0
     # The output setter only arms a channel when the instrument has a master switch.
     master: Master | None = None
+    # A switch's command for off, when `command` only switches on.
+    off: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,6 +580,43 @@ class Dmm:
     function_map: dict[str, str]
     words: dict[str, str]
     functions: dict[str, str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class System:
+    """The functions an instrument has beside its readings and settings: reset, self-test, saved
+    states, display and panel, reboot and screenshots. None or empty means it has none."""
+
+    reset: str | None = "*RST"
+    self_test: str | None = "*TST?"
+    self_test_ok: re.Pattern[str] = re.compile(r"^\s*\+?0\s*$")
+    self_test_timeout_s: float = 30.0
+    # Asked after reset and recall, until it answers.
+    opc: str | None = "*OPC?"
+    # How long a reset or recall may take.
+    settle_timeout_s: float = 10.0
+    save: str | None = None
+    recall: str | None = None
+    # The first and last slot that save and recall take.
+    slots: tuple[int, int] | None = None
+    beep: str | None = None
+    display: str | None = None
+    display_text: str | None = None
+    display_text_max: int | None = None
+    display_clear: str | None = None
+    lock: str | None = None
+    unlock: str | None = None
+    reboot: str | None = None
+    # How long a reboot takes.
+    reboot_s: float = 30.0
+    # The last command is the one the instrument answers with the image.
+    screenshot: tuple[str, ...] = ()
+    screenshot_framing: Literal["block", "bmp", "png"] = "block"
+    screenshot_cleanup: tuple[str, ...] = ()
+    # Returns the setup as a definite-length block.
+    setup_query: str | None = None
+    # The setup block is written right after this text.
+    setup_load: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,11 +637,20 @@ class Profile:
     setters: dict[str, Setter]
     dmm: Dmm | None
     scope: Scope | None = None
+    system: System = field(default_factory=System)
+    daq: Daq | None = None
     path: Path | None = field(default=None, compare=False)
 
-    def matches(self, idn: Idn) -> bool:
-        """Whether an identity reply names this family. A generic profile never matches."""
+    def matches(self, idn: Idn, connection: Connection | None = None) -> bool:
+        """Whether an identity reply, read over `connection`, names this family. A generic
+        profile never matches."""
         if self.generic:
+            return False
+        if (
+            connection is not None
+            and self.match.connections
+            and connection not in self.match.connections
+        ):
             return False
         return bool(
             self.match.manufacturer.search(idn.manufacturer) and self.match.model.search(idn.model)
@@ -416,10 +680,8 @@ class Profile:
         return None
 
     def verify_field(self, setter: Setter) -> str:
-        """The state field a setter's readback lands in; a meter's function is its own."""
-        if setter.name == "function" and self.category == "dmm":
-            return "function"
-        return VERIFY_FIELD.get(setter.name, "")
+        """The field a setter's readback lands in; a meter's function is its own."""
+        return readback_field(self.category, setter.name)
 
     def verify_query(self, setter: Setter) -> str | None:
         """The readback query for a setter: its own, else its state field's."""
@@ -430,12 +692,15 @@ class Profile:
 
     def range_key(self, setter: Setter) -> str | None:
         """The range that bounds a setter: its own, the profile's range of its name, else the
-        output range a protection level falls back to."""
+        output range a protection level falls back to. A range only some families have bounds
+        its setter only when the profile gives it."""
         if setter.range is not None:
             return setter.range
         name = setter.name
         own = name in self.ranges or any(name in o.ranges for o in self.range_overrides)
-        if name in RANGE_KEYS and (own or name not in SETTER_RANGE):
+        if name in RANGE_KEYS and (
+            own or (name not in SETTER_RANGE and name not in _GIVEN_RANGE_KEYS)
+        ):
             return name
         return SETTER_RANGE.get(name)
 
@@ -464,9 +729,11 @@ class Profile:
         }
 
 
-def find(profiles: Iterable[Profile], idn: Idn) -> Profile | None:
+def find(
+    profiles: Iterable[Profile], idn: Idn, connection: Connection | None = None
+) -> Profile | None:
     """The profile for an identity reply: the match with the longest model pattern wins."""
-    matches = [p for p in profiles if p.matches(idn)]
+    matches = [p for p in profiles if p.matches(idn, connection)]
     if not matches:
         return None
     return max(matches, key=lambda p: (len(p.match.model.pattern), p.id))

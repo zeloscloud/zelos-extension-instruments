@@ -15,7 +15,7 @@ from collections.abc import Callable, Generator
 from contextlib import suppress
 from typing import Any, Literal
 
-from . import connect, engine, scope_ops, serve
+from . import connect, daq_ops, engine, opening, scope_ops, serve, system_ops
 from .clock import NS_PER_S, HostClock
 from .config import InstrumentConfig, poll_key
 from .emitter import Emitter
@@ -31,15 +31,12 @@ from .link import (
 from .profile import (
     ENUM_FIELDS,
     INSTRUMENT_FIELDS,
+    SIGNAL_FIELDS,
     Idn,
     Profile,
     Range,
-    by_id,
-    find,
-    is_identity,
     parse_idn,
 )
-from .profile_load import load_file
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +48,8 @@ _BACKOFF_MIN_S = 0.5
 _BACKOFF_MAX_S = 10.0
 # Consecutive timeouts in the poll loop before the link is reopened.
 _TIMEOUTS_BEFORE_RECONNECT = 3
+# Consecutive scans that do not read as set up before the link is reopened, which sets it up again.
+_BAD_SCANS_BEFORE_RECONNECT = 3
 # A setpoint that changes within this long after our own set is ours, not an outside change.
 _OWN_CHANGE_NS = 2 * NS_PER_S
 _LOG_EVERY_NS = 60 * NS_PER_S
@@ -71,10 +70,11 @@ RequestKind = Literal[
     "measure",
     "waveform",
     "command",
+    "system",
 ]
 _State = Literal["connecting", "open", "released", "failed", "stopped"]
 _Future = concurrent.futures.Future[dict[str, Any]]
-_WRITE_KINDS = frozenset({"set", "local", "measure", "command", "scpi", "waveform"})
+_WRITE_KINDS = frozenset({"set", "local", "measure", "command", "scpi", "waveform", "system"})
 
 Opener = Callable[[Address, LinkSettings], Link]
 
@@ -155,6 +155,7 @@ class InstrumentWorker(threading.Thread):
         self._last_error: str | None = None
         self._timeouts = 0
         self._timeouts_total = 0
+        self._bad_scans = 0
         self._queries = 0
         self._parse_throttle: dict[str, _Throttle] = {}
         self._backoff_s = _BACKOFF_MIN_S
@@ -177,6 +178,10 @@ class InstrumentWorker(threading.Thread):
         self._link_timeout_s = 2.0
         self._fast_at: dict[int | None, int] = {}
         self._interval_ns = int(NS_PER_S / cfg.rate_hz)
+        # While the front panel is locked on purpose, the worker never hands it back.
+        self._panel_locked = False
+        # No reconnect before this monotonic time, as while the instrument reboots.
+        self._reconnect_at = 0.0
 
     def request(self, kind: RequestKind, **args: Any) -> _Future:
         """Queue a request; the worker answers through the future."""
@@ -209,6 +214,9 @@ class InstrumentWorker(threading.Thread):
                     self._wake.clear()
                     continue
                 try:
+                    if self._link is None and (away_s := self._reconnect_at - time.monotonic()) > 0:
+                        self._wait(away_s)
+                        continue
                     if self._link is None and not self._connect():
                         self._serve_requests()
                         self._wait(self._backoff_s)
@@ -249,142 +257,11 @@ class InstrumentWorker(threading.Thread):
 
     def _connect(self) -> bool:
         """Open the link and identify the instrument; False with the health set when it fails."""
-        profile = self._chosen_profile()
-        if profile is None:
-            return False
-        link_settings = connect.link_settings(self.cfg, profile)
-        self._link_timeout_s = link_settings.timeout_s
-        address = connect.address(self.cfg, profile)
-        self.where = self.cfg.where if self.cfg.connection == "demo" else address.where
-        try:
-            link = self._open(address, link_settings)
-        except LinkError as e:
-            self._failed_open(e)
-            return False
-        self._link = link
-        if self._stopping.is_set():
-            self._close()
-            return False
-        self._selector = Selector(profile.link.select)
-        # A banner, or bytes a previous client left behind, must not become the identity.
-        link.clear()
-        try:
-            if profile.link.first:
-                connect.send_first(link, profile)
-            idn = self._identify(link, profile)
-        except (LinkError, RangeError) as e:
-            self._close()
-            self._failed_open(e if isinstance(e, LinkError) else LinkError(str(e)))
-            return False
-        if self._stopping.is_set():
-            self._close()
-            return False
-        try:
-            profile = self._resolve_profile(profile, idn)
-            wanted = connect.link_settings(self.cfg, profile)
-            self._selector = Selector(profile.link.select)
-            self._link_timeout_s = wanted.timeout_s
-            if wanted != link_settings:
-                # The matched profile frames lines differently from the one used to identify.
-                link.close()
-                self._link = link = self._open(connect.address(self.cfg, profile), wanted)
-            self.profile, self.idn = profile, idn
-            if profile.link.remote:
-                self._send(profile.link.remote)
-            for command in profile.link.init:
-                self._send(command)
-            channels = self.cfg.channels or self._channel_count(profile, idn)
-            self._install(profile, idn, channels)
-            # Errors another program or a power cycle left in the queue are not this session's.
-            self._drain_errors(quiet=True)
-            self._read_ranges()
-            self._probe_optional()
-            self._emitter.add_channels(self.cfg.name, self._channel_fields())
-            self._emitter.identity(
-                self.cfg.name,
-                {
-                    "manufacturer": idn.manufacturer if idn else "",
-                    "model": idn.model if idn else "",
-                    "serial": idn.serial if idn else "",
-                    "firmware": idn.firmware if idn else "",
-                    "profile": profile.id,
-                    "address": self.where,
-                },
-                self._clock.epoch_ns(self._now()),
-            )
-        except (LinkError, RangeError, ParseError) as e:
-            self._lost(str(e))
-            return False
-        self._timeouts = 0
-        self._cycles_since_connect = 0
-        self.state = "open"
-        self.health = self._open_health()
-        self._note("info", f"connected to {self.where}: {self.idn.text if self.idn else ''}")
-        return True
+        return opening.open_instrument(self)
 
-    def _chosen_profile(self) -> Profile | None:
-        """The profile named in the config, or a generic one to identify with."""
-        choice = self.cfg.profile
-        if self.cfg.connection == "demo":
-            return by_id(self._profiles, f"generic-{self.cfg.category}") or self._profiles[0]
-        if choice == "auto":
-            return by_id(self._profiles, "ieee488") or self._profiles[0]
-        if choice.endswith(".toml"):
-            try:
-                return load_file(choice)
-            except Exception as e:
-                self.state = "failed"
-                self.health = f"Cannot load the profile {choice}: {e}"
-                return None
-        profile = by_id(self._profiles, choice)
-        if profile is None:
-            self.state = "failed"
-            self.health = f"No profile is named {choice}. Pick one from the list, or auto."
-        return profile
-
-    def _identify(self, link: Link, profile: Profile) -> Idn | None:
-        command = profile.match.idn
-        try:
-            reply = connect.ask_identity(link, command)
-        except LinkTimeout:
-            text = f"accepted the connection but did not answer {command}"
-            if self.cfg.profile == "auto":
-                text += "; an instrument that speaks a dialect without it needs its profile picked"
-            raise LinkError(text, "held") from None
-        if not is_identity(reply):
-            raise LinkError(f"{self.where} answered {command} with {reply!r}")
-        return parse_idn(reply)
-
-    def _resolve_profile(self, chosen: Profile, idn: Idn | None) -> Profile:
-        """`auto` picks the matching profile; a chosen one is kept and the identity checked."""
-        if self.cfg.profile != "auto" or self.cfg.connection == "demo":
-            if idn is not None and not chosen.generic and not chosen.matches(idn):
-                self._note(
-                    "warn",
-                    f"{idn.manufacturer} {idn.model} does not match the profile {chosen.id}; "
-                    "using it anyway",
-                )
-            return chosen
-        assert idn is not None
-        matched = find(self._profiles, idn)
-        if matched is None:
-            raise LinkError(
-                f"no profile matches {idn.manufacturer} {idn.model}; choose a generic profile "
-                "for its category, or write one"
-            )
-        return matched
-
-    def _channel_count(self, profile: Profile, idn: Idn | None) -> int:
-        if profile.match.channels_query is not None:
-            try:
-                return max(1, engine.parse_int(self._query(profile.match.channels_query)))
-            except (ParseError, LinkTimeout) as e:
-                self._recover(f"{profile.match.channels_query}: {e}")
-        return profile.channels_for(idn.model if idn else "")
-
-    def _install(self, profile: Profile, idn: Idn | None, channels: int) -> None:
-        self.channels = channels
-        self._channel = {ch: _Channel() for ch in range(1, channels + 1)}
+    def _install(self, profile: Profile, idn: Idn | None, channels: list[int]) -> None:
+        self.channels = len(channels)
+        self._channel = {ch: _Channel() for ch in channels}
         model = idn.model if idn else ""
         for ch, state in self._channel.items():
             for key in profile.ranges:
@@ -396,9 +273,9 @@ class InstrumentWorker(threading.Thread):
                     for key, r in override.ranges.items():
                         state.ranges.setdefault(key, r)
         self._dropped = set()
-        self._plan = engine.compile_plan(profile, channels)
+        self._plan = opening.plan(self, profile, set())
         if not self._registered:
-            self._emitter.add_instrument(self.cfg.name, profile, channels, self.cfg.poll)
+            self._emitter.add_instrument(self.cfg.name, profile, self.channels, self.cfg.poll)
             self._registered = True
         self._next_slow_ns = 0
         self._slow = None
@@ -406,78 +283,13 @@ class InstrumentWorker(threading.Thread):
         self._next_fast_ns = 0
         self._next_poll_ns = {}
 
-    def _read_ranges(self) -> None:
-        """Fill ranges that come from queries."""
-        assert self.profile is not None
-        for ch, state in self._channel.items():
-            for key, r in list(state.ranges.items()):
-                if r.min_query is None and r.max_query is None:
-                    continue
-                low, high = r.min, r.max
-                try:
-                    self._select(ch)
-                    if r.max_query is not None:
-                        high = engine.parse_float(self._query(engine.render(r.max_query, ch=ch)))
-                    if r.min_query is not None:
-                        low = engine.parse_float(self._query(engine.render(r.min_query, ch=ch)))
-                except (ParseError, LinkTimeout) as e:
-                    self._recover(f"range {key}: {e}")
-                    continue
-                if high is not None and math.isfinite(high):
-                    state.ranges[key] = r.with_bounds(
-                        low if low is None or math.isfinite(low) else 0.0, high
-                    )
-
-    def _channel_fields(self) -> dict[int, set[str]]:
-        """The fields each channel's readers produce, once the probe has dropped what the
-        instrument refuses; an instrument-wide reader's fields land on every channel."""
-        assert self._plan is not None and self.profile is not None
-        shared = INSTRUMENT_FIELDS[self.profile.category]
-        fields: dict[int, set[str]] = {ch: set() for ch in self._channel}
-        for step in self._plan:
-            names = (
-                {"protection"} if step.flag is not None else set(step.reader.fields) - set(shared)
-            )
-            for ch in [step.channel] if step.channel is not None else list(fields):
-                fields.setdefault(ch, set()).update(names)
-        return fields
-
-    def _probe_optional(self) -> None:
-        """Run each optional query once; drop the ones the instrument refuses."""
-        assert self._plan is not None and self.profile is not None
-        dropped: set[str] = set()
-        for step in self._plan:
-            if not step.reader.optional:
-                continue
-            # An event cannot gain a field later, so one bad reply gets a second try.
-            for attempt in (1, 2):
-                try:
-                    self._select(step.channel)
-                    reply = self._query(step.query)
-                    if step.flag is not None:
-                        engine.flag_is_set(step.flag, reply, step.channel)
-                    else:
-                        engine.parse_reply(step.reader, reply, step.channel)
-                    if self._drain_errors(quiet=True):
-                        dropped.add(step.key)
-                    break
-                except (LinkTimeout, ParseError) as e:
-                    self._recover(f"{step.query}: {e}")
-                    if attempt == 2:
-                        dropped.add(step.key)
-        if dropped:
-            names = sorted({key.split("@")[0] for key in dropped})
-            self._note(
-                "info", f"not answered by this instrument, so not recorded: {', '.join(names)}"
-            )
-            self._dropped = dropped
-            self._plan = engine.compile_plan(self.profile, self.channels, dropped)
-
     def _failed_open(self, e: LinkError) -> None:
         self._link = None
         self.state = "failed"
+        advice = connect.advice(e)
         self.health = (
-            f"Cannot open {self.where}: {str(e).rstrip('.')}. {connect.advice(e)} Retrying."
+            f"Cannot open {self.where}: {str(e).rstrip('.')}. "
+            f"{advice + ' ' if advice else ''}Retrying."
         )
         self._log_once("open", f"cannot open {self.where}: {e}")
         self._backoff_s = min(self._backoff_s * 2, _BACKOFF_MAX_S)
@@ -497,6 +309,17 @@ class InstrumentWorker(threading.Thread):
         if link is not None:
             link.close()
         self._selector.forget()
+
+    def disconnect_for(self, seconds: float, health: str) -> None:
+        """Let go of the link without handing the panel back, and reconnect no sooner than
+        `seconds` from now, as while the instrument restarts."""
+        self._close()
+        self.state = "connecting"
+        self.health = health
+        self._note("info", f"disconnected from {self.where} for {seconds:g} s")
+        self._emit_status(connected=False)
+        self._backoff_s = _BACKOFF_MIN_S
+        self._reconnect_at = time.monotonic() + seconds
 
     def _cycle(self) -> None:
         """One pass: the fast steps on their schedule, then slow steps in the time left before
@@ -521,6 +344,8 @@ class InstrumentWorker(threading.Thread):
             if self._stopping.is_set() or self._link is None:
                 return
             self._run_step(step, fast_rows)
+        if self.profile.daq is not None and self.cfg.scan and self._link is not None:
+            self._read_scan(fast_rows)
         if self._slots and self._link is not None:
             sent = self._now()
             scope_ops.read_slots(self, fast_rows)
@@ -609,16 +434,7 @@ class InstrumentWorker(threading.Thread):
             self._select(step.channel)
             reply = self._query(step.query)
         except LinkTimeout as e:
-            self._timeouts += 1
-            self._timeouts_total += 1
-            self._log_once(f"timeout {step.key}", f"{step.query}: {e}")
-            if self._timeouts >= _TIMEOUTS_BEFORE_RECONNECT:
-                raise LinkError(f"{self._timeouts} queries in a row got no reply") from e
-            # The reply may still come; it must not land under the next query's field.
-            try:
-                self._resync(f"{step.query} got no reply")
-            except LinkError:
-                self._clear_link()
+            self._timed_out(step.key, step.query, e)
             return
         self._timeouts = 0
         rtt = self._now() - sent
@@ -641,6 +457,44 @@ class InstrumentWorker(threading.Thread):
                 if name in ENUM_FIELDS:
                     rows.setdefault(step.channel, {})[name] = engine.unknown_label(name)
             self._resync(f"{step.query} answered {reply.strip()!r}")
+
+    def _timed_out(self, key: str, query: str, e: LinkTimeout) -> None:
+        self._timeouts += 1
+        self._timeouts_total += 1
+        self._log_once(f"timeout {key}", f"{query}: {e}")
+        if self._timeouts >= _TIMEOUTS_BEFORE_RECONNECT:
+            raise LinkError(f"{self._timeouts} queries in a row got no reply") from e
+        # The reply may still come; it must not land under the next query's field.
+        try:
+            self._resync(f"{query} got no reply")
+        except LinkError:
+            self._clear_link()
+
+    def _read_scan(self, rows: dict[int | None, dict[str, Any]]) -> None:
+        """One scan of a daq unit, stamped halfway through its round trip."""
+        assert self.profile is not None and self.profile.daq is not None
+        query = self.profile.daq.read[-1]
+        sent = self._now()
+        try:
+            daq_ops.read(self, rows)
+        except LinkTimeout as e:
+            self._timed_out("scan", query, e)
+            return
+        except ParseError as e:
+            self._bad_scans += 1
+            if self._bad_scans >= _BAD_SCANS_BEFORE_RECONNECT:
+                raise LinkError(
+                    f"{self._bad_scans} scans in a row did not read as set up: {e}"
+                ) from e
+            self._log_once("scan", f"{query}: {e}")
+            self._resync(f"{query}: {e}")
+            return
+        self._timeouts = 0
+        self._bad_scans = 0
+        done = self._now()
+        self._rtt_ms = (done - sent) / _MS
+        for ch in rows:
+            self._fast_at.setdefault(ch, sent + (done - sent) // 2)
 
     def _record(self, ch: int | None, values: dict[str, Any], at: int) -> None:
         """Write one channel's values, stamped at `at`, and note changes."""
@@ -669,6 +523,10 @@ class InstrumentWorker(threading.Thread):
                 row = {k: v for k, v in values.items() if k != "value"}
             else:
                 row = values
+            output = row.get("output", state.values.get("output"))
+            if self.profile.category == "psu" and "mode" in row and output is False:
+                # A supply reports how it would regulate even while its output is off.
+                row = {**row, "mode": "off"}
             self._note_changes(target, state, row, at)
             state.values.update(row)
             self._emitter.row(self.cfg.name, target, row, time_ns)
@@ -738,27 +596,28 @@ class InstrumentWorker(threading.Thread):
         if errors is None:
             return 0
         found = 0
-        for _ in range(errors.drain):
-            try:
-                reply = self._query(errors.query)
-            except LinkTimeout as e:
-                self._recover(f"{errors.query}: {e}")
-                return found
-            error = engine.read_error(errors, reply)
-            if error is None:
-                return found
-            if error.code is None:
-                self._resync(f"unexpected reply {reply.strip()!r} to {errors.query}")
-                return found
-            found += 1
-            self._errors += 1
-            self._last_error = f"{error.code},{error.text}"
-            if not quiet:
-                self._log_once(
-                    f"instrument error {error.code}",
-                    f"instrument error {self._last_error}",
-                    source="instrument",
-                )
+        for query in (errors.query, *errors.then):
+            for _ in range(errors.drain):
+                try:
+                    reply = self._query(query)
+                except LinkTimeout as e:
+                    self._recover(f"{query}: {e}")
+                    return found
+                error = engine.read_error(errors, reply)
+                if error is None:
+                    break
+                if error.code is None:
+                    self._resync(f"unexpected reply {reply.strip()!r} to {query}")
+                    return found
+                found += 1
+                self._errors += 1
+                self._last_error = f"{error.code},{error.text}"
+                if not quiet:
+                    self._log_once(
+                        f"instrument error {error.code}",
+                        f"instrument error {self._last_error}",
+                        source="instrument",
+                    )
         return found
 
     def _keep_panel(self) -> None:
@@ -766,6 +625,7 @@ class InstrumentWorker(threading.Thread):
         link = self.profile.link
         if (
             self.cfg.keep_panel
+            and not self._panel_locked
             and link.locks_panel
             and link.local
             and not link.needs_remote
@@ -849,6 +709,9 @@ class InstrumentWorker(threading.Thread):
         if remote:
             # A unit that dropped out of remote mode answers nothing until it is back in it.
             self._link.write(remote)
+            lock = self.profile.system.lock
+            if self._panel_locked and lock is not None:
+                self._link.write(lock)
         idn = self.profile.match.idn
         self._link.write(idn)
         for _ in range(_RESYNC_READS):
@@ -922,6 +785,8 @@ class InstrumentWorker(threading.Thread):
         if kind in _WRITE_KINDS:
             # An error a poll query raised must not be pinned on this request.
             self._drain_errors(quiet=True)
+        if kind == "system":
+            return system_ops.run(self, args)
         if kind == "scpi":
             return serve.scpi(self, args["command"], args.get("timeout_s"))
         if kind == "local":
@@ -930,10 +795,13 @@ class InstrumentWorker(threading.Thread):
                 raise RangeError("this profile has no local command")
             for command in local:
                 self._send(command)
+            self._panel_locked = False
             self._after_write("local")
             return {"ok": True}
-        ch = int(args.get("channel") or 1)
+        ch = int(args.get("channel") or min(self._channel, default=1))
         if ch not in self._channel:
+            if self.profile.daq is not None:
+                raise RangeError(f"channel must be one of {', '.join(map(str, self._channel))}")
             raise RangeError(f"channel must be from 1 to {self.channels}")
         if kind == "read":
             return serve.read_now(self, ch)
@@ -946,33 +814,37 @@ class InstrumentWorker(threading.Thread):
         if kind == "waveform":
             return scope_ops.capture(self, ch, args)
         if kind == "command":
-            return serve.run_command(self, str(args["name"]))
+            return serve.run_command(self, str(args["name"]), ch)
         raise RangeError(f"unknown request {kind}")
 
     def _after_write(self, what: str, *, log: bool = True) -> None:
         """Check the error queue after a write; the instrument's own text fails the request."""
         assert self.profile is not None
         errors = self.profile.errors
-        if errors is not None:
-            reply = self._query(errors.query)
+        queries = () if errors is None else (errors.query, *errors.then)
+        reported: list[engine.InstrumentError] = []
+        for query in queries:
+            assert errors is not None
+            reply = self._query(query)
             error = engine.read_error(errors, reply)
             if error is not None and error.code is None:
                 # Not an error entry at all: the replies are out of step with the queries.
-                self._resync(f"unexpected reply {reply.strip()!r} to {errors.query}")
-                reply = self._query(errors.query)
-                error = engine.read_error(errors, reply)
-            if error is not None:
-                reported = [error]
-                for _ in range(errors.drain - 1):
-                    more = engine.read_error(errors, self._query(errors.query))
-                    if more is None:
-                        break
-                    reported.append(more)
-                self._errors += len(reported)
-                texts = [f"{e.code},{e.text}" if e.code is not None else e.text for e in reported]
-                self._last_error = texts[-1]
-                self._note("warn", f"{what}: instrument error {'; '.join(texts)}", source="action")
-                raise RangeError(f"the instrument reported {'; '.join(texts)}")
+                self._resync(f"unexpected reply {reply.strip()!r} to {query}")
+                error = engine.read_error(errors, self._query(query))
+            if error is None:
+                continue
+            reported.append(error)
+            for _ in range(errors.drain - 1):
+                more = engine.read_error(errors, self._query(query))
+                if more is None:
+                    break
+                reported.append(more)
+        if reported:
+            self._errors += len(reported)
+            texts = [f"{e.code},{e.text}" if e.code is not None else e.text for e in reported]
+            self._last_error = texts[-1]
+            self._note("warn", f"{what}: instrument error {'; '.join(texts)}", source="action")
+            raise RangeError(f"the instrument reported {'; '.join(texts)}")
         if log:
             self._note("info", what, source="action")
 
@@ -983,15 +855,21 @@ class InstrumentWorker(threading.Thread):
     def _open_health(self) -> str:
         who = f"{self.idn.manufacturer} {self.idn.model}".strip() if self.idn else self.where
         rate = self._rate_hz()
-        fields = len(self._emitter.fields(self.cfg.name)) if self._registered else 0
-        text = f"Connected to {who}. Reading {fields} signals"
+        if self.profile is not None and self.profile.daq is not None:
+            fields = sum(len(names) for names in opening.channel_fields(self).values())
+        else:
+            fields = len(self._emitter.fields(self.cfg.name)) if self._registered else 0
+        # A generator reads only its settings, so it has no reading rate to report.
+        signals = self.profile is None or bool(SIGNAL_FIELDS[self.profile.category])
+        text = f"Connected to {who}. Reading {fields} {'signals' if signals else 'settings'}"
         if self.cfg.poll:
             text += f" and {len(self.cfg.poll)} extra readings"
         text += f" on {self.channels} channel"
         text += "s" if self.channels != 1 else ""
-        text += f" at {rate:.1f} Hz (target {self.cfg.rate_hz:g} Hz)."
+        text += f" at {rate:.1f} Hz (target {self.cfg.rate_hz:g} Hz)." if signals else "."
         if (
-            rate
+            signals
+            and rate
             and rate < self.cfg.rate_hz * 0.8
             and self._fast_times
             and len(self._fast_times) > 5

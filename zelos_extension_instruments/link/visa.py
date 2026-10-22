@@ -17,6 +17,7 @@ from . import (
     LinkTimeout,
     Pacer,
     VisaAddress,
+    definite_block,
     seconds,
 )
 from .tcp import tune_socket
@@ -158,7 +159,10 @@ class VisaLink:
         self._pacer.mark(command)
 
     def read(self, timeout_s: float | None = None) -> str:
-        return self._text(self._read_raw(timeout_s), timeout_s)
+        while True:
+            text = self._text(self._read_raw(timeout_s), timeout_s)
+            if not self._blank(text):
+                return text
 
     def query(self, command: str) -> str:
         self.write(command)
@@ -166,14 +170,46 @@ class VisaLink:
 
     def read_block(self, timeout_s: float | None = None) -> bytes:
         # By count: a raw socket has no END, and a block may hold the terminator byte.
-        head = self._read_bytes(2, timeout_s)
+        head = self.read_bytes(2, timeout_s)
         return self._finish_block(head, timeout_s)
 
     def read_any(self, timeout_s: float | None = None) -> str | bytes:
+        while True:
+            answer = self._read_one(timeout_s)
+            if isinstance(answer, bytes) or not self._blank(answer):
+                return answer
+
+    def read_bytes(self, count: int, timeout_s: float | None = None) -> bytes:
+        inst = self._inst
+        timeout = inst.timeout
+        if timeout_s is not None:
+            inst.timeout = max(1, round(timeout_s * 1000))
+        try:
+            # One request: pyvisa's 20 KB pieces each cost a VXI-11 round trip, halving the rate.
+            return inst.read_bytes(count, chunk_size=max(1, count), break_on_termchar=False)
+        except Exception as exc:
+            raise self._failure(exc, reading=True, timeout_s=timeout_s) from exc
+        finally:
+            inst.timeout = timeout
+
+    def write_block(self, command: str, payload: bytes) -> None:
+        self._pacer.wait()
+        terminator = self._settings.write_terminator.encode()
+        try:
+            self._inst.write_raw(command.encode() + definite_block(payload) + terminator)
+        except Exception as exc:
+            raise self._failure(exc, reading=False) from exc
+        self._pacer.mark(command)
+
+    def _blank(self, text: str) -> bool:
+        """Whether a line is an empty one the settings say to drop."""
+        return self._settings.skip_blank and not text.strip()
+
+    def _read_one(self, timeout_s: float | None) -> str | bytes:
         # One byte first: a reply as short as `1` and its terminator is already whole.
-        head = self._read_bytes(1, timeout_s)
+        head = self.read_bytes(1, timeout_s)
         if head == b"#":
-            head += self._read_bytes(1, timeout_s)
+            head += self.read_bytes(1, timeout_s)
             if head[1:2].isdigit() and head[1:2] != b"0":
                 return self._finish_block(head, timeout_s)
         terminator = self._settings.read_terminator.encode()
@@ -190,31 +226,18 @@ class VisaLink:
                 f"{self.where} did not answer with a block: expected a #-block, got {head!r}",
                 "reply",
             )
-        digits = self._read_bytes(int(head[1:2]), timeout_s)
+        digits = self.read_bytes(int(head[1:2]), timeout_s)
         if not digits.isdigit():
             raise LinkError(
                 f"{self.where} did not answer with a block: expected a block length, got "
                 f"{digits!r}",
                 "reply",
             )
-        payload = self._read_bytes(int(digits), timeout_s)
+        payload = self.read_bytes(int(digits), timeout_s)
         # The line endings behind the block, when the instrument sends any.
         with suppress(Exception):
             self._read_raw(0.2)
         return payload
-
-    def _read_bytes(self, count: int, timeout_s: float | None) -> bytes:
-        inst = self._inst
-        timeout = inst.timeout
-        if timeout_s is not None:
-            inst.timeout = max(1, round(timeout_s * 1000))
-        try:
-            # One request: pyvisa's 20 KB pieces each cost a VXI-11 round trip, halving the rate.
-            return inst.read_bytes(count, chunk_size=max(1, count), break_on_termchar=False)
-        except Exception as exc:
-            raise self._failure(exc, reading=True, timeout_s=timeout_s) from exc
-        finally:
-            inst.timeout = timeout
 
     def _read_raw(self, timeout_s: float | None) -> bytes:
         inst = self._inst
