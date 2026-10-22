@@ -22,6 +22,8 @@ from . import (
 _CHUNK = 4096
 # Silence that means a late reply has finished arriving.
 _QUIET_S = 0.1
+# How soon a blocked read notices a close from another thread.
+_CLOSE_CHECK_S = 0.25
 # A waveform arrives in megabytes; read it in large pieces.
 _BLOCK_CHUNK = 1 << 20
 _TCP_USER_TIMEOUT = 18  # Linux; Python only exposes the constant from 3.12
@@ -227,20 +229,25 @@ class TcpLink:
             raise LinkError(f"{self.where} did not answer with a block: {exc}", "reply") from exc
 
     def _receive(self, deadline: float, size: int) -> None:
-        """One more chunk into the line buffer, or the timeout."""
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise self._no_reply()
-        try:
-            self._sock.settimeout(remaining)
-            chunk = self._sock.recv(size)
-        except TimeoutError as exc:
-            raise self._no_reply() from exc
-        except OSError as exc:
-            raise self._broken(exc) from exc
-        if not chunk:
-            raise self._broken(None)
-        self._lines.feed(chunk)
+        """One more chunk into the line buffer, or the timeout. The wait is sliced so a close
+        from another thread ends it on every platform, not only where shutdown wakes a recv."""
+        while True:
+            if self._closed:
+                raise self._broken(None)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise self._no_reply()
+            try:
+                self._sock.settimeout(min(remaining, _CLOSE_CHECK_S))
+                chunk = self._sock.recv(size)
+            except TimeoutError:
+                continue
+            except OSError as exc:
+                raise self._broken(exc) from exc
+            if not chunk:
+                raise self._broken(None)
+            self._lines.feed(chunk)
+            return
 
     def clear(self) -> None:
         """Drop what has arrived and what still arrives until the line is quiet."""

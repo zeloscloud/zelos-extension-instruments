@@ -248,6 +248,31 @@ def test_close_from_another_thread_interrupts_a_blocked_read(instrument: FakeIns
     assert not isinstance(errors[0], LinkTimeout)
 
 
+def test_close_ends_a_blocked_read_even_where_shutdown_does_not_wake_it(
+    instrument: FakeInstrument, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On the macOS runner a shutdown sometimes left the read blocked until its own timeout."""
+    monkeypatch.setattr(socket.socket, "shutdown", lambda self, how: None)
+    link = connect(instrument, Settings(timeout_s=10))
+    errors: list[LinkError] = []
+
+    def blocked() -> None:
+        try:
+            link.query("NOREPLY?")
+        except LinkError as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=blocked)
+    worker.start()
+    time.sleep(0.3)
+    started = time.monotonic()
+    link.close()
+    worker.join(2)
+    assert not worker.is_alive()
+    assert time.monotonic() - started < 1.0
+    assert len(errors) == 1 and not isinstance(errors[0], LinkTimeout)
+
+
 def test_socket_is_tuned_for_low_latency_and_dead_peer_detection(
     instrument: FakeInstrument,
 ) -> None:
