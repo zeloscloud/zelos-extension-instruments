@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from tests.conftest import minimal, profile_from
+from zelos_extension_instruments import profile_load
 from zelos_extension_instruments.profile import Profile, parse_idn
 from zelos_extension_instruments.profile_load import (
     SHIPPED_DIR,
@@ -289,13 +290,13 @@ LINT_CASES: list[tuple[str, Any, str, str]] = [
         "enum field with a float parser",
         lambda r: set_(r, "state", {"mode": {"query": "M?", "parse": "float"}}),
         "state.mode",
-        'mode needs parse = "map" or "bits".',
+        'mode needs parse = "map", "bits" or "keyed".',
     ),
     (
         "bool field with a float parser",
         lambda r: set_(r, "state", {"output": {"query": "O?", "parse": "float"}}),
         "state.output",
-        'output needs parse = "bool" or "bits".',
+        'output needs parse = "bool", "bits" or "keyed".',
     ),
     (
         "bits without mask",
@@ -359,7 +360,7 @@ LINT_CASES: list[tuple[str, Any, str, str]] = [
         "output setter without {on} or {bit}",
         lambda r: set_(r, "setters", {"output": {"command": "OUTP 1"}}),
         "setters.output.command",
-        "must contain {on} or {bit}.",
+        "must contain {on} or {bit}, or come with off.",
     ),
     (
         "master on a setter other than output",
@@ -800,3 +801,357 @@ def test_a_scope_profile_without_slots_is_refused() -> None:
     }
     with pytest.raises(ProfileError, match="'nope' is not one of"):
         from_dict(raw, "acme-scope.toml")
+
+
+def minimal_fgen() -> dict[str, Any]:
+    raw = minimal()
+    raw.update(id="acme-fgen", category="fgen")
+    del raw["signals"]
+    raw["state"] = {"frequency_set": {"query": "FREQ? {ch}", "parse": "float"}}
+    return raw
+
+
+def test_a_keyed_reader_names_its_key() -> None:
+    raw = minimal_fgen()
+    raw["state"] = {
+        "frequency_set": {"query": "C{ch}:BSWV?", "parse": "keyed", "key": "FRQ"},
+        "shape": {"query": "C{ch}:BSWV?", "parse": "keyed", "key": "WVTP", "map": {"SINE": "sine"}},
+        "output": {"query": "C{ch}:OUTP?", "parse": "keyed", "key": "OUTP"},
+    }
+    p = profile_from(raw)
+    assert [(r.name, r.parse, r.key) for r in p.state] == [
+        ("frequency_set", "keyed", "FRQ"),
+        ("shape", "keyed", "WVTP"),
+        ("output", "keyed", "OUTP"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("entry", "key", "sentence"),
+    [
+        ({"query": "B?", "parse": "keyed"}, "state.frequency_set.key", "missing"),
+        ({"query": "B?", "parse": "float", "key": "FRQ"}, "state.frequency_set.key", "only for"),
+    ],
+)
+def test_lint_wants_a_key_for_a_keyed_reader_and_only_there(
+    entry: dict[str, Any], key: str, sentence: str
+) -> None:
+    raw = minimal_fgen()
+    raw["state"] = {"frequency_set": entry}
+    assert any(key in p and sentence in p for p in problems_of(raw))
+
+
+def test_lint_wants_a_map_for_a_keyed_label_and_on_off_words_for_a_keyed_switch() -> None:
+    raw = minimal_fgen()
+    raw["state"] = {
+        "shape": {"query": "B?", "parse": "keyed", "key": "WVTP"},
+        "output": {"query": "O?", "parse": "keyed", "key": "OUTP", "map": {"EN": "yes"}},
+    }
+    found = problems_of(raw)
+    assert any(p.startswith("state.shape.map: missing") for p in found), found
+    assert any(p.startswith("state.output.map: must map each word") for p in found), found
+
+
+def test_a_generator_reads_no_signal() -> None:
+    assert profile_from(minimal_fgen()).signals == ()
+
+
+def test_a_daq_profile_is_not_refused_for_reading_no_signal() -> None:
+    raw = minimal()
+    raw.update(id="acme-daq", category="daq")
+    del raw["signals"]
+    try:
+        from_dict(raw, "acme-daq.toml")
+    except ProfileError as e:
+        assert not any(p.startswith("signals:") for p in e.problems), e.problems
+
+
+def test_the_daq_table_goes_to_the_daq_loader(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[Any, str]] = []
+    monkeypatch.setattr(
+        profile_load, "load_daq", lambda c, raw, category: seen.append((raw, category))
+    )
+    raw = minimal()
+    raw["daq"] = {"scan": "ROUT:SCAN (@{channels})"}
+    assert profile_from(raw).daq is None
+    assert seen == [({"scan": "ROUT:SCAN (@{channels})"}, "psu")]
+
+
+def test_a_switch_may_give_its_own_off_command() -> None:
+    raw = minimal()
+    raw["setters"] = {"output": {"command": "OUTP ON", "off": "OUTP{ch} OFF"}}
+    setter = profile_from(raw).setters["output"]
+    assert (setter.command, setter.off) == ("OUTP ON", "OUTP{ch} OFF")
+    raw["setters"] = {"output": {"command": "OUTP ON", "off": "OUTP {value}"}}
+    assert problems_of(raw) == ["setters.output.off: unknown placeholder value."]
+
+
+def test_lint_refuses_off_on_a_setter_that_is_not_a_switch() -> None:
+    raw = minimal()
+    raw["setters"] = {"voltage": {"command": "VOLT {value}", "off": "VOLT 0"}}
+    raw["ranges"] = {"voltage": {"max": 30}}
+    assert problems_of(raw) == ["setters.voltage.off: is only for a switch setter."]
+
+
+def test_a_command_setter_takes_a_list_and_a_channel_only_when_per_channel() -> None:
+    raw = minimal_fgen()
+    raw["setters"] = {"trigger": {"command": ["TRIG:SOUR BUS", "SOUR{ch}:TRIG"]}}
+    trigger = profile_from(raw).setters["trigger"]
+    assert trigger.commands == ("TRIG:SOUR BUS", "SOUR{ch}:TRIG")
+    raw["setters"] = {"trigger": {"command": ["*TRG", "TRIG{ch}"], "channel": False}}
+    assert problems_of(raw) == ["setters.trigger.command: unknown placeholder ch."]
+
+
+def test_a_meter_range_maps_its_function_to_a_root_word() -> None:
+    raw = minimal_dmm()
+    raw["setters"] = {
+        "range": {"command": "{function}:RANG {value}", "map": {"dc_voltage": "VOLT:DC"}},
+        "autorange": {"command": "{function}:RANG:AUTO {on}"},
+        "nplc": {"command": "{function}:NPLC {value}"},
+    }
+    p = profile_from(raw)
+    assert p.setters["range"].map == {"dc_voltage": "VOLT:DC"}
+    raw["setters"]["range"]["map"] = {"volts": "VOLT:DC"}
+    assert any(p.startswith("setters.range.map: 'volts' is not one of") for p in problems_of(raw))
+
+
+def test_a_range_may_be_a_set_of_choices() -> None:
+    raw = minimal_dmm()
+    raw["setters"] = {"nplc": {"command": "NPLC {value}"}}
+    raw["ranges"] = {"nplc": {"choices": [10, 0.02, 1, 100, 0.2, 1]}}
+    nplc = profile_from(raw).ranges["nplc"]
+    assert nplc.choices == (0.02, 0.2, 1.0, 10.0, 100.0)
+    assert (nplc.min, nplc.max) == (0.02, 100.0)
+
+
+@pytest.mark.parametrize(
+    ("entry", "problem"),
+    [
+        ({"choices": []}, "ranges.nplc.choices: must be a non-empty list of numbers."),
+        ({"choices": [1, "fast"]}, "ranges.nplc.choices: must be a non-empty list of numbers."),
+        ({"choices": [1, 10], "max": 10}, "ranges.nplc.max: does not go with choices"),
+    ],
+)
+def test_lint_refuses_a_bad_set_of_choices(entry: dict[str, Any], problem: str) -> None:
+    raw = minimal_dmm()
+    raw["ranges"] = {"nplc": entry}
+    assert any(p.startswith(problem) for p in problems_of(raw))
+
+
+def test_a_generator_range_may_go_below_zero() -> None:
+    raw = minimal_fgen()
+    raw["ranges"] = {"offset": {"min": -10, "max": 10}}
+    offset = profile_from(raw).ranges["offset"]
+    assert (offset.min, offset.max) == (-10.0, 10.0)
+
+
+@pytest.mark.parametrize(
+    ("category", "setter", "map_"),
+    [
+        ("fgen", "shape", {"sine": "SIN", "square": "SQU"}),
+        ("fgen", "output_load", {"fifty_ohm": "50", "high_z": "INF"}),
+        ("fgen", "modulation_type", {"am": "AM"}),
+        ("psu", "tracking", {"series": "SER"}),
+        ("load", "current_range", {"low": "LOW", "high": "HIGH"}),
+        ("load", "voltage_range", {"low": "LOW"}),
+    ],
+)
+def test_a_label_setter_maps_labels_of_the_field_it_reads_back(
+    category: str, setter: str, map_: dict[str, str]
+) -> None:
+    raw = minimal_fgen() if category == "fgen" else minimal()
+    raw["category"] = category
+    raw["setters"] = {setter: {"command": "X {value}", "map": map_}}
+    assert profile_from(raw).setters[setter].map == map_
+    raw["setters"] = {setter: {"command": "X {value}", "map": {"turbo": "T"}}}
+    assert any(p.startswith(f"setters.{setter}.map: 'turbo'") for p in problems_of(raw))
+    raw["setters"] = {setter: {"command": "X", "map": map_}}
+    assert any(p.startswith(f"setters.{setter}.command: must contain") for p in problems_of(raw))
+
+
+def test_a_generator_setter_may_name_the_modulation_and_a_scope_setter_the_source() -> None:
+    raw = minimal_fgen()
+    raw["setters"] = {"modulation_depth": {"command": "C{ch}:MDWV {modulation},DEPTH,{value}"}}
+    assert "modulation_depth" in profile_from(raw).setters
+    raw = minimal()
+    raw["setters"] = {"voltage": {"command": "VOLT{src} {value}{modulation}"}}
+    raw["ranges"] = {"voltage": {"max": 30}}
+    assert problems_of(raw) == ["setters.voltage.command: unknown placeholder modulation, src."]
+    raw["category"] = "scope"
+    raw["setters"] = {"trigger_level": {"command": "TRIG:LEV:CH{src} {value}"}}
+    assert not any(p.startswith("setters.") for p in problems_of(raw))
+
+
+def test_errors_may_ask_several_queries() -> None:
+    raw = minimal()
+    raw["errors"] = {"query": ["CMR?", "EXR?"], "ok": "^0$"}
+    errors = profile_from(raw).errors
+    assert errors is not None and (errors.query, errors.then) == ("CMR?", ("EXR?",))
+    raw["errors"] = {"query": "SYST:ERR?"}
+    errors = profile_from(raw).errors
+    assert errors is not None and (errors.query, errors.then) == ("SYST:ERR?", ())
+    raw["errors"] = {"query": "SYST:ERR?", "then": ["X?"]}
+    assert problems_of(raw) == ["errors: unknown key then."]
+
+
+def test_the_system_table_loads_every_function() -> None:
+    raw = minimal()
+    raw["system"] = {
+        "reset": False,
+        "self_test_ok": "^PASS",
+        "self_test_timeout_s": 60,
+        "opc": False,
+        "save": "SAVE {slot}",
+        "recall": "*RCL {slot}",
+        "slots": {"min": 1, "max": 10},
+        "beep": "SYST:BEEP",
+        "display": "DISP {on}",
+        "display_text": "DISP:TEXT '{text}'",
+        "display_text_max": 12,
+        "display_clear": "DISP:TEXT:CLE",
+        "lock": "SYST:RWL",
+        "unlock": "SYST:LOC",
+        "reboot": "SYST:REB",
+        "reboot_s": 45,
+        "screenshot": ["HCOP:SDUM:DATA:FORM PNG", "HCOP:SDUM:DATA?"],
+        "screenshot_framing": "png",
+        "screenshot_cleanup": "HCOP:DEL",
+        "setup_query": "SYST:SET?",
+        "setup_load": "SYST:SET ",
+    }
+    system = profile_from(raw).system
+    assert (system.reset, system.opc, system.self_test) == (None, None, "*TST?")
+    assert system.self_test_ok.pattern == "^PASS" and system.self_test_timeout_s == 60
+    assert (system.save, system.recall, system.slots) == ("SAVE {slot}", "*RCL {slot}", (1, 10))
+    assert (system.display_text, system.display_text_max) == ("DISP:TEXT '{text}'", 12)
+    assert (system.lock, system.unlock, system.reboot_s) == ("SYST:RWL", "SYST:LOC", 45)
+    assert system.screenshot == ("HCOP:SDUM:DATA:FORM PNG", "HCOP:SDUM:DATA?")
+    assert (system.screenshot_framing, system.screenshot_cleanup) == ("png", ("HCOP:DEL",))
+    assert (system.setup_query, system.setup_load) == ("SYST:SET?", "SYST:SET ")
+
+
+def test_a_screenshot_may_end_in_a_command_the_instrument_answers_with_the_image() -> None:
+    raw = minimal()
+    raw["system"] = {"screenshot": "SCDP", "screenshot_framing": "bmp"}
+    assert profile_from(raw).system.screenshot == ("SCDP",)
+
+
+@pytest.mark.parametrize(
+    ("table", "problem"),
+    [
+        ({"save": "SAVE {slot}"}, "system.slots: missing: save and recall need { min, max }."),
+        ({"slots": {"min": 1, "max": 5}}, "system.slots: is only for save and recall."),
+        (
+            {"recall": "*RCL 1", "slots": {"min": 1, "max": 5}},
+            "system.recall: must contain {slot}.",
+        ),
+        (
+            {"save": "SAVE {slot}", "slots": {"min": 5, "max": 1}},
+            "system.slots: max must be at least",
+        ),
+        ({"save": "SAVE {slot}", "slots": {"min": 1}}, "system.slots: needs min and max."),
+        ({"display": "DISP 1"}, "system.display: must contain {on} or {bit}."),
+        ({"display_text": "DISP:TEXT 'x'", "display_text_max": 8}, "system.display_text: must"),
+        ({"display_text": "DISP:TEXT '{text}'"}, "system.display_text_max: missing"),
+        ({"display_text_max": 8}, "system.display_text_max: is only for display_text."),
+        ({"lock": "SYST:RWL"}, "system: lock and unlock come together."),
+        ({"reset": "*RST {ch}"}, "system.reset: unknown placeholder ch."),
+        ({"reset": True}, "system.reset: must be a command, or false for none."),
+        ({"self_test_timeout_s": 0}, "system.self_test_timeout_s: must be from 1 to 600"),
+        ({"settle_timeout_s": 121}, "system.settle_timeout_s: must be from 1 to 120"),
+        ({"reboot_s": 601}, "system.reboot_s: must be from 1 to 600"),
+        ({"screenshot_framing": "jpeg"}, "system.screenshot_framing: must be one of"),
+        ({"self_test_ok": "("}, "system.self_test_ok: is not a valid regular expression"),
+        ({"shutdown": "SYST:SHUT"}, "system: unknown key shutdown."),
+    ],
+)
+def test_lint_refuses_a_broken_system_table(table: dict[str, Any], problem: str) -> None:
+    raw = minimal()
+    raw["system"] = table
+    found = problems_of(raw)
+    assert any(p.startswith(problem) for p in found), found
+
+
+@pytest.mark.parametrize(
+    ("command", "system"),
+    [("SAVE 1", {"save": "SAVE {slot}", "slots": {"min": 1, "max": 5}}), ("*TST?", {})],
+)
+def test_lint_refuses_a_system_command_at_connect(command: str, system: dict[str, Any]) -> None:
+    raw = minimal()
+    raw["system"] = system
+    raw["link"] = {"init": [command]}
+    assert problems_of(raw) == [
+        f"link.init: '{command}' is a system command; it may not run at connect."
+    ]
+
+
+def test_the_link_may_check_remote_control_and_skip_blank_lines() -> None:
+    raw = minimal()
+    raw["link"] = {
+        "remote": "SYST:REM",
+        "remote_check": {"query": "SYST:LOCK:OWN?", "expect": "REMOTE"},
+        "skip_blank": True,
+    }
+    link = profile_from(raw).link
+    assert link.remote_check == ("SYST:LOCK:OWN?", "REMOTE")
+    assert link.skip_blank is True
+    defaults = profile_from(minimal()).link
+    assert (defaults.remote_check, defaults.skip_blank) == (None, False)
+
+
+@pytest.mark.parametrize(
+    ("check", "problem"),
+    [
+        (
+            {"query": "SYST:LOCK:OWN", "expect": "REMOTE"},
+            "link.remote_check.query: must be a query",
+        ),
+        ({"query": "SYST:LOCK:OWN?"}, "link.remote_check.expect: missing or empty."),
+        ({"query": "Q?", "expect": "R", "retry": 2}, "link.remote_check: unknown key retry."),
+    ],
+)
+def test_lint_refuses_a_broken_remote_check(check: dict[str, Any], problem: str) -> None:
+    raw = minimal()
+    raw["link"] = {"remote_check": check}
+    assert any(p.startswith(problem) for p in problems_of(raw))
+
+
+@pytest.mark.parametrize(
+    ("connections", "message"),
+    [
+        ([], "must be a non-empty list"),
+        ("serial", "must be a non-empty list"),
+        (["serial", "gpib"], "'gpib' is not one of lan, usb, serial and visa"),
+    ],
+)
+def test_match_connections_must_name_known_connections(connections: Any, message: str) -> None:
+    raw = minimal()
+    raw["match"] = {**raw["match"], "connections": connections}
+    with pytest.raises(ProfileError, match=message):
+        profile_from(raw)
+
+
+def test_a_map_catch_all_is_not_an_instrument_word() -> None:
+    raw = minimal()
+    raw["state"] = {"mode": {"query": "M?", "parse": "map", "map": {"CV": "cv", "*": "unknown"}}}
+    mode = profile_from(raw).state[0]
+    assert mode.map == {"cv": "cv", "*": "unknown"}
+    assert mode.words == {"cv": "CV"}
+
+
+def test_until_is_only_for_a_keyed_reader() -> None:
+    raw = minimal()
+    raw["signals"]["voltage"]["until"] = "CARR"
+    assert any(
+        p.startswith('signals.voltage.until: is only for parse = "keyed".')
+        for p in problems_of(raw)
+    )
+
+
+@pytest.mark.parametrize(
+    "profile", [p for p in shipped() if p.system.screenshot], ids=lambda p: p.id
+)
+def test_a_profile_that_offers_a_screenshot_never_says_it_does_not(profile: Profile) -> None:
+    sentences = re.split(r"(?<=\.)\s+", profile.notes or "")
+    denials = [s for s in sentences if re.search(r"(?i)screenshots?\b.*\bnot offered", s)]
+    assert denials == [], profile.id

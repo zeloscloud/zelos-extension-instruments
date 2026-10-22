@@ -16,11 +16,14 @@ from tests.conftest import (
     ask,
     connected,
     instrument_config,
+    minimal,
     opener_for,
+    profile_from,
     start,
     start_open,
     wait_until,
 )
+from tests.test_serve import Echo, generator, served
 from zelos_extension_instruments.clock import NS_PER_S
 from zelos_extension_instruments.link import LinkError, LinkTimeout
 from zelos_extension_instruments.profile import Profile, by_id
@@ -65,7 +68,7 @@ def test_polls_measurements_and_state_for_every_channel(running) -> None:
     assert slow["mode"] == "cv" and slow["output"] is True and slow["protection"] == "none"
     assert slow["voltage_set"] == 5.0 and slow["current_set"] == 1.0
     off = next(r for r in emitter.rows if "mode" in r[2] and r[1] == 2)[2]
-    assert off["mode"] == "unregulated" and off["output"] is False
+    assert off["mode"] == "off" and off["output"] is False
 
 
 @pytest.mark.usefixtures("fast_schedule")
@@ -325,6 +328,26 @@ def test_generic_profile_probes_and_drops_what_the_instrument_refuses() -> None:
     finally:
         worker.stop()
         worker.join(2)
+
+
+def test_an_error_a_range_query_raised_does_not_cost_an_optional_field() -> None:
+    errors: list[str] = []
+
+    def unit(command: str) -> str | None:
+        if command == "*IDN?":
+            return "ACME,PSU-1,1,1"
+        if command == "SYST:ERR?":
+            return errors.pop(0) if errors else '0,"No error"'
+        if command == "VOLT? MAX":
+            errors.append('-222,"Data out of range"')
+            return "20.000"
+        if command in ("MEAS:VOLT?", "MEAS:POW?", "VOLT?"):
+            return "3.300"
+        return None
+
+    worker, _, _ = connected(from_dict(GENERIC, "probe.toml"), unit, profile="probe")
+    assert worker._dropped == set()
+    assert worker._channel[1].ranges["voltage"].max == 20.0
 
 
 def test_one_silent_reply_while_probing_does_not_cost_the_field() -> None:
@@ -1400,3 +1423,139 @@ def test_stop_closes_a_link_that_is_still_blocked_in_a_read(dp800: Profile, dp83
         assert link.closed
     finally:
         link.freed.set()
+
+
+def remote_checked(answer: str) -> tuple[InstrumentWorker, ScriptedLink]:
+    """A supply that says who holds remote control when asked."""
+    raw = minimal()
+    raw["link"] = {
+        "remote": "SYST:REM",
+        "remote_check": {"query": "SYST:LOCK:OWN?", "expect": "REMOTE"},
+    }
+    profile = profile_from(raw)
+    replies = {"*IDN?": "ACME,P1,SN1,1.0", "SYST:LOCK:OWN?": answer, "MEAS:VOLT? 1": "5.0"}
+    link = ScriptedLink(replies.get)
+    cfg = instrument_config(profile=profile.id, rate_hz=50)
+    worker = InstrumentWorker(cfg, [profile], RecordingEmitter(), open=opener_for(link))
+    return worker, link
+
+
+def test_an_instrument_that_refuses_remote_control_fails_the_open() -> None:
+    worker, link = remote_checked("LOCAL")
+    assert not worker._connect()
+    assert worker.state == "failed"
+    assert worker.health == (
+        f"Cannot open {worker.where}: the instrument refused remote control "
+        "(SYST:LOCK:OWN? answered LOCAL). Retrying."
+    )
+    assert link.closed
+    assert link.commands == ["*IDN?", "SYST:REM", "SYST:LOCK:OWN?"]
+
+
+def test_an_instrument_that_takes_remote_control_opens() -> None:
+    worker, link = remote_checked("REMOTE ")
+    assert worker._connect(), worker.health
+    assert link.commands[1:3] == ["SYST:REM", "SYST:LOCK:OWN?"]
+
+
+@pytest.mark.usefixtures("fast_schedule")
+def test_a_worker_let_go_for_a_while_waits_that_long_before_reconnecting(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    opened: list[float] = []
+    links: list[ScriptedLink] = []
+
+    def opener(address: Any, settings: Any) -> ScriptedLink:
+        opened.append(time.monotonic())
+        links.append(ScriptedLink(dp832, address.where))
+        return links[-1]
+
+    emitter = RecordingEmitter()
+    worker = InstrumentWorker(instrument_config(rate_hz=50), [dp800], emitter, open=opener)
+    assert worker._connect()
+    health = "Rebooting; reconnecting in about 0.5 s."
+    worker.disconnect_for(0.5, health)
+    let_go = time.monotonic()
+    assert links[0].closed and "SYST:LOCAL" not in links[0].commands
+    assert (worker.state, worker.health) == ("connecting", health)
+    assert emitter.statuses[-1]["connected"] is False
+    worker.start()
+    try:
+        assert ask(worker, "read", channel=1) == {"error": health}
+        assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
+        assert len(opened) == 2 and opened[1] - let_go >= 0.5
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_locked_panel_is_not_handed_back(dp800: Profile, dp832: Dp832) -> None:
+    worker, link, _ = connected(dp800, dp832)
+    worker._panel_locked = True
+    worker._keep_panel()
+    assert "SYST:LOCAL" not in link.commands
+    worker._panel_locked = False
+    worker._keep_panel()
+    assert link.commands[-1] == "SYST:LOCAL"
+
+
+def test_the_error_drain_asks_every_error_query_in_turn() -> None:
+    raw = minimal()
+    raw["errors"] = {"query": ["CMR?", "EXR?"]}
+    queued: dict[str, list[str]] = {"CMR?": [], "EXR?": []}
+
+    def unit(command: str) -> str | None:
+        if command in queued:
+            return queued[command].pop(0) if queued[command] else "0"
+        return {"*IDN?": "ACME,P1,SN1,1.0", "MEAS:VOLT? 1": "5.0"}.get(command)
+
+    worker, link, _ = connected(profile_from(raw), unit)
+    queued["CMR?"].append("3,Command error")
+    queued["EXR?"].extend(['-222,"Data out of range"', '-221,"Settings conflict"'])
+    sent = len(link.commands)
+    assert worker._drain_errors(quiet=True) == 3
+    assert link.commands[sent:] == ["CMR?", "CMR?", "EXR?", "EXR?", "EXR?"]
+    assert worker._last_error == "-221,Settings conflict"
+
+
+def test_a_system_request_drains_the_error_queue_before_it_runs() -> None:
+    raw = minimal()
+    raw["errors"] = {"query": "SYST:ERR?"}
+    raw["system"] = {"beep": "SYST:BEEP"}
+    replies = {"*IDN?": "ACME,P1,SN1,1.0", "MEAS:VOLT? 1": "5.0", "SYST:ERR?": '0,"No error"'}
+    worker, link, _ = connected(profile_from(raw), replies.get)
+    sent = len(link.commands)
+    assert "error" not in served(worker, "system", op="beep")
+    assert link.commands[sent : sent + 2] == ["SYST:ERR?", "SYST:BEEP"]
+
+
+def test_a_generator_reads_its_settings_and_reports_no_reading_rate() -> None:
+    unit = Echo(
+        {
+            "*IDN?": "ACME,G1,SN1,1.0",
+            "SOUR1:MOD:TYPE?": "AM",
+            "SOUR2:MOD:TYPE?": "FM",
+            "C1:BTWV?": "C1:BTWV STATE,ON",
+            "C2:BTWV?": "C2:BTWV STATE,OFF",
+        }
+    )
+    profile = generator({"command": "*TRG", "channel": False})
+    worker, link, emitter = connected(profile, unit, profile=profile.id)
+    settled = "Connected to ACME G1. Reading 2 settings on 2 channels."
+    assert worker.health == settled
+    worker._cycle()
+    worker._cycle()
+    assert worker._channel[1].values == {"modulation_type": "am", "burst": True}
+    assert worker._channel[2].values == {"modulation_type": "fm", "burst": False}
+    assert worker.health == settled
+    assert unit.writes == []
+    assert emitter.statuses and emitter.statuses[-1]["connected"] is True
+
+
+def test_a_supply_channel_whose_output_is_off_records_mode_off(dp800) -> None:
+    worker, _, emitter = connected(dp800, Dp832())
+    worker._record(1, {"output": False, "mode": "cv"}, 0)
+    worker._record(2, {"output": True, "mode": "cv"}, 0)
+    worker._record(1, {"mode": "cc"}, 0)
+    modes = [(ch, values["mode"]) for _, ch, values, _ in emitter.rows if "mode" in values]
+    assert modes[-3:] == [(1, "off"), (2, "cv"), (1, "off")]

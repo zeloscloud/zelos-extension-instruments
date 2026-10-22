@@ -11,6 +11,14 @@ extend-ignore-re = [
 HEL = "HEL"
 # A supply's series-tracking reply word.
 SER = "SER"
+# The IEEE 488.2 save-state command, *SAV, and its dialect forms.
+SAV = "SAV"
+# The SCPI short form of a generator's pulse shape.
+PULS = "PULS"
+# Scope mnemonics: a trigger slope (EITHer), a falling edge (NEDGe) and a byte count (BYT_Nr).
+EITH = "EITH"
+NED = "NED"
+BYT = "BYT"
 
 [files]
 extend-exclude = ["uv.lock", "tests/transcripts/"]

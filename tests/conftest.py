@@ -120,6 +120,8 @@ class ScriptedLink:
         self.cleared = 0
         self._pending: list[str | bytes] = []
         self.timeouts_asked: list[float | None] = []
+        self.raw = bytearray()
+        self.blocks: list[tuple[str, bytes]] = []
         # Re-entrant: a handler may push a reply while the lock is held for its own write.
         self.lock = threading.RLock()
 
@@ -136,11 +138,18 @@ class ScriptedLink:
         with self.lock:
             if self.closed:
                 raise LinkError(f"{self.where} is closed")
+            self._unread()
             if not self._pending:
                 raise LinkTimeout(f"no reply from {self.where}")
             self.timeouts_asked.append(timeout_s)
             reply = self._pending.pop(0)
             return reply.decode("utf-8", errors="replace") if isinstance(reply, bytes) else reply
+
+    def _unread(self) -> None:
+        # Bytes a raw read left over come back first, as the rest of that reply.
+        if self.raw:
+            self._pending.insert(0, bytes(self.raw))
+            self.raw.clear()
 
     def push(self, reply: str | bytes) -> None:
         """Queue a reply as if the instrument sent it unasked, as a late reply arrives."""
@@ -149,6 +158,7 @@ class ScriptedLink:
 
     def read_any(self, timeout_s: float | None = None) -> str | bytes:
         with self.lock:
+            self._unread()
             if not self._pending:
                 raise LinkTimeout(f"no reply from {self.where}")
             block = isinstance(self._pending[0], bytes) and self._pending[0][:1] == b"#"
@@ -158,6 +168,7 @@ class ScriptedLink:
         with self.lock:
             if self.closed:
                 raise LinkError(f"{self.where} is closed")
+            self._unread()
             if not self._pending:
                 raise LinkTimeout(f"no reply from {self.where}")
             reply = self._pending.pop(0)
@@ -167,6 +178,22 @@ class ScriptedLink:
         except BlockError as exc:
             raise LinkError(f"{self.where} did not answer with a block: {exc}") from exc
 
+    def read_bytes(self, count: int, timeout_s: float | None = None) -> bytes:
+        with self.lock:
+            while len(self.raw) < count and self._pending:
+                reply = self._pending.pop(0)
+                self.raw += reply if isinstance(reply, bytes) else reply.encode()
+            if len(self.raw) < count:
+                raise LinkTimeout(f"no reply from {self.where}")
+            data = bytes(self.raw[:count])
+            del self.raw[:count]
+            return data
+
+    def write_block(self, command: str, payload: bytes) -> None:
+        with self.lock:
+            self.commands.append(command)
+            self.blocks.append((command, payload))
+
     def query(self, command: str) -> str:
         self.write(command)
         return self.read()
@@ -174,6 +201,7 @@ class ScriptedLink:
     def clear(self) -> None:
         self.cleared += 1
         self._pending.clear()
+        self.raw.clear()
 
     def close(self) -> None:
         self.closed = True

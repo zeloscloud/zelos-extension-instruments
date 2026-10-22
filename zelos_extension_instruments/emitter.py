@@ -15,6 +15,7 @@ from zelos_sdk import schemas
 from .config import PollRow, poll_key
 from .naming import MAX_BYTES, Namer
 from .profile import BOOL_FIELDS, ENUM_FIELDS, Profile
+from .profile_daq import DAQ_SIGNAL_FIELDS, DAQ_STATE_FIELDS
 from .profile_scope import MEASUREMENT_FIELDS
 
 logger = logging.getLogger(__name__)
@@ -29,8 +30,10 @@ class _Instrument:
     status: zelos_sdk.TraceSourceEvent
     log: zelos_sdk.TraceSourceEvent
     identity: zelos_sdk.TraceSourceEvent
-    poll: zelos_sdk.TraceSourceEvent | None
-    poll_fields: dict[str, str]
+    # The extra readings; their event waits for the channels a per-channel row is read on.
+    poll_rows: tuple[PollRow, ...] = ()
+    poll: zelos_sdk.TraceSourceEvent | None = None
+    poll_fields: dict[str, str] = field(default_factory=dict)
     # One event for settings the whole instrument shares, such as a scope's timebase.
     acquisition: zelos_sdk.TraceSourceEvent | None = None
     acquisition_fields: dict[str, str | None] = field(default_factory=dict)
@@ -61,8 +64,8 @@ class Emitter:
     def add_instrument(
         self, name: str, profile: Profile, channels: int, poll: tuple[PollRow, ...] = ()
     ) -> None:
-        """Register the status, log, identity, acquisition and poll events. Channels follow
-        through `add_channels`, once the instrument has said which readers it answers."""
+        """Register the status, log, identity and acquisition events. Channels and the poll event
+        follow through `add_channels`, once the instrument has said which readers it answers."""
         status = self._source.add_event(
             f"{name}/status",
             [
@@ -80,26 +83,6 @@ class Emitter:
                 for k in IDENTITY_FIELDS
             ],
         )
-        poll_event = None
-        poll_fields: dict[str, str] = {}
-        if poll:
-            # `time_ns` is the row's time argument and can never be a field.
-            namer = Namer(("time_ns",), MAX_BYTES - len(f"{name}/poll".encode()))
-            keys = [
-                (poll_key(row.name, ch), row.unit)
-                for row in poll
-                for ch in (range(1, channels + 1) if "{ch}" in row.query else (None,))
-            ]
-            poll_fields = {key: namer.name(key) for key, _ in keys}
-            poll_event = self._source.add_event(
-                f"{name}/poll",
-                [
-                    zelos_sdk.TraceEventFieldMetadata(
-                        poll_fields[key], zelos_sdk.DataType.Float64, unit
-                    )
-                    for key, unit in keys
-                ],
-            )
         acquisition = None
         acquisition_fields = profile.instrument_fields
         if acquisition_fields:
@@ -109,14 +92,17 @@ class Emitter:
             )
             self._add_value_tables(event_name, acquisition_fields)
         scope = profile.scope
+        # A meter's reading lands under its function's event, not on the channel.
+        units = {k: v for k, v in profile.fields.items() if profile.dmm is None or k != "value"}
+        if profile.daq is not None:
+            # A scan channel records its function, a relay its state; no reader names them.
+            units = {f: DAQ_SIGNAL_FIELDS[f] for f in profile.daq.configure} | DAQ_STATE_FIELDS
         self._instruments[name] = _Instrument(
-            # A meter's reading lands under its function's event, not on the channel.
-            units={k: v for k, v in profile.fields.items() if profile.dmm is None or k != "value"},
+            units=units,
             status=status,
             log=log,
             identity=identity,
-            poll=poll_event,
-            poll_fields=poll_fields,
+            poll_rows=poll,
             acquisition=acquisition,
             acquisition_fields=dict(acquisition_fields),
             measurements=set(MEASUREMENT_FIELDS) if scope is not None else set(),
@@ -129,9 +115,11 @@ class Emitter:
         )
 
     def add_channels(self, name: str, fields: dict[int, set[str]]) -> None:
-        """Register `<name>/ch<n>` with the fields its readers produce; a channel that reads
-        nothing gets no event."""
+        """Register `<name>/ch<n>` with the fields that channel records, each its own set; a
+        channel that records nothing gets no event."""
         inst = self._instruments[name]
+        if inst.poll_rows and inst.poll is None:
+            self._add_poll(name, inst, sorted(fields))
         for ch, names in sorted(fields.items()):
             if ch in inst.channels:
                 continue
@@ -144,6 +132,26 @@ class Emitter:
             )
             inst.channel_fields[ch] = kept
             self._add_value_tables(event_name, kept)
+
+    def _add_poll(self, name: str, inst: _Instrument, channels: list[int]) -> None:
+        """Register `<name>/poll`: a field per row, and per channel for a row that names one."""
+        # `time_ns` is the row's time argument and can never be a field.
+        namer = Namer(("time_ns",), MAX_BYTES - len(f"{name}/poll".encode()))
+        keys = [
+            (poll_key(row.name, ch), row.unit)
+            for row in inst.poll_rows
+            for ch in (channels if "{ch}" in row.query else (None,))
+        ]
+        inst.poll_fields = {key: namer.name(key) for key, _ in keys}
+        inst.poll = self._source.add_event(
+            f"{name}/poll",
+            [
+                zelos_sdk.TraceEventFieldMetadata(
+                    inst.poll_fields[key], zelos_sdk.DataType.Float64, unit
+                )
+                for key, unit in keys
+            ],
+        )
 
     def _add_value_tables(self, event_name: str, fields: Iterable[str]) -> None:
         """Each enumerated field's labels, so the app shows a label for each stored index."""

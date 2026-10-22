@@ -16,7 +16,8 @@ from pathlib import Path
 import zelos_sdk
 from zelos_sdk.hooks.logging import TraceLoggingHandler
 
-from . import ACTION_PREFIX, actions, config
+# Imported to register the actions.
+from . import ACTION_PREFIX, actions, actions_common, config  # noqa: F401
 from .config import ConfigError, InstrumentConfig, Settings
 from .emitter import Emitter
 from .naming import NAME_BYTES, unique_name
@@ -65,17 +66,17 @@ def run(
     logging.getLogger(__package__).setLevel(settings.log_level)
 
     emitter = Emitter(source)
-    actions.workers.clear()
+    actions_common.workers.clear()
     try:
         for cfg in _with_default_names(settings.instruments):
             worker = _worker(cfg, profiles, emitter, open)
             worker.start()
-            actions.workers[cfg.name] = worker
+            actions_common.workers[cfg.name] = worker
         # A timed wait: an untimed Event.wait() may not wake for Ctrl-C on Windows.
         while not stop.wait(0.5):
             pass
     finally:
-        workers = list(actions.workers.values())
+        workers = list(actions_common.workers.values())
         for worker in workers:
             worker.request_stop()
         for worker in workers:

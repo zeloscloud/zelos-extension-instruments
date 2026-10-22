@@ -10,13 +10,24 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .profile import ENUM_FIELDS, Errors, Flag, Profile, Range, Reader, Setter
+from .profile import (
+    BOOL_FIELDS,
+    ENUM_FIELDS,
+    MAP_ANY,
+    Errors,
+    Flag,
+    Profile,
+    Range,
+    Reader,
+    Setter,
+)
 
 Cadence = Literal["fast", "slow"]
 
 # SCPI's "not a number" and "infinity" sentinels: 9.9E37, 9.91E37, and anything at or past them.
 _NAN_FROM = 9.9e37
 _NUMBER = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+_INTEGER = re.compile(r"[+-]?\d+")
 _TRUE = {"1", "on", "true", "yes"}
 _FALSE = {"0", "off", "false", "no"}
 
@@ -106,13 +117,30 @@ def render(
     type: str | None = None,
     points: int | None = None,
     interval: int | None = None,
+    text: str | None = None,
+    src: int | None = None,
+    modulation: str | None = None,
+    channels: str | None = None,
+    tc: str | None = None,
+    count: int | None = None,
 ) -> str:
     """Fill a command template's placeholders."""
     values: dict[str, Any] = {}
     if ch is not None:
         values["ch"] = ch
         values["ch0"] = ch - 1
-    for key, extra in (("slot", slot), ("type", type), ("points", points), ("interval", interval)):
+    for key, extra in (
+        ("slot", slot),
+        ("type", type),
+        ("points", points),
+        ("interval", interval),
+        ("text", text),
+        ("src", src),
+        ("modulation", modulation),
+        ("channels", channels),
+        ("tc", tc),
+        ("count", count),
+    ):
         if extra is not None:
             values[key] = extra
     if value is not None:
@@ -186,10 +214,81 @@ def parse_bool(text: str, words: dict[str, str] | None = None) -> bool:
 def _pick(text: str, index: int | None) -> str:
     if index is None:
         return text
-    parts = text.split(",")
+    stripped = text.strip()
+    if len(stripped) > 1 and stripped[0] == stripped[-1] == '"':
+        # A quoted list, such as `"SIN,+5.0E+03,+3.0E+00"`.
+        stripped = stripped[1:-1]
+    parts = stripped.split(",")
     if index >= len(parts):
         raise ParseError(f"expected at least {index + 1} values, got {text.strip()!r}")
     return parts[index]
+
+
+# Keyed replies write units in capitals, so `M` is mega before HZ and milli before the rest.
+_KEYED_UNITS = ("VPP", "VRMS", "HZ", "DEG", "OHM", "V", "S", "A", "W", "%")
+_KEYED_PREFIX = {"": 1.0, "G": 1e9, "K": 1e3, "U": 1e-6, "N": 1e-9, "P": 1e-12}
+
+
+def _keyed_number(text: str) -> float:
+    """A keyed reply's number with its unit: `100HZ`, `5KHZ`, `1MHZ`, `500MV`, `10US`, `-1V`."""
+    cleaned = text.strip().strip('"')
+    found = _NUMBER.match(cleaned)
+    if found is None:
+        raise ParseError(f"expected a number, got {text.strip()!r}")
+    suffix = cleaned[found.end() :].strip().upper()
+    unit = next((u for u in _KEYED_UNITS if suffix.endswith(u)), "")
+    prefix = suffix[: len(suffix) - len(unit)]
+    if prefix == "M":
+        factor = 1e6 if unit == "HZ" else 1e-3
+    elif prefix in _KEYED_PREFIX:
+        factor = _KEYED_PREFIX[prefix]
+    else:
+        raise ParseError(f"expected a number, got {text.strip()!r}")
+    number = float(found.group())
+    if abs(number) >= _NAN_FROM:
+        return math.nan
+    return number * factor
+
+
+def _keyed_value(text: str, key: str, until: str | None = None) -> str | None:
+    """The token after the first token equal to `key`, ignoring case, in a reply such as
+    `C1:BSWV WVTP,SINE,FRQ,100HZ`; a header (up to the first space, when the first token holds a
+    colon) is skipped, and so is everything from the first token equal to `until`. None when the
+    key is not there."""
+    head, space, rest = text.partition(" ")
+    body = rest if space and ":" in text.split(",")[0] else text
+    tokens = [t.strip().strip('"') for t in body.split(",")]
+    if until is not None:
+        stop = until.casefold()
+        tokens = tokens[: next((i for i, t in enumerate(tokens) if t.casefold() == stop), None)]
+    wanted = key.casefold()
+    for i, token in enumerate(tokens[:-1]):
+        if token.casefold() == wanted:
+            return tokens[i + 1]
+    return None
+
+
+def _keyed(reader: Reader, text: str) -> dict[str, Any]:
+    """A keyed reply's field. A key the reply lacks (an instrument drops the keys of a mode that
+    is off) leaves the field unknown for this read: a number reads as not-a-number, a label as
+    its table's last label, and a switch is left out."""
+    name = reader.fields[0]
+    assert reader.key is not None
+    token = _keyed_value(text, reader.key, reader.until)
+    if token is None:
+        if name in ENUM_FIELDS:
+            return {name: unknown_label(name)}
+        if name in BOOL_FIELDS:
+            return {}
+        return {name: math.nan}
+    if name in ENUM_FIELDS:
+        label = _mapped(reader, token.casefold())
+        if label is None:
+            raise ParseError(f"'{token}' is not in the map of {reader.name}")
+        return {name: label}
+    if name in BOOL_FIELDS:
+        return {name: parse_bool(token, reader.map)}
+    return {name: _keyed_number(token) * reader.scale}
 
 
 def _per_channel(values: tuple[int, ...], channel: int | None) -> int:
@@ -207,7 +306,8 @@ def _bits(
 
 
 def parse_reply(reader: Reader, reply: str, channel: int | None = None) -> dict[str, Any]:
-    """The fields a reply fills. Enumerated fields hold their label as text.
+    """The fields a reply fills. Enumerated fields hold their label as text. A keyed reply
+    that lacks its key leaves the field unknown for this read: see `_keyed`.
 
     `channel` picks the mask and shift of a `bits` reader that lists one per channel.
     """
@@ -229,10 +329,12 @@ def parse_reply(reader: Reader, reply: str, channel: int | None = None) -> dict[
     if parse == "bool":
         return {name: parse_bool(_pick(text, reader.index), reader.map)}
     if parse == "str":
-        return {name: text}
+        return {name: text if reader.index is None else _pick(text, reader.index).strip()}
+    if parse == "keyed":
+        return _keyed(reader, text)
     if parse == "map":
         key = _pick(text, reader.index).strip().strip('"').casefold()
-        label = reader.map.get(key)
+        label = _mapped(reader, key)
         if label is None:
             raise ParseError(f"'{text}' is not in the map of {reader.name}")
         return {name: label}
@@ -240,11 +342,17 @@ def parse_reply(reader: Reader, reply: str, channel: int | None = None) -> dict[
         number = _bits(_pick(text, reader.index), reader.mask, reader.shift, reader.hex, channel)
         if not reader.map:
             return {name: bool(number)}
-        label = reader.map.get(str(number))
+        label = _mapped(reader, str(number))
         if label is None:
             raise ParseError(f"bit value {number} of {reader.name} is not in its map")
         return {name: label}
     raise ParseError(f"unknown parser {parse}")
+
+
+def _mapped(reader: Reader, word: str) -> str | None:
+    """The label a reader's map gives a reply word: its own entry, else the `*` entry. Without
+    a `*` entry an unmapped word is None, which is how a late reply shows."""
+    return reader.map.get(word, reader.map.get(MAP_ANY))
 
 
 def flag_is_set(flag: Flag, reply: str, channel: int | None = None) -> bool:
@@ -273,7 +381,7 @@ def format_value(value: float, range_: Range | None) -> str:
 
 def check_resolution(value: float, range_: Range | None, name: str) -> None:
     """Refuse a value the instrument's digits would round away."""
-    if range_ is None or range_.step is not None:
+    if range_ is None or range_.step is not None or range_.choices:
         return
     sent = float(format_value(value, range_))
     if abs(sent - value) > 1e-9 * max(1.0, abs(value)):
@@ -284,9 +392,14 @@ def check_resolution(value: float, range_: Range | None, name: str) -> None:
 
 
 def check_range(value: float, range_: Range | None, limit: float | None, name: str) -> None:
-    """Refuse a value outside the profile's range or the configured limit."""
+    """Refuse a value outside the profile's range or the configured limit. A range of fixed
+    choices takes exactly one of them and nothing else."""
     if not math.isfinite(value):
         raise RangeError(f"{name} must be a finite number")
+    if range_ is not None and range_.choices:
+        if not any(abs(value - c) <= 1e-9 * max(1.0, abs(c)) for c in range_.choices):
+            raise RangeError(f"{name} must be one of {', '.join(f'{c:g}' for c in range_.choices)}")
+        return
     if range_ is None or range_.max is None:
         if limit is None:
             raise RangeError(
@@ -302,9 +415,9 @@ def check_range(value: float, range_: Range | None, limit: float | None, name: s
         raise RangeError(f"{name} must be at most {limit:g}, the configured limit")
 
 
-def clear_commands(setter: Setter, *, ch: int | None) -> list[str]:
-    """Every command a clear setter sends."""
-    return [render(one, ch=ch if setter.per_channel else None) for one in setter.commands]
+def clear_commands(setter: Setter, *, ch: int | None, src: int | None = None) -> list[str]:
+    """Every command a command setter, such as clear, sends."""
+    return [render(one, ch=ch if setter.per_channel else None, src=src) for one in setter.commands]
 
 
 def setter_command(
@@ -315,16 +428,25 @@ def setter_command(
     range_: Range | None = None,
     on: bool | None = None,
     function: str | None = None,
+    src: int | None = None,
+    modulation: str | None = None,
 ) -> str:
-    """The command a setter sends."""
+    """The command a setter sends; a switch with its own off command sends that for off."""
     text = None if value is None else format_value(value / setter.scale, _scaled(range_, setter))
     word = None
     if function is not None:
         word = setter.map.get(function)
         if word is None:
             raise RangeError(f"{function} is not a function this profile can set")
+    command = setter.off if on is False and setter.off is not None else setter.command
     return render(
-        setter.command, ch=ch if setter.per_channel else None, value=text, on=on, function=word
+        command,
+        ch=ch if setter.per_channel else None,
+        value=text,
+        on=on,
+        function=word,
+        src=src,
+        modulation=modulation,
     )
 
 
@@ -358,14 +480,18 @@ class InstrumentError:
 
 
 def read_error(errors: Errors, reply: str) -> InstrumentError | None:
-    """An error-queue reply as an error, or None when it says there is none."""
+    """An error-queue reply as an error, or None when it says there is none. Where the profile
+    says its queries answer a bare number, that number is the error code; elsewhere a reply
+    without a code is out of step."""
     text = reply.strip()
     if errors.ok.search(text):
         return None
     code: int | None = None
     message = text
     head, sep, tail = text.partition(",")
-    if sep:
+    if errors.bare and _INTEGER.fullmatch(text):
+        code = int(text)
+    elif sep:
         try:
             code = int(head.strip().lstrip("+"))
             message = tail.strip().strip('"')

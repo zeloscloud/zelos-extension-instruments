@@ -2,7 +2,9 @@
 and the master-output guard."""
 
 import base64
+import dataclasses
 from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
 
@@ -11,7 +13,9 @@ from tests.conftest import (
     RecordingEmitter,
     ScriptedLink,
     ask,
+    instrument_config,
     minimal,
+    opener_for,
     profile_from,
     start,
     start_open,
@@ -20,7 +24,7 @@ from tests.conftest import (
 from zelos_extension_instruments.profile import Profile, by_id
 from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.sim.fake import FakeInstrument
-from zelos_extension_instruments.worker import InstrumentWorker
+from zelos_extension_instruments.worker import InstrumentWorker, RequestKind
 
 
 def test_set_voltage_verifies_by_readback_and_logs(running) -> None:
@@ -388,3 +392,436 @@ def test_a_value_the_profile_cannot_read_back_is_returned_unverified() -> None:
     finally:
         worker.stop()
         worker.join(2)
+
+
+def bench(
+    profile: Profile, handler: Callable[[str], str | bytes | None], channels: list[int]
+) -> tuple[InstrumentWorker, ScriptedLink, RecordingEmitter]:
+    """A worker holding `profile` on a scripted link, with nothing sent yet."""
+    link = ScriptedLink(handler)
+    emitter = RecordingEmitter()
+    cfg = instrument_config(name="unit", profile=profile.id)
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
+    worker.profile = profile
+    worker._link = link
+    worker._install(profile, None, channels)
+    return worker, link, emitter
+
+
+def served(worker: InstrumentWorker, kind: RequestKind, **args: Any) -> dict[str, Any]:
+    """A request answered on this thread, as the worker's own thread answers it."""
+    future = worker.request(kind, **args)
+    worker._serve_requests()
+    return future.result(timeout=0)
+
+
+class Echo:
+    """Answers a query with what the command of the same header last set, or a fixed reply."""
+
+    def __init__(self, replies: dict[str, str]) -> None:
+        self.replies = {"SYST:ERR?": '0,"No error"', **replies}
+        self.writes: list[str] = []
+
+    def __call__(self, command: str) -> str | None:
+        if "?" in command:
+            return self.replies.get(command, "0")
+        self.writes.append(command)
+        head, _, arg = command.partition(" ")
+        self.replies[f"{head}?"] = arg
+        return None
+
+
+def test_a_switch_with_its_own_off_command_sends_it_for_off() -> None:
+    raw = minimal()
+    raw["errors"] = {"query": "SYST:ERR?"}
+    raw["setters"] = {
+        "remote_sense": {"command": "VOLT:SENS EXT", "off": "VOLT:SENS INT", "verify": "SENS?"}
+    }
+    unit = Echo({})
+
+    def sensing(command: str) -> str | None:
+        if command == "SENS?":
+            return "1" if unit.writes[-1].endswith("EXT") else "0"
+        return unit(command)
+
+    worker, _, emitter = bench(profile_from(raw), sensing, [1])
+    assert served(worker, "set", channel=1, remote_sense=True) == {"remote_sense": True}
+    assert served(worker, "set", channel=1, remote_sense=False) == {"remote_sense": False}
+    assert unit.writes == ["VOLT:SENS EXT", "VOLT:SENS INT"]
+    assert [r[2] for r in emitter.rows] == [{"remote_sense": True}, {"remote_sense": False}]
+
+
+def meter(**range_setter: Any) -> Profile:
+    return profile_from(
+        {
+            "schema": 1,
+            "id": "acme-dmm",
+            "name": "Acme meter",
+            "category": "dmm",
+            "evidence": {"badge": "manual", "source": "Acme manual", "date": "2026-10-22"},
+            "match": {"manufacturer": "(?i)^acme", "model": "^M1$"},
+            "errors": {"query": "SYST:ERR?"},
+            "signals": {"value": {"query": "READ?", "parse": "float"}},
+            "dmm": {
+                "function_query": "FUNC?",
+                "function_map": {"VOLT": "dc_voltage", "VOLT:AC": "ac_voltage"},
+                "functions": {"dc_voltage": "V", "ac_voltage": "V"},
+            },
+            "setters": {
+                "function": {
+                    "command": "FUNC {function}",
+                    "map": {"dc_voltage": "VOLT", "ac_voltage": "VOLT:AC"},
+                },
+                "range": {
+                    "command": "{function}:RANG {value}",
+                    "verify": "{function}:RANG?",
+                    **range_setter,
+                },
+                "nplc": {"command": "{function}:NPLC {value}"},
+            },
+        }
+    )
+
+
+class Meter:
+    """A meter that picks the smallest range covering the value asked for, up to 1000 V."""
+
+    RANGES = (0.1, 1.0, 10.0, 100.0, 1000.0)
+
+    def __init__(self) -> None:
+        self.writes: list[str] = []
+        self.ranges: dict[str, float] = {}
+
+    def __call__(self, command: str) -> str | None:
+        head, _, arg = command.partition(" ")
+        if command == "SYST:ERR?":
+            return '0,"No error"'
+        if head.endswith(":RANG?"):
+            return f"{self.ranges.get(head.removesuffix(':RANG?'), 1000.0):g}"
+        self.writes.append(command)
+        if head.endswith(":RANG"):
+            asked = float(arg)
+            self.ranges[head.removesuffix(":RANG")] = next(
+                (r for r in self.RANGES if r >= asked), self.RANGES[-1]
+            )
+        return None
+
+
+def test_a_meter_range_passes_when_the_meter_picks_a_range_that_covers_it() -> None:
+    unit = Meter()
+    worker, _, _ = bench(meter(), unit, [1])
+    worker._function = "dc_voltage"
+    assert served(worker, "set", channel=1, range=5.0) == {"range": {"set": 5.0, "readback": 10.0}}
+    assert unit.writes == ["VOLT:RANG 5"]
+    assert served(worker, "set", channel=1, range=2000.0) == {
+        "error": "range reads back 1000 after setting 2000; "
+        "the instrument may have clipped it or refused it"
+    }
+
+
+def test_a_meter_range_names_the_function_set_in_the_same_request() -> None:
+    unit = Meter()
+    worker, _, _ = bench(meter(), unit, [1])
+    worker._function = "dc_voltage"
+    result = served(worker, "set", channel=1, range=0.5, function="ac_voltage")
+    assert result == {"function": "ac_voltage", "range": {"set": 0.5, "readback": 1.0}}
+    assert unit.writes == ["FUNC VOLT:AC", "VOLT:AC:RANG 0.5"]
+
+
+def test_a_meter_range_takes_its_own_word_for_the_function() -> None:
+    unit = Meter()
+    worker, _, _ = bench(meter(map={"dc_voltage": "VOLT:DC"}), unit, [1])
+    worker._function = "dc_voltage"
+    assert served(worker, "set", channel=1, range=50.0)["range"]["readback"] == 100.0
+    assert unit.writes == ["VOLT:DC:RANG 50"]
+
+
+def test_a_meter_setting_for_a_function_without_a_word_is_refused() -> None:
+    unit = Meter()
+    worker, _, _ = bench(meter(), unit, [1])
+    assert served(worker, "set", channel=1, range=5.0) == {
+        "error": "this profile has no word for the meter's function other"
+    }
+    assert unit.writes == []
+
+
+def test_a_meter_integration_time_still_needs_a_range_or_a_limit() -> None:
+    worker, _, _ = bench(meter(), Meter(), [1])
+    worker._function = "dc_voltage"
+    assert served(worker, "set", channel=1, nplc=1.0) == {
+        "error": "no range is known for nplc on this profile; set a limit for it in the config"
+    }
+
+
+def triggered_scope() -> Profile:
+    """The shipped scope, with a trigger level set on the trigger source's own channel."""
+    scope = by_id(shipped(), "siglent-sds")
+    assert scope is not None
+    level = dataclasses.replace(
+        scope.setters["trigger_level"],
+        command="C{src}:TRLV {value}",
+        commands=("C{src}:TRLV {value}",),
+        verify="C{src}:TRLV?",
+    )
+    return dataclasses.replace(scope, setters={**scope.setters, "trigger_level": level})
+
+
+def scope_bench() -> tuple[InstrumentWorker, Echo, RecordingEmitter]:
+    unit = Echo({":SYSTem:ERRor?": '0,"No error"'})
+    worker, _, emitter = bench(triggered_scope(), unit, [1, 2, 3, 4])
+    return worker, unit, emitter
+
+
+def test_a_trigger_command_names_the_trigger_source_channel() -> None:
+    worker, unit, emitter = scope_bench()
+    worker._acquisition["trigger_source"] = "ch2"
+    assert served(worker, "set", channel=1, trigger_level=0.5) == {
+        "trigger_level": {"set": 0.5, "readback": 0.5}
+    }
+    assert unit.writes == ["C2:TRLV 0.5"]
+    assert worker._acquisition["trigger_level"] == 0.5
+    assert emitter.acquisitions[-1][1] == {"trigger_level": 0.5}
+
+
+def test_a_trigger_source_set_in_the_same_request_is_the_one_named() -> None:
+    worker, unit, _ = scope_bench()
+    worker._acquisition["trigger_source"] = "ch1"
+    result = served(worker, "set", channel=1, trigger_level=0.25, trigger_source="ch3")
+    assert result == {"trigger_source": "ch3", "trigger_level": {"set": 0.25, "readback": 0.25}}
+    assert unit.writes == [":TRIGger:EDGE:SOURce C3", "C3:TRLV 0.25"]
+    assert worker._acquisition["trigger_source"] == "ch3"
+
+
+@pytest.mark.parametrize(
+    ("source", "error"),
+    [
+        ("line", "the trigger source is not a channel"),
+        (None, "the trigger source is not known yet"),
+    ],
+)
+def test_a_trigger_command_is_refused_when_the_source_is_no_channel(
+    source: str | None, error: str
+) -> None:
+    worker, unit, _ = scope_bench()
+    if source is not None:
+        worker._acquisition["trigger_source"] = source
+    assert served(worker, "set", channel=1, trigger_level=0.5) == {"error": error}
+    assert unit.writes == []
+
+
+def generator(trigger: dict[str, Any]) -> Profile:
+    return profile_from(
+        {
+            "schema": 1,
+            "id": "acme-gen",
+            "name": "Acme generator",
+            "category": "fgen",
+            "evidence": {"badge": "manual", "source": "Acme manual", "date": "2026-10-22"},
+            "match": {"manufacturer": "(?i)^acme", "model": "^G1$", "channels": 2},
+            "errors": {"query": "SYST:ERR?"},
+            "ranges": {"modulation_depth": {"max": 120, "digits": 1}},
+            "state": {
+                "modulation_type": {
+                    "query": "SOUR{ch}:MOD:TYPE?",
+                    "parse": "map",
+                    "map": {"AM": "am", "FM": "fm"},
+                },
+                "burst": {
+                    "query": "C{ch}:BTWV?",
+                    "parse": "keyed",
+                    "key": "STATE",
+                    "map": {"ON": "on", "OFF": "off"},
+                },
+            },
+            "setters": {
+                "modulation_type": {
+                    "command": "SOUR{ch}:MOD:TYPE {value}",
+                    "map": {"am": "AM", "fm": "FM"},
+                },
+                "modulation_depth": {
+                    "command": "SOUR{ch}:{modulation}:DEPT {value}",
+                    "verify": "SOUR{ch}:{modulation}:DEPT?",
+                },
+                "burst": {"command": "C{ch}:BTWV STATE,{on}"},
+                "trigger": trigger,
+            },
+        }
+    )
+
+
+def test_a_modulation_setting_names_the_channels_modulation_type() -> None:
+    unit = Echo({})
+    worker, _, _ = bench(generator({"command": "*TRG", "channel": False}), unit, [1, 2])
+    worker._channel[1].values["modulation_type"] = "am"
+    assert served(worker, "set", channel=1, modulation_depth=50.0) == {
+        "modulation_depth": {"set": 50.0, "readback": 50.0}
+    }
+    result = served(worker, "set", channel=2, modulation_depth=30.0, modulation_type="fm")
+    assert result["modulation_type"] == "fm"
+    assert unit.writes == ["SOUR1:AM:DEPT 50.0", "SOUR2:MOD:TYPE FM", "SOUR2:FM:DEPT 30.0"]
+
+
+def test_a_modulation_type_set_without_a_readback_names_the_next_modulation_setting() -> None:
+    unit = Echo({})
+    profile = generator({"command": "*TRG", "channel": False})
+    unread = tuple(r for r in profile.state if "modulation_type" not in r.fields)
+    worker, _, _ = bench(dataclasses.replace(profile, state=unread), unit, [1, 2])
+    assert served(worker, "set", channel=1, modulation_type="fm") == {"modulation_type": "fm"}
+    assert served(worker, "set", channel=1, modulation_depth=40.0) == {
+        "modulation_depth": {"set": 40.0, "readback": 40.0}
+    }
+    assert unit.writes == ["SOUR1:MOD:TYPE FM", "SOUR1:FM:DEPT 40.0"]
+
+
+def test_a_modulation_setting_is_refused_while_the_type_is_unknown() -> None:
+    unit = Echo({})
+    worker, _, _ = bench(generator({"command": "*TRG", "channel": False}), unit, [1, 2])
+    assert served(worker, "set", channel=1, modulation_depth=50.0) == {
+        "error": "the modulation type of ch1 is not known"
+    }
+    assert unit.writes == []
+
+
+# A generator whose type setter switches that type's modulation on.
+STAT_PER_TYPE = profile_from(
+    {
+        "schema": 1,
+        "id": "acme-stat-gen",
+        "name": "Acme generator with a switch per type",
+        "category": "fgen",
+        "evidence": {"badge": "manual", "source": "Acme manual", "date": "2026-10-22"},
+        "match": {"manufacturer": "(?i)^acme", "model": "^G2$", "channels": 2},
+        "errors": {"query": "SYST:ERR?"},
+        "ranges": {"modulation_frequency": {"min": 1, "max": 1e6, "digits": 3}},
+        "setters": {
+            "modulation": {
+                "command": "SOUR{ch}:{modulation}:STAT {bit}",
+                "verify": "SOUR{ch}:{modulation}:STAT?",
+            },
+            "modulation_type": {
+                "command": "SOUR{ch}:{value}:STAT ON",
+                "map": {"am": "AM", "fm": "FM"},
+            },
+            "modulation_frequency": {
+                "command": "SOUR{ch}:{modulation}:INT:FREQ {value}",
+                "verify": "SOUR{ch}:{modulation}:INT:FREQ?",
+            },
+        },
+    }
+)
+
+
+def test_modulation_off_goes_first_and_the_type_asked_for_is_only_remembered() -> None:
+    unit = Echo({})
+    worker, _, _ = bench(STAT_PER_TYPE, unit, [1, 2])
+    worker._channel[1].values["modulation_type"] = "am"
+    result = served(
+        worker,
+        "set",
+        channel=1,
+        modulation_type="fm",
+        modulation_frequency=100.0,
+        modulation=False,
+    )
+    assert result == {
+        "modulation": False,
+        "modulation_frequency": {"set": 100.0, "readback": 100.0},
+        "modulation_type": "fm",
+    }
+    assert unit.writes == ["SOUR1:FM:STAT 0", "SOUR1:FM:INT:FREQ 100.000"]
+    assert worker._channel[1].values["modulation_type"] == "fm"
+    assert served(worker, "set", channel=1, modulation=True) == {"modulation": True}
+    assert unit.writes[-1] == "SOUR1:FM:STAT 1"
+
+
+def test_modulation_off_without_a_type_names_the_remembered_type() -> None:
+    unit = Echo({})
+    worker, _, _ = bench(STAT_PER_TYPE, unit, [1, 2])
+    worker._channel[2].values["modulation_type"] = "am"
+    result = served(worker, "set", channel=2, modulation_frequency=50.0, modulation=False)
+    assert result["modulation"] is False
+    assert unit.writes == ["SOUR2:AM:STAT 0", "SOUR2:AM:INT:FREQ 50.000"]
+
+
+def test_modulation_on_sends_the_type_first_as_before() -> None:
+    unit = Echo({})
+    worker, _, _ = bench(STAT_PER_TYPE, unit, [1, 2])
+    result = served(worker, "set", channel=1, modulation=True, modulation_type="fm")
+    assert result == {"modulation_type": "fm", "modulation": True}
+    assert unit.writes == ["SOUR1:FM:STAT ON", "SOUR1:FM:STAT 1"]
+
+
+def test_a_keyed_reply_without_the_field_is_no_readback() -> None:
+    """A unit drops the keys of a mode that is off, so the set has nothing to check."""
+    unit = Echo({})
+
+    def without_state(command: str) -> str | None:
+        if command == "C1:BTWV?":
+            return "C1:BTWV CARR,WVTP,SINE"
+        return unit(command)
+
+    worker, _, _ = bench(generator({"command": "*TRG", "channel": False}), without_state, [1, 2])
+    assert served(worker, "set", channel=1, burst=True) == {"burst": True}
+    assert unit.writes == ["C1:BTWV STATE,ON"]
+
+
+def test_a_per_channel_command_goes_to_the_channel_asked_for() -> None:
+    unit = Echo({})
+    worker, _, _ = bench(generator({"command": ["TRIG{ch}:SOUR BUS", "TRIG{ch}"]}), unit, [1, 2])
+    assert served(worker, "command", name="trigger", channel=2) == {
+        "ok": True,
+        "command": "trigger",
+    }
+    assert served(worker, "command", name="trigger") == {"ok": True, "command": "trigger"}
+    assert unit.writes == ["TRIG2:SOUR BUS", "TRIG2", "TRIG1:SOUR BUS", "TRIG1"]
+
+
+def test_an_instrument_wide_command_names_no_channel() -> None:
+    unit = Echo({})
+    worker, _, _ = bench(generator({"command": "*TRG", "channel": False}), unit, [1, 2])
+    assert served(worker, "command", name="trigger", channel=2)["ok"] is True
+    assert unit.writes == ["*TRG"]
+
+
+def test_every_error_query_is_asked_after_a_write() -> None:
+    """A unit with two error registers: the second reports what the write did."""
+    raw = minimal()
+    raw["errors"] = {"query": ["CMR?", "EXR?"]}
+    raw["setters"] = {"voltage": {"command": "VOLT {value}"}}
+    raw["ranges"] = {"voltage": {"max": 30}}
+    pending: list[str] = []
+
+    def unit(command: str) -> str | None:
+        if command == "CMR?":
+            return "0"
+        if command == "EXR?":
+            return pending.pop(0) if pending else "0"
+        if command.startswith("VOLT "):
+            pending.append('-222,"Data out of range"')
+        return None
+
+    worker, link, _ = bench(profile_from(raw), unit, [1])
+    assert served(worker, "set", channel=1, voltage=5.0) == {
+        "error": "the instrument reported -222,Data out of range"
+    }
+    assert link.commands[-4:] == ["VOLT 5.000", "CMR?", "EXR?", "EXR?"]
+
+
+def test_the_state_report_lists_the_system_functions_the_profile_gives() -> None:
+    raw = minimal()
+    raw["system"] = {
+        "reset": False,
+        "beep": "SYST:BEEP",
+        "lock": "SYST:KLOC ON",
+        "unlock": "SYST:KLOC OFF",
+        "screenshot": ["HCOP:DATA?"],
+        "setup_query": "SYST:SET?",
+    }
+    worker, _, _ = bench(profile_from(raw), Echo({}), [1])
+    assert served(worker, "state")["profile"]["system"] == [
+        "beep",
+        "lock",
+        "screenshot",
+        "self_test",
+        "setup",
+    ]

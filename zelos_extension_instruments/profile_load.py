@@ -5,51 +5,43 @@
 
 import dataclasses
 import functools
+import math
 import re
 import sys
 import tomllib
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any, TypeVar, get_args
+from typing import Any, get_args
 
+from .config import Connection
 from .link import FlowControl, Parity
 from .profile import (
     BADGES,
-    BOOL_FIELDS,
     CATEGORIES,
-    ENUM_FIELDS,
     FUNCTION_LABELS,
     INSTRUMENT_FIELDS,
-    LABEL_SETTERS,
-    MODE_LABELS,
-    PARSES,
-    PROTECTION_LABELS,
     RANGE_KEYS,
-    SETTERS,
     SIGNAL_FIELDS,
     STATE_FIELDS,
-    SWITCH_SETTERS,
-    VALUE_SETTERS,
-    VERIFY_FIELD,
     Badge,
     Category,
     Dmm,
     Errors,
     Evidence,
-    Flag,
     LinkDefaults,
-    Master,
     Match,
     ModelChannels,
     Profile,
     Range,
     RangeOverride,
-    Reader,
-    Setter,
 )
+from .profile_check import Check, section_keys
+from .profile_daq import load_daq
 from .profile_scope import (
     load_scope,
 )
+from .profile_signals import load_readers, load_setters
+from .profile_system import load_system, system_commands
 
 SHIPPED_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
@@ -66,6 +58,7 @@ _UNSAFE_INIT = re.compile(
     + _UNSAFE_HEADS
     + ")"
 )
+_CONNECTIONS: tuple[Connection, ...] = ("lan", "usb", "serial", "visa")
 _ID = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
@@ -75,7 +68,6 @@ def _head(command: str) -> str:
 
 
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_PLACEHOLDER = re.compile(r"\{([a-z_][a-z_0-9]*)\}")
 
 
 class ProfileError(Exception):
@@ -112,150 +104,6 @@ def shipped() -> list[Profile]:
     return load_dir(SHIPPED_DIR)
 
 
-def _at(where: str, key: str) -> str:
-    """A key's place in the profile, `match.model`, or the key alone at the top level."""
-    return f"{where}.{key}" if where else key
-
-
-_Choice = TypeVar("_Choice", bound=str)
-
-
-def _fields(cls: Any) -> tuple[str, ...]:
-    """A section's keys: the fields of the dataclass it becomes."""
-    return tuple(f.name for f in dataclasses.fields(cls))
-
-
-class Check:
-    """Collects problems while a raw TOML table is turned into a Profile."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.problems: list[str] = []
-
-    def fail(self, key: str, message: str) -> None:
-        self.problems.append(f"{key}: {message}")
-
-    def table(self, raw: Any, key: str) -> dict[str, Any]:
-        if raw is None:
-            return {}
-        if not isinstance(raw, dict):
-            self.fail(key, "must be a table.")
-            return {}
-        return raw
-
-    def string(self, raw: dict[str, Any], key: str, default: str | None, where: str) -> str | None:
-        value = raw.get(key, default)
-        if value is None:
-            return None
-        if not isinstance(value, str) or not value:
-            self.fail(_at(where, key), "must be non-empty text.")
-            return default
-        return value
-
-    def required(self, raw: dict[str, Any], key: str, where: str) -> str:
-        value = raw.get(key)
-        if not isinstance(value, str) or not value:
-            self.fail(_at(where, key), "missing or empty.")
-            return ""
-        return value
-
-    def number(
-        self, raw: dict[str, Any], key: str, default: float | None, where: str
-    ) -> float | None:
-        value = raw.get(key, default)
-        if value is None:
-            return None
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            self.fail(_at(where, key), "must be a number.")
-            return default
-        return float(value)
-
-    def integer(self, raw: dict[str, Any], key: str, default: int, where: str, low: int = 0) -> int:
-        value = raw.get(key, default)
-        if isinstance(value, bool) or not isinstance(value, int) or value < low:
-            self.fail(_at(where, key), f"must be a whole number of at least {low}.")
-            return default
-        return value
-
-    def boolean(self, raw: dict[str, Any], key: str, default: bool, where: str) -> bool:
-        value = raw.get(key, default)
-        if not isinstance(value, bool):
-            self.fail(_at(where, key), "must be true or false.")
-            return default
-        return value
-
-    def choice(
-        self,
-        raw: dict[str, Any],
-        key: str,
-        choices: tuple[_Choice, ...],
-        default: _Choice,
-        where: str,
-    ) -> _Choice:
-        value = raw.get(key, default)
-        if value not in choices:
-            self.fail(_at(where, key), f"must be one of {', '.join(choices)}.")
-            return default
-        return value
-
-    def regex(self, raw: dict[str, Any], key: str, where: str) -> re.Pattern[str]:
-        return self.pattern(self.required(raw, key, where), _at(where, key))
-
-    def pattern(self, text: str, where: str, fallback: str = r"(?!)") -> re.Pattern[str]:
-        """`text` compiled, or `fallback` after a problem is noted."""
-        try:
-            return re.compile(text)
-        except re.error as e:
-            self.fail(where, f"is not a valid regular expression ({e}).")
-            return re.compile(fallback)
-
-    def text_table(self, raw: dict[str, Any], key: str, where: str, what: str) -> dict[str, str]:
-        """A table of text to text, such as a map of reply words to labels."""
-        value = raw.get(key, {})
-        if not isinstance(value, dict) or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in value.items()
-        ):
-            self.fail(_at(where, key), f"must be a table of {what}.")
-            return {}
-        return value
-
-    def one_of(self, labels: Iterable[str], allowed: Iterable[str], where: str) -> None:
-        allowed = tuple(allowed)
-        for label in labels:
-            if label not in allowed:
-                self.fail(where, f"'{label}' is not one of {', '.join(allowed)}.")
-
-    def commands(
-        self, raw: dict[str, Any], key: str, where: str, *, required: bool = False
-    ) -> tuple[str, ...]:
-        """A command, or a list of them, each non-empty text."""
-        value = raw.get(key, [])
-        if isinstance(value, str) and value:
-            value = [value]
-        if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
-            self.fail(_at(where, key), "must be a command or a list of commands.")
-            return ()
-        if required and not value:
-            self.fail(_at(where, key), "missing: at least one command.")
-        return tuple(value)
-
-    def unknown(self, raw: dict[str, Any], known: Iterable[str], where: str) -> None:
-        extra = sorted(set(raw) - set(known))
-        if extra:
-            self.fail(where or "profile", f"unknown key {', '.join(extra)}.")
-
-    def template(self, text: str, allowed: set[str], where: str) -> None:
-        names = set(_PLACEHOLDER.findall(text))
-        if "ch" in allowed:
-            # The same channel, numbered from 0 for instruments that count that way.
-            allowed = allowed | {"ch0"}
-        if names - allowed:
-            self.fail(where, f"unknown placeholder {', '.join(sorted(names - allowed))}.")
-        stray = re.sub(_PLACEHOLDER, "", text)
-        if "{" in stray or "}" in stray:
-            self.fail(where, "has an unmatched brace.")
-
-
 def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile:
     """Turn a parsed TOML table into a Profile; raises ProfileError with every problem found."""
     path = Path(path)
@@ -279,6 +127,8 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
             "setters",
             "dmm",
             "scope",
+            "system",
+            "daq",
         ),
         "",
     )
@@ -301,8 +151,8 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
     ranges, overrides = _ranges(c, c.table(raw.get("ranges"), "ranges"))
     signal_units = SIGNAL_FIELDS[category]
     state_units = STATE_FIELDS[category]
-    signals = _readers(c, c.table(raw.get("signals"), "signals"), "signals", signal_units)
-    state = _readers(
+    signals = load_readers(c, c.table(raw.get("signals"), "signals"), "signals", signal_units)
+    state = load_readers(
         c,
         c.table(raw.get("state"), "state"),
         "state",
@@ -328,19 +178,31 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
             if name_ in seen:
                 c.fail(f"{reader.name}", f"reads {name_}, which {seen[name_]} reads too.")
             seen[name_] = reader.name
-    setters = _setters(c, c.table(raw.get("setters"), "setters"), category, ranges, overrides)
-    heads = {_head(cmd) for s in setters.values() for cmd in s.commands}
+    setters = load_setters(c, c.table(raw.get("setters"), "setters"), category, ranges, overrides)
+    system = load_system(c, raw.get("system"))
+    heads = {
+        _head(cmd) for s in setters.values() for cmd in (*s.commands, s.off) if cmd is not None
+    }
+    system_heads = {_head(cmd) for cmd in system_commands(system)}
     for key, commands in (("init", link.init), ("first", (link.first,))):
         for command in commands:
-            if command is not None and _head(command) in heads:
+            if command is None or _UNSAFE_INIT.search(command):
+                continue
+            if _head(command) in heads:
                 c.fail(
                     f"link.{key}", f"'{command}' is a setter's command; it may not run at connect."
                 )
+            elif _head(command) in system_heads:
+                c.fail(
+                    f"link.{key}", f"'{command}' is a system command; it may not run at connect."
+                )
     dmm = _dmm(c, raw.get("dmm"), category)
     scope = load_scope(c, raw.get("scope"), category)
+    daq = load_daq(c, raw.get("daq"), category)
     if category == "dmm" and not any("value" in r.fields for r in signals):
         c.fail("signals.value", "missing: a DMM profile reads value.")
-    if not signals and not generic and category != "scope":
+    # A scope's readings come from its slots and a daq's from its scan; a generator reads none.
+    if not signals and not generic and category not in ("scope", "daq") and signal_units:
         c.fail("signals", "missing: a profile reads at least one signal.")
     if c.problems:
         raise ProfileError(path, c.problems)
@@ -361,12 +223,14 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
         setters=setters,
         dmm=dmm,
         scope=scope,
+        system=system,
+        daq=daq,
         path=path,
     )
 
 
 def _evidence(c: Check, raw: dict[str, Any]) -> Evidence:
-    c.unknown(raw, _fields(Evidence), "evidence")
+    c.unknown(raw, section_keys(Evidence), "evidence")
     badge: Badge = c.choice(raw, "badge", BADGES, "manual", "evidence")
     source = c.required(raw, "source", "evidence")
     date = c.required(raw, "date", "evidence")
@@ -383,7 +247,9 @@ def _evidence(c: Check, raw: dict[str, Any]) -> Evidence:
 
 def _match(c: Check, raw: dict[str, Any], generic: bool) -> Match:
     c.unknown(
-        raw, ("manufacturer", "model", "idn", "channels", "channels_query", "models"), "match"
+        raw,
+        ("manufacturer", "model", "idn", "channels", "channels_query", "models", "connections"),
+        "match",
     )
     if generic:
         manufacturer = model = re.compile(r"(?!)")
@@ -414,11 +280,26 @@ def _match(c: Check, raw: dict[str, Any], generic: bool) -> Match:
         channels=c.integer(raw, "channels", 1, "match", low=1),
         channels_query=c.string(raw, "channels_query", None, "match"),
         models=tuple(models),
+        connections=_connections(c, raw),
     )
 
 
+def _connections(c: Check, raw: dict[str, Any]) -> tuple[Connection, ...]:
+    value = raw.get("connections", [])
+    if not isinstance(value, list) or not value and "connections" in raw:
+        c.fail("match.connections", "must be a non-empty list of lan, usb, serial and visa.")
+        return ()
+    found: list[Connection] = []
+    for item in value:
+        if item not in _CONNECTIONS:
+            c.fail("match.connections", f"'{item}' is not one of lan, usb, serial and visa.")
+        elif item not in found:
+            found.append(item)
+    return tuple(found)
+
+
 def _link(c: Check, raw: dict[str, Any]) -> LinkDefaults:
-    c.unknown(raw, _fields(LinkDefaults), "link")
+    c.unknown(raw, section_keys(LinkDefaults), "link")
     init_raw = c.commands(raw, "init", "link")
     for command in init_raw:
         if _UNSAFE_INIT.search(command):
@@ -439,6 +320,16 @@ def _link(c: Check, raw: dict[str, Any]) -> LinkDefaults:
     timeout = c.number(raw, "timeout_s", 2.0, "link")
     if timeout is not None and timeout <= 0:
         c.fail("link.timeout_s", "must be positive.")
+    remote_check: tuple[str, str] | None = None
+    if (check_raw := raw.get("remote_check")) is not None:
+        where = "link.remote_check"
+        check_raw = c.table(check_raw, where)
+        c.unknown(check_raw, ("query", "expect"), where)
+        query = c.required(check_raw, "query", where)
+        c.template(query, set(), f"{where}.query")
+        if query and "?" not in query:
+            c.fail(f"{where}.query", "must be a query, with ?.")
+        remote_check = (query, c.required(check_raw, "expect", where))
     return LinkDefaults(
         write_terminator=raw.get("write_terminator", "\n")
         if isinstance(raw.get("write_terminator", "\n"), str)
@@ -465,6 +356,8 @@ def _link(c: Check, raw: dict[str, Any]) -> LinkDefaults:
         init=tuple(init_raw),
         single_client=c.boolean(raw, "single_client", False, "link"),
         ack=c.string(raw, "ack", None, "link"),
+        remote_check=remote_check,
+        skip_blank=c.boolean(raw, "skip_blank", False, "link"),
     )
 
 
@@ -472,16 +365,29 @@ def _errors(c: Check, raw: Any) -> Errors | None:
     if raw is None:
         return None
     raw = c.table(raw, "errors")
-    c.unknown(raw, _fields(Errors), "errors")
-    query = c.required(raw, "query", "errors")
+    c.unknown(raw, ("query", "ok", "drain", "bare"), "errors")
+    if isinstance(raw.get("query"), list):
+        queries = c.commands(raw, "query", "errors", required=True)
+    else:
+        queries = (c.required(raw, "query", "errors"),)
+    for query in queries:
+        c.template(query, set(), "errors.query")
     no_error = r"^\s*[+-]?0\b"
     ok = c.pattern(c.string(raw, "ok", no_error, "errors") or no_error, "errors.ok", no_error)
-    return Errors(query=query, ok=ok, drain=c.integer(raw, "drain", 20, "errors", low=1))
+    return Errors(
+        query=queries[0] if queries else "",
+        ok=ok,
+        drain=c.integer(raw, "drain", 20, "errors", low=1),
+        then=tuple(queries[1:]),
+        bare=c.boolean(raw, "bare", False, "errors"),
+    )
 
 
 def _range(c: Check, raw: Any, where: str) -> Range:
     raw = c.table(raw, where)
-    c.unknown(raw, _fields(Range), where)
+    c.unknown(raw, section_keys(Range), where)
+    if "choices" in raw:
+        return _choices(c, raw, where)
     low = c.number(raw, "min", 0.0, where)
     high = c.number(raw, "max", None, where)
     if low is not None and high is not None and high <= low:
@@ -503,6 +409,32 @@ def _range(c: Check, raw: Any, where: str) -> Range:
         step=step,
         min_query=min_query,
         max_query=max_query,
+    )
+
+
+def _choices(c: Check, raw: dict[str, Any], where: str) -> Range:
+    """A range of fixed values: a setter sends one of them and nothing else is checked."""
+    for key in ("min", "max", "step", "min_query", "max_query"):
+        if key in raw:
+            c.fail(f"{where}.{key}", "does not go with choices, which name every value.")
+    value = raw["choices"]
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(v, int | float) and not isinstance(v, bool) for v in value)
+        or not all(math.isfinite(v) for v in value)
+    ):
+        c.fail(f"{where}.choices", "must be a non-empty list of numbers.")
+        value = [0.0]
+    choices = tuple(sorted({float(v) for v in value}))
+    return Range(
+        min=choices[0],
+        max=choices[-1],
+        digits=c.integer(raw, "digits", 3, where),
+        step=None,
+        min_query=None,
+        max_query=None,
+        choices=choices,
     )
 
 
@@ -536,281 +468,6 @@ def _ranges(c: Check, raw: dict[str, Any]) -> tuple[dict[str, Range], tuple[Rang
             )
         )
     return ranges, tuple(overrides)
-
-
-def _parse_options(
-    c: Check, raw: dict[str, Any], where: str, labels: tuple[str, ...] | None
-) -> dict[str, Any]:
-    """The parser settings shared by readers and flags, checked."""
-    parse = c.choice(raw, "parse", PARSES, "float", where)
-    mapping = c.text_table(raw, "map", where, "text to label")
-    if parse == "map" and not mapping:
-        c.fail(f"{where}.map", 'missing: parse = "map" needs it.')
-    if parse == "bool" and any(v not in ("on", "off") for v in mapping.values()):
-        c.fail(f"{where}.map", 'must map each word to "on" or "off" for parse = "bool".')
-    if labels is not None:
-        c.one_of(mapping.values(), labels, f"{where}.map")
-    mask = _per_channel_ints(c, raw, "mask", where)
-    if parse == "bits" and not any(mask):
-        c.fail(f"{where}.mask", 'missing: parse = "bits" needs it.')
-    shift = _per_channel_ints(c, raw, "shift", where)
-    if len(mask) > 1 and len(shift) > 1 and len(mask) != len(shift):
-        c.fail(where, "mask and shift lists must have one entry per channel.")
-    index = raw.get("index")
-    if index is not None and (isinstance(index, bool) or not isinstance(index, int) or index < 0):
-        c.fail(f"{where}.index", "must be a whole number from 0.")
-        index = None
-    words: dict[str, str] = {}
-    for key, label in mapping.items():
-        words.setdefault(label, key.strip())
-    scale = c.number(raw, "scale", 1.0, where) or 1.0
-    if scale == 0 or (scale != 1.0 and parse not in ("float", "floats")):
-        c.fail(f"{where}.scale", 'must be a non-zero number, for parse = "float" or "floats".')
-        scale = 1.0
-    return {
-        "parse": parse,
-        "map": {k.strip().strip('"').casefold(): v for k, v in mapping.items()},
-        "words": words,
-        "mask": mask,
-        "shift": shift,
-        "hex": c.choice(raw, "format", ("int", "hex"), "int", where) == "hex",
-        "index": index,
-        "scale": scale,
-    }
-
-
-def _per_channel_ints(c: Check, raw: dict[str, Any], key: str, where: str) -> tuple[int, ...]:
-    """A whole number, or a list with one per channel."""
-    value = raw.get(key, 0)
-    values = value if isinstance(value, list) else [value]
-    if not values or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in values):
-        c.fail(f"{where}.{key}", "must be a whole number, or a list with one per channel.")
-        return (0,)
-    return tuple(values)
-
-
-def _readers(
-    c: Check, raw: dict[str, Any], section: str, units: dict[str, str | None]
-) -> tuple[Reader, ...]:
-    readers: list[Reader] = []
-    for key, entry in raw.items():
-        where = f"{section}.{key}"
-        entry = c.table(entry, where)
-        c.unknown(
-            entry,
-            (
-                "query",
-                "parse",
-                "fields",
-                "index",
-                "map",
-                "mask",
-                "shift",
-                "format",
-                "flags",
-                "optional",
-                "channel",
-                "scale",
-            ),
-            where,
-        )
-        if "flags" in entry:
-            if key != "protection":
-                c.fail(where, "flags are only for protection.")
-            flags = _flags(c, entry.get("flags"), where)
-            readers.append(
-                Reader(
-                    key,
-                    None,
-                    "map",
-                    (key,),
-                    None,
-                    {},
-                    {},
-                    (0,),
-                    (0,),
-                    False,
-                    c.boolean(entry, "optional", False, where),
-                    c.boolean(entry, "channel", True, where),
-                    flags,
-                )
-            )
-            continue
-        query = c.required(entry, "query", where)
-        c.template(query, {"ch"}, f"{where}.query")
-        fields_raw = entry.get("fields")
-        labels = ENUM_FIELDS.get(key)
-        options = _parse_options(c, entry, where, labels)
-        if fields_raw is None:
-            fields = (key,)
-            if options["parse"] == "floats":
-                c.fail(f"{where}.fields", 'missing: parse = "floats" needs it.')
-        else:
-            if not isinstance(fields_raw, list) or not all(isinstance(f, str) for f in fields_raw):
-                c.fail(f"{where}.fields", "must be a list of field names.")
-                fields_raw = []
-            if options["parse"] != "floats":
-                c.fail(f"{where}.fields", 'only parse = "floats" fills several fields.')
-            fields = tuple(fields_raw)
-        for name in fields:
-            if name not in units:
-                c.fail(
-                    where, f"{name} is not a {section} field of this category: {', '.join(units)}."
-                )
-            if name in ENUM_FIELDS and options["parse"] not in ("map", "bits"):
-                c.fail(where, f'{name} needs parse = "map" or "bits".')
-            if name in BOOL_FIELDS and options["parse"] not in ("bool", "bits"):
-                c.fail(where, f'{name} needs parse = "bool" or "bits".')
-            if (
-                name not in ENUM_FIELDS
-                and name not in BOOL_FIELDS
-                and options["parse"] not in ("float", "floats", "int")
-            ):
-                c.fail(where, f'{name} is a number; use parse = "float", "floats" or "int".')
-        readers.append(
-            Reader(
-                name=key,
-                query=query,
-                parse=options["parse"],
-                fields=fields,
-                index=options["index"],
-                map=options["map"],
-                words=options["words"],
-                mask=options["mask"],
-                shift=options["shift"],
-                hex=options["hex"],
-                optional=c.boolean(entry, "optional", False, where),
-                per_channel=c.boolean(entry, "channel", True, where),
-                flags=(),
-                scale=options["scale"],
-            )
-        )
-    return tuple(readers)
-
-
-def _flags(c: Check, raw: Any, where: str) -> tuple[Flag, ...]:
-    if not isinstance(raw, list) or not raw:
-        c.fail(f"{where}.flags", "must be a non-empty list of tables.")
-        return ()
-    flags: list[Flag] = []
-    for i, entry in enumerate(raw):
-        at = f"{where}.flags[{i}]"
-        entry = c.table(entry, at)
-        c.unknown(entry, ("query", "parse", "value", "map", "mask", "shift", "format", "index"), at)
-        query = c.required(entry, "query", at)
-        c.template(query, {"ch"}, f"{at}.query")
-        value = c.choice(entry, "value", PROTECTION_LABELS[1:], "other", at)
-        options = _parse_options(c, entry, at, None)
-        if options["parse"] not in ("bool", "bits"):
-            c.fail(f"{at}.parse", "must be bool or bits.")
-        flags.append(
-            Flag(
-                query,
-                options["parse"],
-                value,
-                options["map"],
-                options["mask"],
-                options["shift"],
-                options["hex"],
-                options["index"],
-            )
-        )
-    return tuple(flags)
-
-
-def _setters(
-    c: Check,
-    raw: dict[str, Any],
-    category: str,
-    ranges: dict[str, Range],
-    overrides: tuple[RangeOverride, ...],
-) -> dict[str, Setter]:
-    setters: dict[str, Setter] = {}
-    allowed = SETTERS[category]
-    for key, entry in raw.items():
-        where = f"setters.{key}"
-        if key not in allowed:
-            c.fail(where, f"is not a setter of this category: {', '.join(allowed)}.")
-            continue
-        entry = c.table(entry, where)
-        c.unknown(entry, ("command", "verify", "range", "map", "channel", "scale", "master"), where)
-        if key == "clear":
-            commands = c.commands(entry, "command", where, required=True)
-            command = commands[0] if commands else ""
-        else:
-            command = c.required(entry, "command", where)
-            commands = (command,)
-        verify = c.string(entry, "verify", None, where)
-        if verify is not None:
-            c.template(verify, {"ch"}, f"{where}.verify")
-        mapping = c.text_table(entry, "map", where, "label to instrument word")
-        if key in VALUE_SETTERS:
-            c.template(command, {"ch", "value"}, f"{where}.command")
-            if "{value}" not in command:
-                c.fail(f"{where}.command", "must contain {value}.")
-        elif key in SWITCH_SETTERS:
-            c.template(command, {"ch", "on", "bit"}, f"{where}.command")
-            if "{on}" not in command and "{bit}" not in command:
-                c.fail(f"{where}.command", "must contain {on} or {bit}.")
-        elif key in LABEL_SETTERS:
-            c.template(command, {"ch", "value"}, f"{where}.command")
-            if "{value}" not in command:
-                c.fail(f"{where}.command", "must contain {value}, the instrument's word.")
-            labels = ENUM_FIELDS[VERIFY_FIELD[key]]
-            if not mapping:
-                c.fail(f"{where}.map", f"missing: {key} needs a map of label to instrument word.")
-            c.one_of(mapping, labels, f"{where}.map")
-        elif key == "function":
-            c.template(command, {"ch", "function"}, f"{where}.command")
-            if "{function}" not in command:
-                c.fail(f"{where}.command", "must contain {function}.")
-            labels = MODE_LABELS if category == "load" else FUNCTION_LABELS
-            if not mapping:
-                c.fail(f"{where}.map", "missing: function needs a map of label to instrument word.")
-            c.one_of(mapping, labels, f"{where}.map")
-        else:
-            for one in commands:
-                c.template(one, {"ch"}, f"{where}.command")
-        range_key = c.string(entry, "range", None, where)
-        if range_key is not None and range_key not in RANGE_KEYS:
-            c.fail(f"{where}.range", f"must be one of {', '.join(RANGE_KEYS)}.")
-        scale = c.number(entry, "scale", 1.0, where) or 1.0
-        if scale == 0 or (scale != 1.0 and key not in VALUE_SETTERS):
-            c.fail(f"{where}.scale", "must be a non-zero number, on a value setter.")
-            scale = 1.0
-        setters[key] = Setter(
-            name=key,
-            command=command,
-            commands=commands,
-            verify=verify,
-            range=range_key,
-            map=mapping,
-            per_channel=c.boolean(entry, "channel", True, where),
-            scale=scale,
-            master=_master(c, entry, key, where),
-        )
-    return setters
-
-
-def _master(c: Check, entry: dict[str, Any], key: str, where: str) -> Master | None:
-    raw = entry.get("master")
-    if raw is None:
-        return None
-    where = f"{where}.master"
-    if key != "output":
-        c.fail(where, "is only for the output setter.")
-        return None
-    raw = c.table(raw, where)
-    c.unknown(raw, _fields(Master), where)
-    command = c.required(raw, "command", where)
-    c.template(command, {"on", "bit"}, f"{where}.command")
-    if "{on}" not in command and "{bit}" not in command:
-        c.fail(f"{where}.command", "must contain {on} or {bit}.")
-    query = c.required(raw, "query", where)
-    c.template(query, set(), f"{where}.query")
-    armed = c.required(raw, "armed", where)
-    c.template(armed, {"ch"}, f"{where}.armed")
-    return Master(command, query, armed)
 
 
 def _dmm(c: Check, raw: Any, category: str) -> Dmm | None:

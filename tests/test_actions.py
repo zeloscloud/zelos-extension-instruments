@@ -1,6 +1,7 @@
 """The actions as the agent runs them: through the SDK registry, against workers on scripted
 links."""
 
+import concurrent.futures
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -16,16 +17,39 @@ from tests.conftest import (
     opener_for,
     wait_until,
 )
-from zelos_extension_instruments import actions, discovery
+from zelos_extension_instruments import (
+    actions,
+    actions_common,
+    actions_generator,
+    actions_scope,
+    discovery,
+)
 from zelos_extension_instruments.link import TcpAddress, VisaAddress
-from zelos_extension_instruments.profile import Profile, by_id, parse_idn
+from zelos_extension_instruments.profile import (
+    CURRENT_RANGE_LABELS,
+    FUNCTION_LABELS,
+    LOAD_LABELS,
+    MODULATION_LABELS,
+    SHAPE_LABELS,
+    TRACKING_LABELS,
+    Profile,
+    by_id,
+    parse_idn,
+)
+from zelos_extension_instruments.profile_scope import (
+    ACQUISITION_MODE_LABELS,
+    BANDWIDTH_LABELS,
+    PULSE_CONDITION_LABELS,
+    TRIGGER_TYPE_LABELS,
+)
 from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 
 ACTIONS = {
-    name: getattr(actions, name)._action
-    for name in dir(actions)
-    if hasattr(getattr(actions, name), "_action")
+    name: getattr(module, name)._action
+    for module in (actions, actions_scope, actions_generator)
+    for name in dir(module)
+    if hasattr(getattr(module, name), "_action")
 }
 
 
@@ -44,7 +68,7 @@ def bench(dp800: Profile) -> Iterator[tuple[Dp832, RecordingEmitter]]:
     """Two running instruments, `psu` and `aux`, both scripted supplies."""
     units = {"psu": Dp832(), "aux": Dp832()}
     emitter = RecordingEmitter()
-    actions.workers.clear()
+    actions_common.workers.clear()
     for name, unit in units.items():
         cfg = instrument_config(name=name, rate_hz=50)
 
@@ -53,14 +77,14 @@ def bench(dp800: Profile) -> Iterator[tuple[Dp832, RecordingEmitter]]:
 
         worker = InstrumentWorker(cfg, [dp800], emitter, open=opener)
         worker.start()
-        actions.workers[name] = worker
-    assert wait_until(lambda: all(w.state == "open" for w in actions.workers.values()))
+        actions_common.workers[name] = worker
+    assert wait_until(lambda: all(w.state == "open" for w in actions_common.workers.values()))
     yield units["psu"], emitter
-    for worker in actions.workers.values():
+    for worker in actions_common.workers.values():
         worker.stop()
-    for worker in actions.workers.values():
+    for worker in actions_common.workers.values():
         worker.join(2)
-    actions.workers.clear()
+    actions_common.workers.clear()
 
 
 def test_the_registry_holds_every_action_with_its_read_only_flag() -> None:
@@ -84,6 +108,24 @@ def test_the_registry_holds_every_action_with_its_read_only_flag() -> None:
         "run_control": False,
         "measure": False,
         "capture_waveform": False,
+        "set_acquisition": False,
+        "set_meter": False,
+        "short": False,
+        "set_waveform": False,
+        "set_modulation": False,
+        "set_burst": False,
+        "set_sweep": False,
+        "trigger": False,
+        "relay": False,
+        "reset": False,
+        "reboot": False,
+        "self_test": False,
+        "save_state": False,
+        "recall_state": False,
+        "lock_panel": False,
+        "beep": False,
+        "display": False,
+        "screenshot": False,
     }
 
 
@@ -128,7 +170,7 @@ def test_read_state_scpi_and_clear(bench) -> None:
 
 def test_the_first_instrument_is_the_default_target(bench) -> None:
     assert run("get_state")["identity"] == "RIGOL TECHNOLOGIES,DP832A,DP8C000001,00.01.16"
-    assert actions._first_instrument() == "psu"
+    assert actions_common.first_instrument() == "psu"
 
 
 def test_an_unknown_instrument_name_is_an_error(bench) -> None:
@@ -138,9 +180,9 @@ def test_an_unknown_instrument_name_is_an_error(bench) -> None:
 
 def test_release_and_acquire(bench) -> None:
     assert run("release", instrument="psu") == {"ok": True}
-    assert actions.workers["psu"].state == "released"
+    assert actions_common.workers["psu"].state == "released"
     assert run("acquire", instrument="psu") == {"ok": True}
-    assert actions.workers["psu"].state == "open"
+    assert actions_common.workers["psu"].state == "open"
 
 
 def test_local_without_a_local_command_says_so(bench) -> None:
@@ -370,7 +412,7 @@ def test_list_instruments_names_an_instrument_a_worker_holds(
         where = "10.0.0.5:5025"
         idn = parse_idn("RIGOL TECHNOLOGIES,DP832A,X,1")
 
-    monkeypatch.setitem(actions.workers, "psu", Holder())  # type: ignore[arg-type]
+    monkeypatch.setitem(actions_common.workers, "psu", Holder())  # type: ignore[arg-type]
     choice = run("list_instruments", connection="lan")["choices"][0]
     assert choice["label"] == "RIGOL TECHNOLOGIES DP832A (10.0.0.5:5025)"
     assert choice["detail"] == "in use by this extension"
@@ -394,7 +436,9 @@ def test_auto_config_hands_back_a_running_instrument_the_form_lacks(
     held = _found(TcpAddress("10.0.0.5", 5025), None, None, "mdns", discovery.IN_USE)
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: [held])
     monkeypatch.setitem(
-        actions.workers, "scope", _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN)
+        actions_common.workers,
+        "scope",
+        _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN),
     )
     result = run("auto_config", config={})
     assert result["config"]["instruments"] == [_SCOPE]
@@ -410,7 +454,9 @@ def test_auto_config_keeps_a_running_instrument_the_form_has(
     ]
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: held)
     monkeypatch.setitem(
-        actions.workers, "scope", _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN)
+        actions_common.workers,
+        "scope",
+        _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN),
     )
     form = {"instruments": [dict(_SCOPE, name="bench scope")]}
     result = run("auto_config", config=form)
@@ -435,7 +481,9 @@ def test_list_instruments_names_an_instrument_held_under_its_other_address(
     held = _found(TcpAddress("10.0.0.5", 5025), None, None, "mdns", discovery.IN_USE)
     monkeypatch.setattr(discovery, "discover", lambda *a, **k: [held])
     monkeypatch.setitem(
-        actions.workers, "scope", _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN)
+        actions_common.workers,
+        "scope",
+        _holder("scope", _SCOPE, "TCPIP::10.0.0.5::INSTR", _SCOPE_IDN),
     )
     choice = run("list_instruments", connection="lan")["choices"][0]
     assert choice["label"] == "Siglent Technologies SDS824X HD (10.0.0.5:5025)"
@@ -488,17 +536,17 @@ def scope_bench(profiles: list[Profile]) -> Iterator[tuple[FakeInstrument, Recor
     assert profile is not None
     fake = FakeInstrument(profile)
     emitter = RecordingEmitter()
-    actions.workers.clear()
+    actions_common.workers.clear()
     cfg = instrument_config(name="scope", profile=profile.id, rate_hz=50)
     link = ScriptedLink(fake.handle, "scope")
     worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
     worker.start()
-    actions.workers["scope"] = worker
+    actions_common.workers["scope"] = worker
     assert wait_until(lambda: worker.state == "open", timeout_s=10), worker.health
     yield fake, emitter
     worker.stop()
     worker.join(5)
-    actions.workers.clear()
+    actions_common.workers.clear()
 
 
 def test_set_channel_sets_every_channel_value_it_is_given(scope_bench) -> None:
@@ -598,9 +646,9 @@ def test_an_action_the_worker_does_not_answer_in_time_is_cancelled(
 ) -> None:
     """The worker never runs a request the person was told had failed."""
     idle = InstrumentWorker(instrument_config(name="idle"), [dp800], RecordingEmitter())
-    monkeypatch.setattr(actions, "workers", {"idle": idle})
+    monkeypatch.setattr(actions_common, "workers", {"idle": idle})
     with pytest.raises(RuntimeError, match=r"^idle did not answer within 0\.1 s$"):
-        actions._ask("idle", "state", 0.6)
+        actions_common.ask("idle", "state", 0.6)
     [request] = idle._requests
     assert request.future.cancelled()
 
@@ -612,14 +660,221 @@ def test_an_action_for_an_instrument_that_is_not_configured_names_the_ones_that_
         name: InstrumentWorker(instrument_config(name=name), [dp800], RecordingEmitter())
         for name in ("psu", "aux")
     }
-    monkeypatch.setattr(actions, "workers", workers)
+    monkeypatch.setattr(actions_common, "workers", workers)
     with pytest.raises(ValueError, match=r"^no instrument is named nope; configured: psu, aux$"):
-        actions._ask("nope", "state", 1.0)
+        actions_common.ask("nope", "state", 1.0)
 
 
 def test_an_action_with_no_instrument_configured_says_how_to_add_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(actions, "workers", {})
+    monkeypatch.setattr(actions_common, "workers", {})
     with pytest.raises(ActionExecutionError, match="no instrument is configured: add one"):
         execute("get_state")
+
+
+class _Requests:
+    """Stands in for a worker: records each request and answers it at once."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, dict[str, Any]]] = []
+
+    def request(self, kind: str, **args: Any) -> concurrent.futures.Future[dict[str, Any]]:
+        self.sent.append((kind, {k: v for k, v in args.items() if v is not None}))
+        future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
+        future.set_result({"ok": True})
+        return future
+
+
+@pytest.fixture
+def requests(monkeypatch: pytest.MonkeyPatch) -> _Requests:
+    worker = _Requests()
+    monkeypatch.setattr(actions_common, "workers", {"unit": worker})
+    return worker
+
+
+_WAVEFORM = {
+    "shape": "square",
+    "frequency": 1000.0,
+    "amplitude": 2.0,
+    "offset": -0.5,
+    "high": 1.0,
+    "low": -1.0,
+    "phase": 90.0,
+    "duty": 25.0,
+    "symmetry": 50.0,
+    "width": 0.001,
+    "output_load": "high_z",
+}
+_SUPPLY = {
+    "ovp_delay": 0.5,
+    "ovp_on": True,
+    "ocp_on": False,
+    "remote_sense": True,
+    "tracking": "series",
+    "slew_rise": 1.0,
+    "slew_fall": 2.0,
+    "current_range": "low",
+    "voltage_range": "high",
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "params", "kind", "args"),
+    [
+        ("reset", {}, "system", {"op": "reset"}),
+        ("reboot", {}, "system", {"op": "reboot"}),
+        ("self_test", {}, "system", {"op": "self_test"}),
+        ("save_state", {"slot": 3}, "system", {"op": "save", "slot": 3}),
+        ("save_state", {"file": "a.set"}, "system", {"op": "save", "file": "a.set"}),
+        ("recall_state", {"slot": 0}, "system", {"op": "recall", "slot": 0}),
+        ("recall_state", {"file": "a.set"}, "system", {"op": "recall", "file": "a.set"}),
+        ("lock_panel", {"on": True}, "system", {"op": "lock", "on": True}),
+        ("lock_panel", {"on": False}, "system", {"op": "lock", "on": False}),
+        ("beep", {}, "system", {"op": "beep"}),
+        (
+            "display",
+            {"text": "HI", "on": True},
+            "system",
+            {"op": "display", "text": "HI", "on": True},
+        ),
+        ("display", {"text": ""}, "system", {"op": "display", "text": ""}),
+        ("screenshot", {}, "system", {"op": "screenshot"}),
+        ("screenshot", {"path": "s.png"}, "system", {"op": "screenshot", "path": "s.png"}),
+        ("short", {"channel": 2, "on": True}, "set", {"channel": 2, "short": True}),
+        ("short", {"on": False}, "set", {"channel": 1, "short": False}),
+        (
+            "set_meter",
+            {"function": "dc_voltage", "range": 10.0, "autorange": False, "nplc": 1.0},
+            "set",
+            {
+                "channel": 1,
+                "function": "dc_voltage",
+                "range": 10.0,
+                "autorange": False,
+                "nplc": 1.0,
+            },
+        ),
+        (
+            "set_acquisition",
+            {"acquisition_mode": "average", "averages": 16},
+            "set",
+            {"channel": 1, "acquisition_mode": "average", "averages": 16},
+        ),
+        ("set_waveform", {"channel": 2, **_WAVEFORM}, "set", {"channel": 2, **_WAVEFORM}),
+        (
+            "set_modulation",
+            {
+                "on": True,
+                "type": "fm",
+                "depth": 80.0,
+                "deviation": 100.0,
+                "phase_deviation": 45.0,
+                "frequency": 10.0,
+            },
+            "set",
+            {
+                "channel": 1,
+                "modulation": True,
+                "modulation_type": "fm",
+                "modulation_depth": 80.0,
+                "modulation_deviation": 100.0,
+                "phase_deviation": 45.0,
+                "modulation_frequency": 10.0,
+            },
+        ),
+        (
+            "set_burst",
+            {"on": True, "cycles": 5, "period": 0.01},
+            "set",
+            {"channel": 1, "burst": True, "burst_cycles": 5, "burst_period": 0.01},
+        ),
+        (
+            "set_sweep",
+            {"on": False, "start": 100.0, "stop": 1000.0, "time": 2.0},
+            "set",
+            {
+                "channel": 1,
+                "sweep": False,
+                "sweep_start": 100.0,
+                "sweep_stop": 1000.0,
+                "sweep_time": 2.0,
+            },
+        ),
+        ("trigger", {"channel": 2}, "command", {"name": "trigger", "channel": 2}),
+        ("relay", {"channel": 101, "closed": True}, "set", {"channel": 101, "relay": True}),
+        ("relay", {"channel": 9999, "closed": False}, "set", {"channel": 9999, "relay": False}),
+        ("set_values", _SUPPLY, "set", {"channel": 1, **_SUPPLY}),
+        ("set_values", {"function": "dc_voltage"}, "set", {"channel": 1, "function": "dc_voltage"}),
+        (
+            "set_channel",
+            {"channel": 3, "bandwidth_limit": "20mhz"},
+            "set",
+            {"channel": 3, "bandwidth_limit": "20mhz"},
+        ),
+        (
+            "set_trigger",
+            {"trigger_type": "pulse", "pulse_width": 1e-6, "pulse_condition": "greater"},
+            "set",
+            {
+                "channel": 1,
+                "trigger_type": "pulse",
+                "pulse_width": 1e-6,
+                "pulse_condition": "greater",
+            },
+        ),
+        ("run_control", {"command": "force"}, "command", {"name": "force"}),
+    ],
+)
+def test_each_action_sends_the_request_its_inputs_name(
+    requests: _Requests, name: str, params: dict[str, Any], kind: str, args: dict[str, Any]
+) -> None:
+    assert ACTIONS[name].execute(instrument="unit", **params).value == {"ok": True}
+    assert requests.sent == [(kind, args)]
+
+
+@pytest.mark.parametrize(
+    ("path", "params", "reason"),
+    [
+        ("save_state", {}, "give a slot or a file"),
+        ("recall_state", {"slot": 1, "file": "a.set"}, "give a slot or a file, not both"),
+    ],
+)
+def test_save_and_recall_take_a_slot_or_a_file(
+    requests: _Requests, path: str, params: dict[str, Any], reason: str
+) -> None:
+    with pytest.raises(ActionExecutionError, match=reason):
+        execute(path, instrument="unit", **params)
+    assert requests.sent == []
+
+
+@pytest.mark.parametrize(
+    ("path", "field", "labels"),
+    [
+        ("set_values", "tracking", TRACKING_LABELS),
+        ("set_values", "current_range", CURRENT_RANGE_LABELS),
+        ("set_values", "voltage_range", CURRENT_RANGE_LABELS),
+        ("set_meter", "function", FUNCTION_LABELS),
+        ("set_channel", "bandwidth_limit", BANDWIDTH_LABELS),
+        ("set_trigger", "trigger_type", TRIGGER_TYPE_LABELS),
+        ("set_trigger", "pulse_condition", PULSE_CONDITION_LABELS),
+        ("set_acquisition", "acquisition_mode", ACQUISITION_MODE_LABELS),
+        ("set_waveform", "shape", SHAPE_LABELS),
+        ("set_waveform", "output_load", LOAD_LABELS),
+        ("set_modulation", "type", MODULATION_LABELS),
+    ],
+)
+def test_a_select_offers_every_label_but_the_unknown_one(
+    path: str, field: str, labels: tuple[str, ...]
+) -> None:
+    schema = ACTIONS[path].to_schema()
+    assert schema["properties"][field]["enum"] == list(labels[:-1])
+
+
+def test_run_control_offers_force() -> None:
+    assert "force" in ACTIONS["run_control"].to_schema()["properties"]["command"]["enum"]
+
+
+def test_a_channel_runs_from_1_to_9999() -> None:
+    channel = ACTIONS["relay"].to_schema()["properties"]["channel"]
+    assert (channel["minimum"], channel["maximum"]) == (1, 9999)

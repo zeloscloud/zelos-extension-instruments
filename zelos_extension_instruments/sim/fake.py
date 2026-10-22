@@ -5,20 +5,22 @@ is written in the form the profile's parser reads back, so the engine cannot tel
 the instrument the profile describes.
 """
 
-import importlib
+import dataclasses
+import json
 import math
 import random
 import re
-import struct
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..profile import (
     FUNCTION_LABELS,
+    LABEL_SETTERS,
     PROTECTION_LABELS,
+    SWITCH_SETTERS,
     VALUE_SETTERS,
     Flag,
     Master,
@@ -26,12 +28,19 @@ from ..profile import (
     Reader,
     Setter,
 )
-from ..profile_scope import ACQUISITION_FIELDS, CHANNEL_STATE_FIELDS, SCOPE_COMMAND_SETTERS
+from ..profile_scope import SCOPE_COMMAND_SETTERS
+from .fake_fgen import FakeFgen, default_label, keyed_reply
+from .fake_scope import FakeScope
+from .fake_system import block, bmp, daq_state, png, restore_daq, restore_scope, scope_state
+from .spelling import example
 
-# re._parser is the stdlib's regex parser; it ships without type stubs.
-_regex_parser: Any = importlib.import_module("re._parser")
+if TYPE_CHECKING:
+    from .fake_daq import FakeDaq
+
 
 _PLACEHOLDER = re.compile(r"\{([a-z_][a-z_0-9]*)\}")
+# A query that names a meter function or a modulation type needs its own pattern.
+_SCOPED = re.compile(r"\{(function|modulation)\}")
 _CAPTURES = {
     "ch": r"\d+",
     "ch0": r"\d+",
@@ -42,11 +51,19 @@ _CAPTURES = {
     "type": r"[A-Za-z0-9]+",
     "points": r"\d+",
     "interval": r"\d+",
+    "src": r"\d+",
+    "text": r'[^"]*',
+    "channels": r"\d+(?:\s*[,:]\s*\d+)*",
+    "tc": "[BEJKNRST]",
+    "count": r"\d+",
 }
 _NO_ERROR = '0,"No error"'
 _UNDEFINED_HEADER = (-113, "Undefined header")
 _OUT_OF_RANGE = (-222, "Data out of range")
 _QUEUE_OVERFLOW = (-350, "Queue overflow")
+_BAD_VALUE = (-224, "Illegal parameter value")
+_TOO_MUCH = (-223, "Too much data")
+_EMPTY_SLOT = (-256, "File name not found")
 _QUEUE_DEPTH = 20
 # SCPI's overflow reading, which the engine reads as not-a-number.
 _OVERFLOW = 9.9e37
@@ -73,8 +90,20 @@ _READINGS = {
     "continuity": 0.5,
     "other": 0.0,
 }
+# The ranges a meter picks from, per function; it takes the smallest that covers a request.
+_DMM_RANGES = {
+    "dc_voltage": (0.1, 1.0, 10.0, 100.0, 1000.0),
+    "ac_voltage": (0.1, 1.0, 10.0, 100.0, 750.0),
+    "dc_current": (0.001, 0.01, 0.1, 1.0, 3.0, 10.0),
+    "ac_current": (0.001, 0.01, 0.1, 1.0, 3.0, 10.0),
+    "resistance": (1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8),
+    "resistance_4w": (1e2, 1e3, 1e4, 1e5, 1e6, 1e7),
+}
+_DMM_DEFAULT_RANGES = (1.0, 10.0, 100.0, 1000.0)
+# What a meter remembers for each function.
+_METER = ("range", "autorange", "nplc")
+_LABELS = {"tracking": "independent", "current_range": "high", "voltage_range": "high"}
 _FALSE_LABELS = ("none", "false", "0")
-_CLASS_CHARS = {"CATEGORY_DIGIT": "0", "CATEGORY_WORD": "A", "CATEGORY_SPACE": " "}
 
 # One piece of a reply: its comma-separated position, then text, or bits to OR, and hex format.
 Part = tuple[int, str | int, bool]
@@ -84,6 +113,7 @@ Entry = Callable[[int], list[Part]]
 @dataclass(slots=True)
 class _Channel:
     function: str | None
+    extras: dict[str, Any]
     setpoints: dict[str, float] = field(
         default_factory=lambda: dict.fromkeys(sorted(VALUE_SETTERS), 0.0)
     )
@@ -91,18 +121,8 @@ class _Channel:
     trip: str = "none"
     load_ohms: float = 10.0
     source_volts: float = 12.0
-    extras: dict[str, Any] = field(
-        default_factory=lambda: {
-            "ovp_on": False,
-            "ocp_on": False,
-            "remote_sense": False,
-            "tracking": "independent",
-            "current_range": "high",
-            "range": 10.0,
-            "autorange": True,
-            "nplc": 1.0,
-        }
-    )
+    # A meter's range, autorange and integration time, by function.
+    meter: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,9 +135,16 @@ class FakeInstrument:
     """One instrument of a profile's family, answering the commands the profile sends.
 
     A psu or AC source drives `load_ohms` up to its current setpoint. A load sinks from a source
-    of `source_volts`; in cv mode `load_ohms` is that source's series resistance. A DMM reads a
-    settable number per function, with a little noise. A protection trip turns the output off.
-    Not thread-safe: FakeServer serializes its clients.
+    of `source_volts`; in cv mode `load_ohms` is that source's series resistance, and a short
+    reads zero volts. A DMM reads a settable number per function, with a little noise, and picks
+    the smallest range that covers a request. A generator keeps its settings per channel in
+    `fgen`, a scope in `scope`, a data-acquisition unit in `daq`. A protection trip turns the
+    output off.
+
+    The profile's system functions work on every category: `beeps`, `display_on`,
+    `display_message`, `locked` and `rebooted` show what they did, and a saved state or a setup
+    block brings every channel's settings back. Not thread-safe: FakeServer serializes its
+    clients.
     """
 
     def __init__(
@@ -137,15 +164,28 @@ class FakeInstrument:
             idn = f"{_default_manufacturer(profile)},{self.model},SIM00001,1.0"
         self.idn = idn
         self.transcript: list[tuple[str, str | None]] = []
+        self.beeps = 0
+        self.display_on = True
+        self.display_message = ""
+        self.locked = False
+        self.rebooted = False
         self._rng = random.Random(0)
         self._readings = dict(_READINGS)
         self._errors: deque[tuple[int, str]] = deque()
+        self._no_error = _empty_queue_reply(profile)
+        self._self_test_reply = _self_test_reply(profile)
         self._selected = 1
-        self._state = [_Channel(self._default_function()) for _ in range(self.channels)]
+        self._state = [self._new_channel() for _ in range(self.channels)]
         # Without a master switch, a channel that is on delivers power.
         self._master = self._master_setter() is None
+        self._saved: dict[int, str] = {}
         self.scope = FakeScope(profile, self.channels) if profile.category == "scope" else None
-        self._routes = self._routes_for(profile)
+        self.fgen = FakeFgen(profile, self.channels) if profile.category == "fgen" else None
+        self.daq = self._new_daq()
+        if self.daq is not None:
+            self.transcript = self.daq.transcript
+        self._routes: list[_Route] = []
+        self._build_routes()
 
     def handle_text(self, line: str) -> str | None:
         """`handle` for a command whose reply is text, never a block."""
@@ -156,7 +196,7 @@ class FakeInstrument:
 
     def handle(self, line: str) -> str | bytes | None:
         """The reply to one command, without terminators; None when the command has none. A
-        waveform block comes back as bytes."""
+        waveform, a screenshot or a setup block comes back as bytes."""
         command = line.strip()
         if not command:
             return None
@@ -166,6 +206,8 @@ class FakeInstrument:
                 reply = route.act(match)
                 break
         else:
+            if self.daq is not None:
+                return self.daq.handle(line)
             self._push_error(*_UNDEFINED_HEADER)
             reply = None
         ack = self.profile.link.ack
@@ -217,30 +259,79 @@ class FakeInstrument:
             return next(iter(dmm.functions)) if dmm is not None else "dc_voltage"
         return None
 
-    def _routes_for(self, profile: Profile) -> list[_Route]:
-        routes: list[_Route] = []
+    def _new_daq(self) -> "FakeDaq | None":
+        if self.profile.category != "daq":
+            return None
+        # fake_daq takes helpers from this module, so it cannot be loaded first.
+        from .fake_daq import FakeDaq
 
-        def add(
-            template: str,
-            act: Callable[[re.Match[str]], str | bytes | None],
-            words: Iterable[str] = (),
-        ) -> None:
-            routes.append(_Route(_pattern(template, words), act))
+        return FakeDaq(self.profile, idn=self.idn)
 
+    def _new_channel(self, old: _Channel | None = None) -> _Channel:
+        """A channel at its defaults; the load and source around it stay as `old` has them."""
+        extras: dict[str, Any] = {
+            "ovp_on": False,
+            "ocp_on": False,
+            "remote_sense": False,
+            "short": False,
+            **{n: default_label(self.profile, n, label) for n, label in _LABELS.items()},
+        }
+        state = _Channel(self._default_function(), extras)
+        if old is not None:
+            state.load_ohms, state.source_volts = old.load_ohms, old.source_volts
+        return state
+
+    def _add(
+        self,
+        template: str,
+        act: Callable[[re.Match[str]], str | bytes | None],
+        words: Iterable[str] = (),
+        functions: Iterable[str] = (),
+    ) -> None:
+        modulation = self.profile.setters.get("modulation_type")
+        spelled = modulation.map.values() if modulation is not None else ()
+        self._routes.append(_Route(_pattern(template, words, functions, spelled), act))
+
+    def _build_routes(self) -> None:
+        self._routes = []
+        # A system command spelled like a link command (unlock as SYST:REM) must reach its state.
+        self._system_routes()
+        if self.daq is None:
+            self._command_routes()
+
+    def _command_routes(self) -> None:
+        profile, add = self.profile, self._add
         add(profile.match.idn, lambda _: self.idn)
+        if profile.link.remote_check is not None:
+            query, expect = profile.link.remote_check
+            add(query, lambda _: expect)
         if profile.errors is not None:
             add(profile.errors.query, lambda _: self._pop_error())
+            for query in profile.errors.then:
+                add(query, lambda _: self._no_error)
         if profile.link.select is not None:
             add(profile.link.select, self._select)
         if profile.match.channels_query is not None:
             add(profile.match.channels_query, lambda _: str(self.channels))
         for template, (key, bound) in _range_queries(profile).items():
             add(template, partial(self._range_reply, key, bound))
+        quoted = _quoted_queries(profile)
         for template, entries in self._queries(profile).items():
-            add(template, partial(self._query, entries))
+            add(template, partial(self._query, entries, template in quoted))
+        keyed: dict[str, list[Reader]] = {}
+        for reader in (*profile.signals, *profile.state):
+            if reader.parse == "keyed" and reader.query is not None:
+                keyed.setdefault(reader.query, []).append(reader)
+        for template, readers in keyed.items():
+            add(template, partial(self._keyed_query, readers))
         for setter in profile.setters.values():
+            words, functions = self._setter_words(setter)
             for command in setter.commands:
-                add(command, partial(self._set, setter), setter.map.values())
+                add(command, partial(self._set, setter), words, functions)
+            if setter.off is not None:
+                add(setter.off, partial(self._set, setter, off=True), words, functions)
+            if setter.verify is not None and _SCOPED.search(setter.verify):
+                add(setter.verify, partial(self._verify_reply, setter), (), functions)
         if (master := self._master_setter()) is not None:
             add(master.command, self._set_master)
             add(master.query, lambda _: "1" if self._master else "0")
@@ -256,10 +347,47 @@ class FakeInstrument:
         if self.scope is not None:
             for template, act in self.scope.routes():
                 add(template, act)
-        add("*OPC?", lambda _: "1")
         add("*CLS", self._clear_errors)
-        add("*RST", self._reset)
-        return routes
+
+    def _system_routes(self) -> None:
+        system, add = self.profile.system, self._add
+        if system.self_test is not None:
+            add(system.self_test, lambda _: self._self_test_reply)
+        if system.opc is not None:
+            add(system.opc, lambda _: "1")
+        if system.setup_query is not None:
+            add(system.setup_query, lambda _: block(self._snapshot().encode()))
+        if system.screenshot:
+            add(system.screenshot[-1], lambda _: self._image())
+        for command, act in (
+            (system.reset, self._reset),
+            (system.save, self._save),
+            (system.recall, self._recall),
+            (system.beep, self._beep),
+            (system.display, self._display),
+            (system.display_text, self._display_text),
+            (system.display_clear, self._display_clear),
+            (system.lock, partial(self._lock, True)),
+            (system.unlock, partial(self._lock, False)),
+            (system.reboot, self._reboot),
+        ):
+            if command is not None:
+                add(command, act)
+        for command in (*system.screenshot[:-1], *system.screenshot_cleanup):
+            add(command, lambda _: None)
+        if system.setup_load is not None:
+            pattern = _pattern(system.setup_load).pattern + r"\s*(?P<block>#\d.*)"
+            self._routes.append(_Route(re.compile(pattern, re.IGNORECASE), self._load_setup))
+
+    def _setter_words(self, setter: Setter) -> tuple[list[str], list[str]]:
+        """The instrument words a setter's `{value}` and `{function}` may spell. A meter's
+        range, autorange and integration time name a function by its root word."""
+        dmm = self.profile.dmm
+        if dmm is not None and setter.name in _METER:
+            if "{function}" not in setter.command:
+                return [], []
+            return [], [*(setter.map or dmm.words).values()]
+        return [*setter.map.values()], []
 
     def _queries(self, profile: Profile) -> dict[str, list[Entry]]:
         queries: dict[str, list[Entry]] = {}
@@ -267,7 +395,7 @@ class FakeInstrument:
             for reader in readers:
                 for flag in reader.flags:
                     queries.setdefault(flag.query, []).append(partial(self._flag_parts, flag))
-                if reader.query is not None:
+                if reader.query is not None and reader.parse != "keyed":
                     entry = (
                         partial(self._all_channels, reader)
                         if len(reader.mask) > 1
@@ -277,8 +405,9 @@ class FakeInstrument:
         if profile.dmm is not None and profile.dmm.function_query is not None:
             queries.setdefault(profile.dmm.function_query, []).append(self._function_parts)
         for setter in profile.setters.values():
-            if setter.verify is not None and setter.verify not in queries:
-                queries[setter.verify] = [partial(self._verify_parts, setter)]
+            verify = setter.verify
+            if verify is not None and verify not in queries and not _SCOPED.search(verify):
+                queries[verify] = [partial(self._verify_parts, setter)]
         return queries
 
     def _channel(self, match: re.Match[str]) -> int | None:
@@ -298,11 +427,18 @@ class FakeInstrument:
         if ch is not None:
             self._selected = ch
 
-    def _query(self, entries: list[Entry], match: re.Match[str]) -> str | None:
+    def _query(self, entries: list[Entry], quoted: bool, match: re.Match[str]) -> str | None:
         ch = self._channel(match)
         if ch is None:
             return None
-        return _compose([part for entry in entries for part in entry(ch)])
+        reply = _compose([part for entry in entries for part in entry(ch)])
+        return f'"{reply}"' if quoted else reply
+
+    def _keyed_query(self, readers: list[Reader], match: re.Match[str]) -> str | None:
+        ch = self._channel(match)
+        if ch is None:
+            return None
+        return keyed_reply(self.profile, match.string, readers, lambda name: self._value(name, ch))
 
     def _range_reply(self, key: str, bound: str, match: re.Match[str]) -> str | None:
         ch = self._channel(match)
@@ -318,7 +454,7 @@ class FakeInstrument:
             return low, range_.max
         return low, _RATINGS.get(key or "", math.inf)
 
-    def _set(self, setter: Setter, match: re.Match[str]) -> None:
+    def _set(self, setter: Setter, match: re.Match[str], off: bool = False) -> None:
         if setter.per_channel:
             ch = self._channel(match)
             if ch is None:
@@ -327,40 +463,98 @@ class FakeInstrument:
         else:
             targets = list(range(1, self.channels + 1))
         groups = match.groupdict()
-        if self.scope is not None and setter.name in self.scope.names | set(SCOPE_COMMAND_SETTERS):
-            key = self.profile.range_key(setter) if setter.name in VALUE_SETTERS else None
+        name = setter.name
+        if self.scope is not None and name in self.scope.names | set(SCOPE_COMMAND_SETTERS):
+            key = self.profile.range_key(setter) if name in VALUE_SETTERS else None
             if key is not None:
                 low, high = self.bounds(key, targets[0])
                 if not low <= float(groups["value"]) <= high:
                     self._push_error(*_OUT_OF_RANGE)
                     return
             self.scope.set(setter, groups, targets)
-        elif setter.name in VALUE_SETTERS:
-            value = float(groups["value"]) * setter.scale
-            key = self.profile.range_key(setter)
-            for ch in targets:
-                low, high = self.bounds(key, ch)
-                if not low <= value <= high:
-                    self._push_error(*_OUT_OF_RANGE)
-                    return
-            for ch in targets:
-                self._state[ch - 1].setpoints[setter.name] = value
-        elif setter.name == "output":
-            on = _on(groups)
-            for ch in targets:
-                self._state[ch - 1].output = on
-        elif setter.name in ("ovp_on", "ocp_on"):
-            on = _on(groups)
-            for ch in targets:
-                self._state[ch - 1].extras[setter.name] = on
-        elif setter.name == "function":
-            word = groups["function"].casefold()
-            label = next(k for k, v in setter.map.items() if v.casefold() == word)
-            for ch in targets:
-                self._state[ch - 1].function = label
-        elif setter.name == "clear":
-            for ch in targets:
-                self._state[ch - 1].trip = "none"
+            return
+        value = float(groups["value"]) * setter.scale if name in VALUE_SETTERS else None
+        if value is not None and any(self._refuses(setter, value, ch, groups) for ch in targets):
+            self._push_error(*_OUT_OF_RANGE)
+            return
+        on: bool | None = None
+        if name in SWITCH_SETTERS:
+            # A switch with its own off command has no {on} or {bit} to read.
+            on = _on(groups) if "on" in groups or "bit" in groups else not off
+        if self.fgen is not None:
+            self.fgen.apply(
+                setter,
+                targets,
+                value=value,
+                word=groups.get("value") if value is None and setter.map else None,
+                on=on,
+                modulation=groups.get("modulation"),
+            )
+            return
+        for ch in targets:
+            state = self._state[ch - 1]
+            if self.profile.category == "dmm" and name in _METER:
+                self._set_meter(setter, ch, groups, value, on)
+            elif value is not None:
+                state.setpoints[name] = value
+            elif name == "output":
+                state.output = bool(on)
+            elif on is not None:
+                state.extras[name] = on
+            elif name in LABEL_SETTERS:
+                state.extras[name] = _label_for(setter, groups["value"])
+            elif name == "function":
+                state.function = _label_for(setter, groups["function"])
+            elif name == "clear":
+                state.trip = "none"
+
+    def _refuses(self, setter: Setter, value: float, ch: int, groups: dict[str, Any]) -> bool:
+        """Whether the instrument refuses `value`: a fixed set takes one of its choices, a meter
+        what its biggest range covers, anything else what its profile's range spans."""
+        if self.profile.category == "dmm" and setter.name == "range":
+            ladder = _DMM_RANGES.get(self._meter_function(setter, groups, ch) or "")
+            return not 0 <= value <= (ladder or _DMM_DEFAULT_RANGES)[-1]
+        key = self.profile.range_key(setter)
+        if key is None:
+            return False
+        range_ = self.profile.range_for(key, self.model, ch)
+        if range_ is not None and range_.choices:
+            return not any(abs(value - c) <= 1e-9 * max(1.0, abs(c)) for c in range_.choices)
+        low, high = self.bounds(key, ch)
+        return not low <= value <= high
+
+    def _meter_function(self, setter: Setter, groups: dict[str, Any], ch: int) -> str | None:
+        """The function a meter command names by its root word, else the one now selected."""
+        word = groups.get("function")
+        dmm = self.profile.dmm
+        selected = self._state[ch - 1].function
+        if word is None or dmm is None:
+            return selected
+        words = setter.map or dmm.words
+        found = next((k for k, v in words.items() if v.casefold() == word.casefold()), None)
+        return found or selected
+
+    def _meter(self, state: _Channel, function: str | None) -> dict[str, Any]:
+        label = function or "other"
+        if label not in state.meter:
+            ladder = _DMM_RANGES.get(label, _DMM_DEFAULT_RANGES)
+            state.meter[label] = {"range": ladder[len(ladder) // 2], "autorange": True, "nplc": 1.0}
+        return state.meter[label]
+
+    def _set_meter(
+        self, setter: Setter, ch: int, groups: dict[str, Any], value: float | None, on: bool | None
+    ) -> None:
+        function = self._meter_function(setter, groups, ch)
+        meter = self._meter(self._state[ch - 1], function)
+        if setter.name == "autorange":
+            meter["autorange"] = bool(on)
+        elif value is not None and setter.name == "nplc":
+            meter["nplc"] = value
+        elif value is not None:
+            ladder = _DMM_RANGES.get(function or "", _DMM_DEFAULT_RANGES)
+            # A range picked by hand turns autorange off, as it does on a bench meter.
+            meter["range"] = next(r for r in ladder if r >= value)
+            meter["autorange"] = False
 
     def _master_setter(self) -> Master | None:
         output = self.profile.setters.get("output")
@@ -377,21 +571,121 @@ class FakeInstrument:
     def _live(self, state: _Channel) -> bool:
         return state.output and self._master
 
-    def _reset(self, _: re.Match[str]) -> None:
-        for state in self._state:
-            state.setpoints = dict.fromkeys(state.setpoints, 0.0)
-            state.output = False
+    def _reset(self, match: re.Match[str]) -> None:
+        self._state = [self._new_channel(old) for old in self._state]
         self._master = self._master_setter() is None
+        if self.fgen is not None:
+            self.fgen.reset()
+        if self.daq is not None:
+            self.daq._reset(match)
+        if self.scope is not None:
+            self.scope = FakeScope(self.profile, self.channels)
+            self._build_routes()
+
+    def _slot_number(self, match: re.Match[str]) -> int | None:
+        slot = int(match.group("slot"))
+        slots = self.profile.system.slots
+        if slots is None or not slots[0] <= slot <= slots[1]:
+            self._push_error(*_OUT_OF_RANGE)
+            return None
+        return slot
+
+    def _save(self, match: re.Match[str]) -> None:
+        slot = self._slot_number(match)
+        if slot is not None:
+            self._saved[slot] = self._snapshot()
+
+    def _recall(self, match: re.Match[str]) -> None:
+        slot = self._slot_number(match)
+        if slot is None:
+            return
+        if slot not in self._saved:
+            self._push_error(*_EMPTY_SLOT)
+            return
+        self._restore(json.loads(self._saved[slot]))
+
+    def _snapshot(self) -> str:
+        """Every channel's settings as JSON text, to keep in a slot or send as a setup block."""
+        data: dict[str, Any] = {
+            "channels": [dataclasses.asdict(state) for state in self._state],
+            "master": self._master,
+        }
+        if self.fgen is not None:
+            data["fgen"] = self.fgen.snapshot()
+        if self.scope is not None:
+            data["scope"] = scope_state(self.scope)
+        if self.daq is not None:
+            data["daq"] = daq_state(self.daq)
+        return json.dumps(data)
+
+    def _restore(self, data: dict[str, Any]) -> None:
+        """Bring back what `_snapshot` kept; the load and source around each channel stay."""
+        channels = [_Channel(**saved) for saved in data["channels"]]
+        if len(channels) != len(self._state):
+            raise ValueError("the setup is for another number of channels")
+        for new, old in zip(channels, self._state, strict=True):
+            new.load_ohms, new.source_volts, new.trip = old.load_ohms, old.source_volts, old.trip
+        self._state = channels
+        self._master = bool(data["master"])
+        if self.fgen is not None:
+            self.fgen.restore(data["fgen"])
+        if self.scope is not None:
+            restore_scope(self.scope, data["scope"])
+        if self.daq is not None:
+            restore_daq(self.daq, data["daq"])
+
+    def _load_setup(self, match: re.Match[str]) -> None:
+        block = match.group("block")
+        try:
+            digits = int(block[1])
+            payload = block[2 + digits :]
+            if len(payload) != int(block[2 : 2 + digits]):
+                raise ValueError("the block is not as long as it says")
+            self._restore(json.loads(payload))
+        except (ValueError, KeyError, TypeError, IndexError):
+            self._push_error(*_BAD_VALUE)
+
+    def _beep(self, _: re.Match[str]) -> None:
+        self.beeps += 1
+
+    def _display(self, match: re.Match[str]) -> None:
+        self.display_on = _on(match.groupdict())
+
+    def _display_text(self, match: re.Match[str]) -> None:
+        text = match.group("text")
+        limit = self.profile.system.display_text_max
+        if limit is not None and len(text) > limit:
+            self._push_error(*_TOO_MUCH)
+            return
+        self.display_message = text
+
+    def _display_clear(self, _: re.Match[str]) -> None:
+        self.display_message = ""
+
+    def _lock(self, on: bool, _: re.Match[str]) -> None:
+        self.locked = on
+
+    def _reboot(self, _: re.Match[str]) -> None:
+        self.rebooted = True
+
+    def _image(self) -> bytes:
+        framing = self.profile.system.screenshot_framing
+        if framing == "bmp":
+            return bmp()
+        return block(png()) if framing == "block" else png()
 
     def _push_error(self, code: int, text: str) -> None:
-        if len(self._errors) >= _QUEUE_DEPTH:
+        if self.daq is not None:
+            # The unit answers the error query, so it keeps the queue.
+            self.daq._push_error(code, text)
+        elif len(self._errors) >= _QUEUE_DEPTH:
             self._errors[-1] = _QUEUE_OVERFLOW
         else:
             self._errors.append((code, text))
 
     def _pop_error(self) -> str:
         if not self._errors:
-            return _NO_ERROR
+            return self._no_error
         code, text = self._errors.popleft()
         return f'{code},"{text}"'
 
@@ -447,7 +741,6 @@ class FakeInstrument:
         return [(0, dmm.words.get(label) or label.upper(), False)]
 
     def _verify_parts(self, setter: Setter, ch: int) -> list[Part]:
-        state = self._state[ch - 1]
         if self.scope is not None and setter.name in self.scope.names:
             value = self.scope.value(setter.name, ch)
             if isinstance(value, bool):
@@ -455,18 +748,30 @@ class FakeInstrument:
             if isinstance(value, str):
                 return [(0, setter.map.get(value, value), False)]
             return [(0, _number(value), False)]
-        if setter.name in VALUE_SETTERS:
-            return [(0, _number(state.setpoints[setter.name] / setter.scale), False)]
-        if setter.name == "output":
-            return [(0, "1" if self._live(state) else "0", False)]
-        if setter.name in state.extras:
-            return [(0, "1" if state.extras[setter.name] else "0", False)]
-        return [(0, setter.map.get(state.function or "", ""), False)]
+        return [(0, _readback(setter, self._value(self.profile.verify_field(setter), ch)), False)]
 
-    def _value(self, name: str, ch: int) -> float | bool | str:
+    def _verify_reply(self, setter: Setter, match: re.Match[str]) -> str | None:
+        """The readback of a setter whose query names a meter function or a modulation type."""
+        ch = self._channel(match)
+        if ch is None:
+            return None
+        groups = match.groupdict()
+        function = self._meter_function(setter, groups, ch) if "function" in groups else None
+        modulation = self.fgen.label_of(groups.get("modulation")) if self.fgen else None
+        field_name = self.profile.verify_field(setter)
+        value = self._value(field_name, ch, function=function, modulation=modulation)
+        return _readback(setter, value)
+
+    def _value(
+        self, name: str, ch: int, *, function: str | None = None, modulation: str | None = None
+    ) -> float | bool | str:
         state = self._state[ch - 1]
+        if self.fgen is not None and name in self.fgen.names:
+            return self.fgen.value(name, ch, modulation)
         if self.scope is not None and name in self.scope.names:
             return self.scope.value(name, ch)
+        if self.profile.category == "dmm" and name in _METER:
+            return self._meter(state, function or state.function)[name]
         if name in state.extras:
             return state.extras[name]
         if name.endswith("_set"):
@@ -515,6 +820,13 @@ class FakeInstrument:
 
     def _sink(self, state: _Channel) -> dict[str, float]:
         volts = state.source_volts
+        if state.extras["short"]:
+            return {
+                "voltage": 0.0,
+                "current": volts / state.load_ohms,
+                "power": 0.0,
+                "resistance": 0.0,
+            }
         amps = 0.0
         set_ = state.setpoints
         if state.output:
@@ -536,259 +848,24 @@ class FakeInstrument:
         }
 
 
-class FakeScope:
-    """A scope's settings, measurement slots and a synthetic waveform on every channel.
-
-    Every channel sees the same 1 kHz, 2 V peak-to-peak sine about 0.5 V; the measurements are
-    computed from it, so a transcript and a capture agree.
-    """
-
-    names = frozenset(CHANNEL_STATE_FIELDS) | frozenset(ACQUISITION_FIELDS)
-
-    def __init__(self, profile: Profile, channels: int) -> None:
-        self.profile = profile
-        self.channels = channels
-        self.per_channel: dict[int, dict[str, Any]] = {
-            ch: {
-                "visible": True,
-                "scale": 0.5,
-                "offset": 0.0,
-                "coupling": "dc",
-                "bandwidth_limit": "full",
-                "probe": 1.0,
-            }
-            for ch in range(1, channels + 1)
-        }
-        self.shared: dict[str, Any] = {
-            "timebase": 0.0005,
-            "delay": 0.0,
-            "sample_rate": 2e6,
-            "memory_depth": 10_000.0,
-            "points": 10_000.0,
-            "acquisitions": 0,
-            "trigger_status": "auto",
-            "trigger_mode": "auto",
-            "trigger_source": "ch1",
-            "trigger_level": 0.5,
-            "trigger_slope": "rising",
-            "trigger_frequency": 1000.0,
-        }
-        scope = profile.scope
-        count = scope.slots.count if scope is not None and scope.slots is not None else 0
-        # slot -> (on, type word, source text)
-        self.slots: dict[int, tuple[bool, str, str]] = dict.fromkeys(
-            range(1, count + 1), (False, "", "C1")
-        )
-        if count:
-            self.slots[1] = (True, "PKPK", "C1")
-        self.mode_ready = True
-        self.waveform_source = 1
-        self.waveform_points = 0
-        self.waveform_interval = 1
-        self.running = True
-
-    # 1 kHz sine, 2 Vpp about 0.5 V.
-    amplitude = 1.0
-    mid = 0.5
-    frequency = 1000.0
-
-    def value(self, name: str, ch: int) -> float | bool | str:
-        if name in self.per_channel[ch]:
-            return self.per_channel[ch][name]
-        if name == "acquisitions":
-            self.shared["acquisitions"] += 1
-        return self.shared[name]
-
-    def set(self, setter: Setter, groups: dict[str, str | None], targets: list[int]) -> None:
-        name = setter.name
-        if name in SCOPE_COMMAND_SETTERS:
-            self.running = name != "stop"
-            self.shared["trigger_status"] = "stopped" if name == "stop" else "auto"
-            if name == "single":
-                self.shared["trigger_mode"] = "single"
-            return
-        if name == "visible":
-            on = _on(groups)
-            for ch in targets:
-                self.per_channel[ch]["visible"] = on
-            return
-        raw = groups.get("value")
-        if raw is None:
-            return
-        if setter.map:
-            label = next((k for k, v in setter.map.items() if v.casefold() == raw.casefold()), None)
-            if label is None:
-                return
-            value: Any = label
-        else:
-            value = float(raw)
-        if name in self.shared:
-            self.shared[name] = value
-        else:
-            for ch in targets:
-                self.per_channel[ch][name] = value
-
-    def measurement(self, word: str, source: str) -> float | None:
-        """What the slot shows for the synthetic sine, by the profile's measurement field."""
-        scope = self.profile.scope
-        assert scope is not None and scope.slots is not None
-        field_name = scope.slots.types.get(word.casefold())
-        if field_name is None or not re.fullmatch(r"C\d+", source):
-            return None
-        a, mid, f = self.amplitude, self.mid, self.frequency
-        table: dict[str, float] = {
-            "pkpk": 2 * a,
-            "maximum": mid + a,
-            "minimum": mid - a,
-            "amplitude": 2 * a,
-            "top": mid + a,
-            "base": mid - a,
-            "mean": mid,
-            "cycle_mean": mid,
-            "rms": math.sqrt(mid**2 + a**2 / 2),
-            "cycle_rms": math.sqrt(mid**2 + a**2 / 2),
-            "stdev": a / math.sqrt(2),
-            "overshoot": 0.0,
-            "preshoot": 0.0,
-            "period": 1 / f,
-            "frequency": f,
-            "positive_width": 0.5 / f,
-            "negative_width": 0.5 / f,
-            "duty": 50.0,
-            "rise_time": 0.8 / (math.pi * f),
-            "fall_time": 0.8 / (math.pi * f),
-        }
-        return table[field_name]
-
-    def routes(self) -> list[tuple[str, Callable[[re.Match[str]], str | bytes | None]]]:
-        scope = self.profile.scope
-        assert scope is not None
-        out: list[tuple[str, Callable[[re.Match[str]], str | bytes | None]]] = []
-        slots = scope.slots
-        if slots is not None:
-            out.append((slots.enabled, lambda m: "ON" if self.slots[int(m["slot"])][0] else "OFF"))
-            out.append((slots.type, lambda m: self.slots[int(m["slot"])][1]))
-            out.append((slots.source, lambda m: self.slots[int(m["slot"])][2]))
-            out.append((slots.value, self._slot_value))
-            if slots.ready_query is not None:
-                out.append((slots.ready_query, lambda _: str(slots.ready_value)))
-        measure = scope.measure
-        if measure is not None:
-            for command in measure.commands:
-                out.append((command, self._measure_command))
-            if measure.off is not None:
-                out.append((measure.off, self._slot_off))
-        wf = scope.waveform
-        if wf is not None:
-            for command in wf.setup:
-                out.append((command, self._waveform_setup))
-            out.append((wf.preamble, lambda _: _block(self._wavedesc())))
-            out.append((wf.data, lambda _: _block(self._wave_data()) + b"\n"))
-            if wf.max_points is not None:
-                out.append((wf.max_points, lambda _: "5000000"))
-        return out
-
-    def _slot_value(self, m: re.Match[str]) -> str | None:
-        on, word, source = self.slots[int(m["slot"])]
-        if not on:
-            return None
-        value = self.measurement(word, source)
-        return _number(_OVERFLOW if value is None else value)
-
-    def _measure_command(self, m: re.Match[str]) -> None:
-        groups = m.groupdict()
-        slot = groups.get("slot")
-        if slot is None:
-            return
-        on, word, source = self.slots[int(slot)]
-        if groups.get("type") is not None:
-            word = str(groups["type"]).upper()
-        if groups.get("ch") is not None:
-            source = f"C{groups['ch']}"
-        if "ON" in m.group(0).upper().split():
-            on = True
-        self.slots[int(slot)] = (on, word, source)
-
-    def _slot_off(self, m: re.Match[str]) -> None:
-        on, word, source = self.slots[int(m["slot"])]
-        self.slots[int(m["slot"])] = (False, word, source)
-
-    def _waveform_setup(self, m: re.Match[str]) -> None:
-        groups = m.groupdict()
-        if groups.get("ch") is not None:
-            self.waveform_source = int(groups["ch"] or 1)
-        if groups.get("points") is not None:
-            self.waveform_points = int(groups["points"] or 0)
-        if groups.get("interval") is not None:
-            self.waveform_interval = max(1, int(groups["interval"] or 1))
-
-    # 12-bit codes left-aligned in 16-bit words, as the SDS800X HD sends them.
-    code_per_div = 7680.0
-
-    def _count(self) -> int:
-        total = int(self.shared["points"])
-        step = self.waveform_interval
-        available = max(1, total // step)
-        return min(available, self.waveform_points) if self.waveform_points else available
-
-    def _wavedesc(self) -> bytes:
-        ch = self.waveform_source
-        settings = self.per_channel[ch]
-        desc = bytearray(346)
-        desc[0:8] = b"WAVEDESC"
-        desc[16:23] = b"WAVEACE"
-        struct.pack_into("<h", desc, 32, 1)
-        struct.pack_into("<h", desc, 34, 0)
-        struct.pack_into("<i", desc, 36, 346)
-        count = self._count()
-        struct.pack_into("<i", desc, 60, count * 2)
-        struct.pack_into("<i", desc, 116, count)
-        struct.pack_into("<i", desc, 132, 0)
-        struct.pack_into("<i", desc, 136, self.waveform_interval)
-        probe = float(settings["probe"])
-        struct.pack_into("<f", desc, 156, float(settings["scale"]) / probe)
-        struct.pack_into("<f", desc, 160, float(settings["offset"]) / probe)
-        struct.pack_into("<f", desc, 164, self.code_per_div)
-        struct.pack_into("<h", desc, 172, 16)
-        struct.pack_into("<f", desc, 176, 1 / float(self.shared["sample_rate"]))
-        struct.pack_into("<d", desc, 180, float(self.shared["delay"]))
-        struct.pack_into("<f", desc, 328, probe)
-        return bytes(desc)
-
-    def _wave_data(self) -> bytes:
-        ch = self.waveform_source
-        settings = self.per_channel[ch]
-        scale = float(settings["scale"]) / float(settings["probe"])
-        offset = float(settings["offset"]) / float(settings["probe"])
-        count = self._count()
-        pitch = self.waveform_interval / float(self.shared["sample_rate"])
-        start = float(self.shared["delay"]) - float(self.shared["timebase"]) * 5
-        gain = self.code_per_div / scale
-        codes = []
-        for i in range(count):
-            t = start + i * pitch
-            volts = (
-                self.mid + self.amplitude * math.sin(2 * math.pi * self.frequency * t)
-            ) / float(settings["probe"])
-            code = round((volts + offset) * gain)
-            codes.append(max(-32768, min(32767, code)))
-        return struct.pack(f"<{count}h", *codes)
-
-
-def _block(payload: bytes) -> bytes:
-    """An IEEE 488.2 definite-length block."""
-    length = str(len(payload))
-    return f"#{len(length)}{length}".encode() + payload
-
-
-def _pattern(template: str, words: Iterable[str] = ()) -> re.Pattern[str]:
-    """The anchored pattern a template's commands match; placeholders become captures."""
+def _pattern(
+    template: str,
+    words: Iterable[str] = (),
+    functions: Iterable[str] = (),
+    modulation: Iterable[str] = (),
+) -> re.Pattern[str]:
+    """The anchored pattern a template's commands match; placeholders become captures. `words`
+    are the instrument's spellings of a label, `functions` those of a meter function's root and
+    `modulation` those of a modulation type."""
     alternatives = sorted(words, key=len, reverse=True)
-    spelled = "|".join(map(re.escape, alternatives)) or "(?!)"
-    captures = {**_CAPTURES, "function": spelled}
+    captures = {
+        **_CAPTURES,
+        "function": _spelled([*alternatives, *functions]),
+        "modulation": _spelled([*modulation]),
+    }
     if alternatives and "{function}" not in template:
         # A label setter sends the instrument's word where a value setter sends a number.
-        captures["value"] = spelled
+        captures["value"] = _spelled(alternatives)
     text = template.strip().removeprefix(":")
     out = [":?"]
     seen: set[str] = set()
@@ -801,6 +878,11 @@ def _pattern(template: str, words: Iterable[str] = ()) -> re.Pattern[str]:
         position = found.end()
     out.append(_literal(text[position:]))
     return re.compile("".join(out), re.IGNORECASE)
+
+
+def _spelled(words: list[str]) -> str:
+    """A pattern for any of the words, longest first; one that matches nothing without any."""
+    return "|".join(map(re.escape, sorted(words, key=len, reverse=True))) or "(?!)"
 
 
 def _literal(text: str) -> str:
@@ -817,6 +899,46 @@ def _range_queries(profile: Profile) -> dict[str, tuple[str, str]]:
             if template is not None:
                 queries.setdefault(template, (key, bound))
     return queries
+
+
+def _quoted_queries(profile: Profile) -> set[str]:
+    """The queries whose reply is one quoted list of positions, as a generator's `APPL?`."""
+    if profile.category != "fgen":
+        return set()
+    positions: dict[str, set[int]] = {}
+    for reader in profile.state:
+        if reader.query is not None and reader.index is not None and reader.parse != "keyed":
+            positions.setdefault(reader.query, set()).add(reader.index)
+    return {query for query, found in positions.items() if len(found) > 1}
+
+
+def _empty_queue_reply(profile: Profile) -> str:
+    """What an empty error queue says, in a form the profile reads as no error."""
+    ok = profile.errors.ok if profile.errors is not None else None
+    if ok is None or ok.search(_NO_ERROR):
+        return _NO_ERROR
+    return example(ok) or _NO_ERROR
+
+
+def _self_test_reply(profile: Profile) -> str:
+    """A passing self-test's reply, as the profile's own pattern reads it."""
+    ok = profile.system.self_test_ok
+    return next((r for r in ("0", "+0") if ok.search(r)), example(ok) or "0")
+
+
+def _label_for(setter: Setter, word: str) -> str:
+    """The label a setter's map gives the instrument's word."""
+    return next(k for k, v in setter.map.items() if v.casefold() == word.casefold())
+
+
+def _readback(setter: Setter, value: float | bool | str) -> str:
+    """A setter's readback in the form its query answers: a number in the instrument's unit, a
+    label as its word, a switch as 1 or 0."""
+    if setter.name in VALUE_SETTERS:
+        return _number(float(value) / setter.scale)
+    if isinstance(value, str):
+        return setter.map.get(value, "")
+    return "1" if value else "0"
 
 
 def _compose(parts: list[Part]) -> str:
@@ -867,7 +989,7 @@ def _for_channel(values: tuple[int, ...], ch: int) -> int:
 def _default_model(profile: Profile) -> str:
     if profile.generic:
         return "SIM"
-    model = _example(profile.match.model)
+    model = example(profile.match.model)
     if model is None:
         raise ValueError(f"{profile.id}: cannot spell a model match.model accepts; pass model=")
     return model
@@ -876,50 +998,7 @@ def _default_model(profile: Profile) -> str:
 def _default_manufacturer(profile: Profile) -> str:
     if profile.generic:
         return "Simulated"
-    manufacturer = _example(profile.match.manufacturer)
+    manufacturer = example(profile.match.manufacturer)
     if manufacturer is None:
         raise ValueError(f"{profile.id}: cannot spell a match.manufacturer; pass idn=")
     return manufacturer
-
-
-def _example(pattern: re.Pattern[str]) -> str | None:
-    """The text the pattern's first alternatives and fewest repeats spell, if it matches."""
-    try:
-        text = _spell(_regex_parser.parse(pattern.pattern, pattern.flags))
-    except (ValueError, IndexError, OverflowError):
-        return None
-    return text if pattern.search(text) else None
-
-
-def _spell(items: Any) -> str:
-    out: list[str] = []
-    for op, av in items:
-        name = op.name
-        if name == "LITERAL":
-            out.append(chr(av))
-        elif name == "ANY":
-            out.append("A")
-        elif name == "IN":
-            out.append(_spell_class(av))
-        elif name == "BRANCH":
-            out.append(_spell(av[1][0]))
-        elif name == "SUBPATTERN":
-            out.append(_spell(av[3]))
-        elif name == "ATOMIC_GROUP":
-            out.append(_spell(av))
-        elif name in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"):
-            out.append(_spell(av[2]) * av[0])
-        elif name != "AT":
-            raise ValueError(f"cannot spell {name}")
-    return "".join(out)
-
-
-def _spell_class(items: Any) -> str:
-    op, av = items[0]
-    if op.name == "LITERAL":
-        return chr(av)
-    if op.name == "RANGE":
-        return chr(av[0])
-    if op.name == "CATEGORY" and av.name in _CLASS_CHARS:
-        return _CLASS_CHARS[av.name]
-    raise ValueError(f"cannot spell {op.name}")

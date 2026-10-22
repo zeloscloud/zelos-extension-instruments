@@ -3,9 +3,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft7Validator
 
 from zelos_extension_instruments import config
 from zelos_extension_instruments.config import ConfigError, Limits, from_dict, load
+from zelos_extension_instruments.profile_daq import DAQ_SIGNAL_FIELDS
 
 SCHEMA = json.loads((Path(__file__).resolve().parents[1] / "config.schema.json").read_text("utf-8"))
 
@@ -437,3 +439,120 @@ def test_every_setting_a_connection_takes_is_accepted() -> None:
 def test_a_host_with_spaces_around_it_is_trimmed() -> None:
     settings = config.from_dict({"instruments": [{"connection": "lan", "host": " 10.0.0.5 "}]})
     assert settings.instruments[0].host == "10.0.0.5"
+
+
+def test_scan_channels_and_relays_are_read_in_order() -> None:
+    cfg = one(
+        {
+            **LAN,
+            "advanced": {
+                "scan": [
+                    {"channel": 102, "function": "temperature", "thermocouple": "K"},
+                    {"channel": 101, "function": "dc_voltage", "nplc": 10},
+                ],
+                "relays": [110, 105],
+            },
+        }
+    )
+    assert cfg.scan == (
+        config.ScanChannel(102, "temperature", "K", None),
+        config.ScanChannel(101, "dc_voltage", None, 10.0),
+    )
+    assert cfg.relays == (110, 105)
+
+
+def test_an_instrument_without_scan_or_relays_has_none() -> None:
+    cfg = one(LAN)
+    assert cfg.scan == ()
+    assert cfg.relays == ()
+
+
+def test_the_scan_functions_are_the_daq_fields() -> None:
+    scan = SCHEMA["definitions"]["advanced"]["properties"]["scan"]["items"]["properties"]
+    assert scan["function"]["enum"] == list(DAQ_SIGNAL_FIELDS)
+    assert len(scan["function"]["ui:enumNames"]) == len(DAQ_SIGNAL_FIELDS)
+
+
+def test_the_schema_takes_scan_and_relays() -> None:
+    item = {
+        **LAN,
+        "advanced": {
+            "scan": [
+                {"channel": 101, "function": "resistance_4w", "nplc": 1},
+                {"channel": 103, "function": "temperature", "thermocouple": "T"},
+            ],
+            "relays": [120],
+        },
+    }
+    assert list(Draft7Validator(SCHEMA).iter_errors({"instruments": [item]})) == []
+
+
+@pytest.mark.parametrize(
+    ("advanced", "sentence"),
+    [
+        (
+            {"scan": [{"channel": 101, "function": "voltage"}]},
+            'Instrument 1 (lan), Function: must be "dc_voltage", "ac_voltage", "dc_current", '
+            '"ac_current", "resistance", "resistance_4w", "frequency", "period" or "temperature".',
+        ),
+        (
+            {"scan": [{"channel": 0, "function": "dc_voltage"}]},
+            "Instrument 1 (lan), Channel: must be from 1 to 9999.",
+        ),
+        (
+            {"scan": [{"function": "dc_voltage"}]},
+            "Instrument 1 (lan), Channel: missing.",
+        ),
+        (
+            {"scan": [{"channel": 101, "function": "temperature", "thermocouple": "X"}]},
+            'Instrument 1 (lan), Thermocouple: must be "B", "E", "J", "K", "N", "R", "S" or "T".',
+        ),
+        (
+            {"scan": [{"channel": 101, "function": "dc_voltage", "nplc": 0}]},
+            "Instrument 1 (lan), Integration (NPLC): must be above 0.",
+        ),
+        (
+            {"scan": [{"channel": 101, "function": "dc_voltage", "range": 10}]},
+            "Instrument 1 (lan), Scan channel: unknown setting range.",
+        ),
+        (
+            {"relays": [10000]},
+            "Instrument 1 (lan), Relay channel: must be from 1 to 9999.",
+        ),
+        (
+            {"relays": "101"},
+            "Instrument 1 (lan), Relays: must be a list.",
+        ),
+        (
+            {"scan": [{"channel": 101, "function": "temperature"}]},
+            "Instrument 1 (lan), Scan: channel 101 reads temperature, so it needs a thermocouple "
+            "type.",
+        ),
+        (
+            {"scan": [{"channel": 101, "function": "dc_voltage", "thermocouple": "K"}]},
+            "Instrument 1 (lan), Scan: channel 101 reads dc_voltage; only a temperature channel "
+            "takes a thermocouple type.",
+        ),
+        (
+            {
+                "scan": [
+                    {"channel": 101, "function": "dc_voltage"},
+                    {"channel": 101, "function": "resistance"},
+                ]
+            },
+            "Instrument 1 (lan), Scan: channel 101 is listed twice.",
+        ),
+        (
+            {"relays": [105, 105]},
+            "Instrument 1 (lan), Relays: channel 105 is listed twice.",
+        ),
+        (
+            {"scan": [{"channel": 101, "function": "dc_voltage"}], "relays": [101]},
+            "Instrument 1 (lan), Relays: channel 101 is also in Scan; a channel is scanned or a "
+            "relay, not both.",
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_one_sentence_per_scan_or_relay_mistake(advanced: dict[str, Any], sentence: str) -> None:
+    assert problems_of({"instruments": [{**LAN, "advanced": advanced}]}) == [sentence]

@@ -16,6 +16,7 @@ from zelos_extension_instruments.engine import (
     Step,
     check_range,
     check_resolution,
+    clear_commands,
     compile_plan,
     flag_is_set,
     format_value,
@@ -354,6 +355,14 @@ def test_parse_reply_map_rejects_an_unmapped_reply() -> None:
     r = reader("map", map={"cv": "cv"}, name="mode")
     with pytest.raises(ParseError, match="'XX' is not in the map of mode"):
         parse_reply(r, "XX")
+
+
+def test_parse_reply_map_gives_an_unmapped_reply_the_catch_all_label() -> None:
+    r = reader("map", fields=("output_load",), map={"50": "fifty_ohm", "*": "other"})
+    assert parse_reply(r, "50") == {"output_load": "fifty_ohm"}
+    assert parse_reply(r, "+1.000000000000000E+02") == {"output_load": "other"}
+    shape = keyed("shape", "WVTP", {"sine": "sine", "*": "other"})
+    assert parse_reply(shape, "C1:BSWV WVTP,NOISE") == {"shape": "other"}
 
 
 def test_parse_reply_map_matches_keys_the_profile_loader_folds(dp800: Profile) -> None:
@@ -713,7 +722,16 @@ def test_read_error_splits_code_and_message() -> None:
 def test_read_error_keeps_the_text_of_a_reply_without_a_code() -> None:
     assert read_error(ERRORS, "Command error") == InstrumentError(None, "Command error")
     assert read_error(ERRORS, "abc,def") == InstrumentError(None, "abc,def")
-    assert read_error(ERRORS, "5") == InstrumentError(None, "5")
+
+
+@pytest.mark.parametrize(("reply", "code"), [("1", 1), ("+5\n", 5), ("-113", -113)])
+def test_read_error_reads_a_bare_whole_number_as_its_code_where_the_profile_says_so(
+    reply: str, code: int
+) -> None:
+    bare = dataclasses.replace(ERRORS, bare=True)
+    assert read_error(bare, reply) == InstrumentError(code, reply.strip())
+    # Elsewhere a bare number at the error query is a late reply, out of step.
+    assert read_error(ERRORS, reply) == InstrumentError(None, reply.strip())
 
 
 def test_read_error_honors_the_profiles_ok_pattern() -> None:
@@ -816,3 +834,146 @@ def test_parse_reply_bits_names_a_channel_the_masks_do_not_reach() -> None:
     assert parse_reply(r, "2", 2) == {"output": True}
     with pytest.raises(ParseError, match="no mask or shift for channel 3"):
         parse_reply(r, "2", 3)
+
+
+def test_render_fills_the_system_scope_generator_and_scan_placeholders() -> None:
+    assert render("DISP:TEXT '{text}'", text="HELLO") == "DISP:TEXT 'HELLO'"
+    assert render("TRIG:A:LEV:CH{src} {value}", src=2, value="0.5") == "TRIG:A:LEV:CH2 0.5"
+    assert render("C{ch}:MDWV {modulation},DEPTH,{value}", ch=1, modulation="AM", value="50") == (
+        "C1:MDWV AM,DEPTH,50"
+    )
+    assert render("CONF:TEMP TC,{tc},(@{channels})", tc="K", channels="101,102") == (
+        "CONF:TEMP TC,K,(@101,102)"
+    )
+    assert render("DATA:REM? {count}", count=3) == "DATA:REM? 3"
+
+
+def keyed(field: str, key: str, map: dict[str, str] | None = None, scale: float = 1.0) -> Reader:
+    return dataclasses.replace(
+        reader("keyed", fields=(field,), map=map), key=key, name=field, scale=scale
+    )
+
+
+BSWV = "C1:BSWV WVTP,SINE,FRQ,100HZ,PERI,0.01S,AMP,2V,OFST,-1V,HLEV,0V,LLEV,-2V,PHSE,0"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("FRQ", 100.0), ("peri", 0.01), ("AMP", 2.0), ("OFST", -1.0), ("LLEV", -2.0), ("PHSE", 0.0)],
+)
+def test_parse_reply_keyed_reads_a_number_after_its_key(key: str, value: float) -> None:
+    assert parse_reply(keyed("frequency_set", key), BSWV) == {"frequency_set": value}
+
+
+@pytest.mark.parametrize(
+    ("token", "value"),
+    [
+        ("100HZ", 100.0),
+        ("5KHZ", 5000.0),
+        ("1MHZ", 1e6),
+        ("2V", 2.0),
+        ("-1V", -1.0),
+        ("500MV", 0.5),
+        ("0.01S", 0.01),
+        ("10US", 1e-5),
+        ("4VPP", 4.0),
+        ("50", 50.0),
+        ("2.5e3HZ", 2500.0),
+    ],
+)
+def test_parse_reply_keyed_strips_a_unit_and_scales_by_its_prefix(token: str, value: float) -> None:
+    got = parse_reply(keyed("frequency_set", "FRQ"), f"FRQ,{token}")["frequency_set"]
+    assert got == pytest.approx(value)
+
+
+def test_parse_reply_keyed_applies_the_reader_scale() -> None:
+    assert parse_reply(keyed("width_set", "WIDTH", scale=1e-3), "WIDTH,2") == {"width_set": 0.002}
+
+
+def test_parse_reply_keyed_maps_a_label_and_reads_a_switch() -> None:
+    shape = keyed("shape", "WVTP", {"sine": "sine", "square": "square"})
+    assert parse_reply(shape, BSWV) == {"shape": "sine"}
+    with pytest.raises(ParseError, match="not in the map"):
+        parse_reply(shape, "C1:BSWV WVTP,NOISE")
+    burst = keyed("burst", "STATE")
+    assert parse_reply(burst, "C1:BTWV STATE,ON,PRD,0.01S") == {"burst": True}
+    assert parse_reply(burst, "C1:BTWV STATE,OFF") == {"burst": False}
+
+
+def test_parse_reply_keyed_leaves_a_missing_key_unknown() -> None:
+    reply = "C1:MDWV STATE,OFF"
+    assert math.isnan(
+        parse_reply(keyed("modulation_depth_set", "DEPTH"), reply)["modulation_depth_set"]
+    )
+    assert parse_reply(keyed("modulation_type", "MDSP", {"am": "am"}), reply) == {
+        "modulation_type": "other"
+    }
+    assert parse_reply(keyed("burst", "BURST"), reply) == {}
+    assert parse_reply(keyed("modulation", "STATE"), reply) == {"modulation": False}
+
+
+def test_parse_reply_keyed_without_a_header_and_with_a_key_that_ends_the_reply() -> None:
+    assert parse_reply(keyed("frequency_set", "FRQ"), "WVTP,SINE,FRQ,5KHZ") == {
+        "frequency_set": 5000.0
+    }
+    assert math.isnan(parse_reply(keyed("frequency_set", "FRQ"), "WVTP,FRQ")["frequency_set"])
+
+
+def test_parse_reply_keyed_looks_for_its_key_only_before_the_until_token() -> None:
+    rate = dataclasses.replace(keyed("modulation_frequency_set", "FRQ"), until="carr")
+    fsk = "C1:MDWV FSK,STATE,ON,KFRQ,100HZ,CARR,WVTP,SINE,FRQ,1000HZ"
+    assert math.isnan(parse_reply(rate, fsk)["modulation_frequency_set"])
+    assert parse_reply(keyed("modulation_frequency_set", "FRQ"), fsk) == {
+        "modulation_frequency_set": 1000.0
+    }
+    am = "C1:MDWV AM,STATE,ON,FRQ,100HZ,CARR,WVTP,SINE,FRQ,1000HZ"
+    assert parse_reply(rate, am) == {"modulation_frequency_set": 100.0}
+
+
+def test_parse_reply_keyed_refuses_a_value_that_is_not_a_number() -> None:
+    with pytest.raises(ParseError, match="expected a number"):
+        parse_reply(keyed("frequency_set", "FRQ"), "FRQ,FAST")
+    with pytest.raises(ParseError, match="expected a number"):
+        parse_reply(keyed("frequency_set", "FRQ"), "FRQ,5QHZ")
+
+
+APPLY = '"SIN,+5.0E+03,+3.0E+00,-3.0E+00,+4.0E+00"'
+
+
+def test_parse_reply_index_reads_a_quoted_list() -> None:
+    assert parse_reply(reader("float", index=1), APPLY) == {"x": 5000.0}
+    assert parse_reply(reader("float", index=4), APPLY) == {"x": 4.0}
+    assert parse_reply(reader("map", index=0, map={"sin": "sine"}), APPLY) == {"x": "sine"}
+    assert parse_reply(reader("str", index=0), APPLY) == {"x": "SIN"}
+    assert parse_reply(reader("str"), APPLY) == {"x": APPLY}
+
+
+def test_check_range_takes_only_one_of_the_choices() -> None:
+    nplc = dataclasses.replace(range_(0.02, 100), choices=(0.02, 0.2, 1.0, 10.0, 100.0))
+    check_range(0.2, nplc, None, "nplc")
+    check_range(10.000000000001, nplc, None, "nplc")
+    with pytest.raises(RangeError, match="nplc must be one of 0.02, 0.2, 1, 10, 100"):
+        check_range(5, nplc, None, "nplc")
+    check_resolution(0.02, dataclasses.replace(nplc, digits=0), "nplc")
+
+
+def test_setter_command_sends_the_off_command_of_a_switch() -> None:
+    relay = dataclasses.replace(setter("relay", "ROUTE:CLOSE (@{ch})"), off="ROUTE:OPEN (@{ch})")
+    assert setter_command(relay, ch=101, on=True) == "ROUTE:CLOSE (@101)"
+    assert setter_command(relay, ch=101, on=False) == "ROUTE:OPEN (@101)"
+
+
+def test_setter_command_fills_the_trigger_source_and_the_modulation() -> None:
+    level = setter("trigger_level", "TRIG:A:LEV:CH{src} {value}", per_channel=False)
+    assert setter_command(level, ch=None, value=0.5, src=3) == "TRIG:A:LEV:CH3 0.5"
+    depth = setter("modulation_depth", "C{ch}:MDWV {modulation},DEPTH,{value}")
+    assert setter_command(depth, ch=2, value=80, modulation="AM") == "C2:MDWV AM,DEPTH,80"
+
+
+def test_clear_commands_sends_every_command_of_a_command_setter() -> None:
+    trigger = dataclasses.replace(
+        setter("trigger", "TRIG:SOUR BUS"), commands=("TRIG:SOUR BUS", "SOUR{ch}:TRIG")
+    )
+    assert clear_commands(trigger, ch=2) == ["TRIG:SOUR BUS", "SOUR2:TRIG"]
+    force = dataclasses.replace(setter("force", "TRIG:FORC CH{src}"), per_channel=False)
+    assert clear_commands(force, ch=1, src=4) == ["TRIG:FORC CH4"]

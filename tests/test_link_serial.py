@@ -347,3 +347,25 @@ def test_a_reply_that_is_not_a_block_is_refused_and_the_link_stays_usable(
         assert link.query("*IDN?") == IDN
     finally:
         link.close()
+
+
+def test_raw_bytes_come_back_as_they_arrived(instrument: LineServer) -> None:
+    link = connect(instrument)
+    try:
+        link.write("ECHO BM1234")
+        assert link.read_bytes(2) == b"BM"
+        assert link.read_bytes(5) == b"1234\n"
+        with pytest.raises(LinkTimeout):
+            link.read_bytes(1)
+    finally:
+        link.close()
+
+
+def test_a_block_written_goes_out_after_the_command(instrument: LineServer) -> None:
+    link = connect(instrument)
+    try:
+        link.write_block("ECHO ", b"setup")
+        assert link.read() == "#15setup"
+        assert instrument.received == ["ECHO #15setup"]
+    finally:
+        link.close()

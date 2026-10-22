@@ -9,7 +9,7 @@ import threading
 import time
 
 from .config import InstrumentConfig
-from .link import Address, Link, LinkSettings, LinkTimeout
+from .link import Address, Link, LinkSettings, LinkTimeout, definite_block
 from .profile import Profile, by_id
 from .profile_load import shipped
 from .sim.fake import FakeInstrument
@@ -57,6 +57,18 @@ class InProcessLink:
         if self._pending and isinstance(self._pending[0], bytes):
             return self.read_block(timeout_s)
         return self.read(timeout_s)
+
+    def read_bytes(self, count: int, timeout_s: float | None = None) -> bytes:
+        if not self._pending:
+            raise LinkTimeout(f"no reply from {self.where}")
+        reply = self._pending.pop(0)
+        data = reply if isinstance(reply, bytes) else reply.encode()
+        if len(data) > count:
+            self._pending.insert(0, data[count:])
+        return data[:count]
+
+    def write_block(self, command: str, payload: bytes) -> None:
+        self.write(command + definite_block(payload).decode("latin-1"))
 
     def query(self, command: str) -> str:
         self.write(command)

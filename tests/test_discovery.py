@@ -1545,3 +1545,10 @@ def test_list_usb_skips_a_device_whose_descriptors_cannot_be_read(
 
     assert [f.detail for f in found] == ["DP832"]
     assert "Skipping a USB device that cannot be read: descriptor read failed" in caplog.text
+
+
+def test_each_address_maps_to_the_connection_that_reaches_it() -> None:
+    assert discovery.connection_of(TcpAddress("10.0.0.5", 5025)) == "lan"
+    assert discovery.connection_of(SerialAddress("COM3")) == "serial"
+    assert discovery.connection_of(VisaAddress("USB0::0x2A8D::0x1602::MY1::INSTR")) == "usb"
+    assert discovery.connection_of(VisaAddress("TCPIP0::10.0.0.5::inst0::INSTR")) == "visa"
