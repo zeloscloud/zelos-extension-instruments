@@ -746,8 +746,10 @@ def _search(
         tried.append(("usb", "USB-TMC devices"))
     if "serial" in asked.listings:
         tried.append(("serial", "serial ports of known instrument vendors"))
-    # A worker holds an instrument, not an address: its other address is held too.
+    # A worker holds an instrument, not an address: its other address is held too, and so is
+    # the address its host name resolves to.
     held_hosts = {host_of_where(where) for where in asked.skip}
+    held_hosts |= resolve(held_hosts, min(1.0, max(0.0, deadline - time.monotonic())))
 
     def is_held(f: Found) -> bool:
         return f.address.where in asked.skip or host_of(f.address) in held_hosts
@@ -832,10 +834,35 @@ def _one_per_host(found: list[Found], prefer: str) -> list[Found]:
 
 
 def default_name(found: Found) -> str:
-    """The model as a trace-safe name, else the list detail."""
+    """The model as a name the config accepts, else the list detail."""
     idn = found.idn
     raw = idn.model if idn is not None and idn.model else found.detail
-    return naming.safe_name(raw, naming.NAME_BYTES)
+    # The config's Name takes ASCII only: a model such as Prüfgerät is saved as Prufgerat.
+    return naming.safe_name(naming.ascii_name(raw) or "instrument", naming.NAME_BYTES)
+
+
+def resolve(hosts: set[str], deadline_s: float = 1.0) -> set[str]:
+    """The addresses the host names among `hosts` resolve to by the deadline, so a name typed
+    in the form matches the address a search finds."""
+    deadline = time.monotonic() + deadline_s
+    jobs = [
+        _Background(lambda n=name: {str(i[4][0]) for i in socket.getaddrinfo(n, None)}, name)
+        for name in hosts
+        if _is_host_name(name)
+    ]
+    resolved: set[str] = set()
+    for job in jobs:
+        resolved |= job.result(deadline, set())
+    return resolved
+
+
+def _is_host_name(text: str) -> bool:
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        # Not an address, a VISA resource or a serial port.
+        return "::" not in text and "/" not in text and not text.upper().startswith("COM")
+    return False
 
 
 @dataclass(frozen=True)

@@ -180,6 +180,7 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     for item in instruments:
         if isinstance(item, dict):
             known |= _hosts(item)
+    known |= discovery.resolve(known)
     names = {
         i["name"] for i in instruments if isinstance(i, dict) and isinstance(i.get("name"), str)
     }
@@ -231,7 +232,7 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
         parts.append(f"Already recording: {', '.join(running)}.")
     if in_form and not added:
         parts.append(f"Already in the form: {', '.join(in_form)}.")
-    if not (added or running or in_form):
+    if not (added or running or in_form or unidentified):
         parts.append(_nothing_found(tried))
         if not instruments:
             instruments = [
@@ -239,7 +240,7 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
             ]
             parts.append("Added the demo bench.")
     if unidentified:
-        parts.append("Not identified: " + "; ".join(unidentified[:5]) + ".")
+        parts.append("Found but not identified: " + "; ".join(unidentified[:5]) + ".")
     message = " ".join(parts)
     return {"status": "success", "config": {"instruments": instruments}, "message": message}
 
@@ -560,7 +561,10 @@ def _ask(
     if instrument is None:
         instrument = _first_instrument()
         if instrument is None:
-            raise ValueError("no instrument is configured")
+            raise ValueError(
+                "no instrument is configured: add one in the extension's settings, or press "
+                "Auto-configure there"
+            )
     worker = workers.get(instrument)
     if worker is None:
         raise ValueError(f"no instrument is named {instrument}; configured: {', '.join(workers)}")

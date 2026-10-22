@@ -944,3 +944,22 @@ def test_the_port_scan_starts_no_batch_past_its_deadline() -> None:
     hits = asyncio.run(discovery._open_ports([("10.255.255.1", 5025)] * 5000, started - 1))
     assert hits == []
     assert time.monotonic() - started < 0.2
+
+
+def test_an_instrument_held_under_its_host_name_is_held_at_its_address(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    """A worker on psu.local held the instrument that a search found as an address, and the
+    search opened a second client on it."""
+    monkeypatch.setattr(
+        discovery,
+        "list_lan",
+        lambda budget_s, tried=None, deadline_s=10.0: [_found(TcpAddress("127.0.0.1", 5025), "a")],
+    )
+    monkeypatch.setattr(
+        discovery,
+        "_identify",
+        lambda *a: pytest.fail("a held instrument was opened"),
+    )
+    results = discovery.discover(profiles, usb=False, skip={"localhost:5025"}, deadline_s=5.0)
+    assert [f.error for f in results] == [discovery.IN_USE]
