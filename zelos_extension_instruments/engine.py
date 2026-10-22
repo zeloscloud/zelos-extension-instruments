@@ -181,8 +181,11 @@ def parse_int(text: str, hex: bool = False) -> int:
         raise ParseError(f"expected a whole number, got {text.strip()!r}") from None
 
 
-def parse_bool(text: str) -> bool:
+def parse_bool(text: str, words: dict[str, str] | None = None) -> bool:
+    """ON/OFF or 1/0, after `words` turns an instrument's own word (`EXT`) into one of them."""
     cleaned = text.strip().strip('"').casefold()
+    if words:
+        cleaned = words.get(cleaned, cleaned)
     if cleaned in _TRUE:
         return True
     if cleaned in _FALSE:
@@ -234,7 +237,7 @@ def parse_reply(reader: Reader, reply: str, channel: int | None = None) -> dict[
     if parse == "int":
         return {name: parse_int(_pick(text, reader.index), reader.hex)}
     if parse == "bool":
-        return {name: parse_bool(_pick(text, reader.index))}
+        return {name: parse_bool(_pick(text, reader.index), reader.map)}
     if parse == "str":
         return {name: text}
     if parse == "map":
@@ -258,7 +261,7 @@ def flag_is_set(flag: Flag, reply: str, channel: int | None = None) -> bool:
     """Whether a protection flag's reply reads true."""
     text = _pick(reply.strip(), flag.index)
     if flag.parse == "bool":
-        return parse_bool(text)
+        return parse_bool(text, flag.map)
     number = _bits(text, flag.mask, flag.shift, flag.hex, channel)
     if flag.map:
         return flag.map.get(str(number), "") not in ("", "none", "false", "0")

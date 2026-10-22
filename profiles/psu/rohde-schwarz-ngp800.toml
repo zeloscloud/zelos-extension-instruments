@@ -16,7 +16,7 @@ Mode reads the questionable condition register of the channel: bit 0 is constant
 Protection reads OVP, fuse (OCP), OPP and over-temperature. The OVP, fuse (OCP) and OPP functions each have an on/off state; the OVP and OCP states are read and switched, the OPP state is not. \
 Clear resets the OVP, OCP (FUSE:TRIP:CLEar) and OPP trips of the selected channel. \
 The manual lists no OCP level command, so the OCP setter is omitted. \
-Remote sense answers INT or EXT and tracking is enabled per channel; the profile reads neither. \
+Remote sense is read from VOLT:SENS?, which answers INT or EXT. Tracking, where channels follow each other's setpoints, is not a series or parallel mode, so it is not read. \
 The LAN socket port is fixed at 5025."""
 
 [evidence]
@@ -95,6 +95,11 @@ parse = "bool"
 [state.ocp_on]
 query = "FUSE?"
 parse = "bool"
+
+[state.remote_sense]
+query = "VOLT:SENS?"
+parse = "bool"
+map = { INT = "off", EXT = "on" }
 
 [state.output]
 query = "OUTP?"

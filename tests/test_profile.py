@@ -582,6 +582,16 @@ LINT_CASES: list[tuple[str, Any, str, str]] = [
         "must be a non-empty list of tables.",
     ),
     (
+        "bool map to a word other than on or off",
+        lambda r: set_(
+            r,
+            "state",
+            {"remote_sense": {"query": "SENS?", "parse": "bool", "map": {"EXT": "external"}}},
+        ),
+        "state.remote_sense.map",
+        'must map each word to "on" or "off" for parse = "bool".',
+    ),
+    (
         "value setter without {value}",
         lambda r: set_(r, "setters", {"voltage": {"command": "VOLT 5"}}),
         "setters.voltage.command",

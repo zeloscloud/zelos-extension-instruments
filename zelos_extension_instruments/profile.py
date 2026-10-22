@@ -966,6 +966,8 @@ def _parse_options(
         mapping = {}
     if parse == "map" and not mapping:
         c.fail(f"{where}.map", 'missing: parse = "map" needs it.')
+    if parse == "bool" and any(v not in ("on", "off") for v in mapping.values()):
+        c.fail(f"{where}.map", 'must map each word to "on" or "off" for parse = "bool".')
     if labels is not None:
         for label in mapping.values():
             if label not in labels:
