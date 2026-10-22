@@ -4,6 +4,7 @@ import dataclasses
 import math
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -13,12 +14,14 @@ from tests.conftest import (
     RecordingEmitter,
     ScriptedLink,
     ask,
+    connected,
     instrument_config,
     opener_for,
     start,
     start_open,
     wait_until,
 )
+from zelos_extension_instruments.clock import NS_PER_S
 from zelos_extension_instruments.link import LinkError, LinkTimeout
 from zelos_extension_instruments.profile import Profile, by_id
 from zelos_extension_instruments.profile_load import from_dict, load_file, shipped
@@ -1132,3 +1135,268 @@ def test_a_local_of_several_commands_sends_them_in_order(dp800: Profile, dp832: 
         worker.join(2)
     # Stopping hands the panel back the same way.
     assert link.commands[-2:] == ["DEBug:KEY 1", "SYSTem:KEY 8"]
+
+
+DP832_IDN = "RIGOL TECHNOLOGIES,DP832A,DP8C000001,00.01.16"
+LATE_READING = "5.0000,0.5000,2.500"
+
+
+def assert_in_step(worker: InstrumentWorker) -> None:
+    """The next query gets its own reply, not one left over from an earlier query."""
+    assert worker._query("*IDN?") == DP832_IDN
+
+
+@pytest.mark.parametrize(
+    ("query", "recorded"),
+    [(":MEAS:ALL? CH1", {}), (":OUTP:MODE? CH1", {"mode": "unknown"})],
+)
+def test_a_reply_that_does_not_parse_is_resynchronized_before_the_next_query(
+    dp800: Profile, dp832: Dp832, query: str, recorded: dict[str, str]
+) -> None:
+    held: list[ScriptedLink] = []
+    armed = {"on": False}
+
+    def handler(command: str) -> str | None:
+        if armed["on"] and command == query:
+            armed["on"] = False
+            held[0].push("garbled")
+            held[0].push(LATE_READING)
+            return None
+        return dp832(command)
+
+    worker, link, emitter = connected(dp800, handler)
+    held.append(link)
+    assert worker._plan is not None
+    step = next(s for s in (*worker._plan.fast, *worker._plan.slow) if s.query == query)
+    rows: dict[int | None, dict[str, Any]] = {}
+    armed["on"] = True
+    cleared = link.cleared
+    worker._run_step(step, rows)
+    assert rows.get(1, {}) == recorded
+    assert link.cleared > cleared
+    assert any("replies were out of step" in m and "garbled" in m for m in emitter.messages())
+    assert_in_step(worker)
+
+
+@pytest.mark.parametrize("fault", ["timeout", "parse"])
+def test_a_poll_row_that_fails_is_resynchronized_and_read_again_next_time(
+    dp800: Profile, dp832: Dp832, fault: str
+) -> None:
+    held: list[ScriptedLink] = []
+    armed = {"on": False}
+
+    def handler(command: str) -> str | None:
+        if command != "SYST:TEMP?":
+            return dp832(command)
+        if not armed["on"]:
+            return "41.5"
+        armed["on"] = False
+        if fault == "timeout":
+            held[0].push("39.0")
+            raise LinkTimeout("no reply")
+        held[0].push("hot")
+        held[0].push("39.0")
+        return None
+
+    poll = {"poll": [{"name": "temp", "query": "SYST:TEMP?", "unit": "degC", "every_s": 0.1}]}
+    worker, link, emitter = connected(dp800, handler, advanced=poll)
+    held.append(link)
+    armed["on"] = True
+    now = worker._now()
+    worker._poll_table(now)
+    assert emitter.polls == [] and worker._poll_values == {}
+    assert any("replies were out of step" in m for m in emitter.messages())
+    assert_in_step(worker)
+    worker._poll_table(now + 10 * NS_PER_S)
+    assert [p[:3] for p in emitter.polls] == [("psu", "temp", 41.5)]
+
+
+@pytest.mark.parametrize("fault", ["timeout", "unexpected reply"])
+def test_an_error_queue_that_misanswers_is_resynchronized_before_the_next_query(
+    dp800: Profile, dp832: Dp832, fault: str
+) -> None:
+    held: list[ScriptedLink] = []
+    armed = {"on": False}
+
+    def handler(command: str) -> str | None:
+        if not (armed["on"] and command == "SYST:ERR?"):
+            return dp832(command)
+        armed["on"] = False
+        if fault == "timeout":
+            held[0].push(LATE_READING)
+            raise LinkTimeout("no reply")
+        held[0].push(LATE_READING)
+        held[0].push('0,"No error"')
+        return None
+
+    worker, link, emitter = connected(dp800, handler)
+    held.append(link)
+    armed["on"] = True
+    assert worker._drain_errors() == 0
+    assert worker._errors == 0
+    assert any("replies were out of step" in m for m in emitter.messages())
+    assert_in_step(worker)
+
+
+@pytest.mark.parametrize(("decoys", "reads"), [(0, 0), (9, 8)], ids=["silent", "flooded"])
+def test_a_resync_that_never_sees_the_identity_gives_up_and_clears_the_link(
+    dp800: Profile, dp832: Dp832, decoys: int, reads: int
+) -> None:
+    """At most eight replies are read for the identity; what is still on its way is cleared so
+    it cannot answer the next query."""
+    held: list[ScriptedLink] = []
+    armed = {"on": False}
+
+    def handler(command: str) -> str | None:
+        if not (armed["on"] and command == "*IDN?"):
+            return dp832(command)
+        for _ in range(decoys):
+            held[0].push(LATE_READING)
+        return None
+
+    worker, link, _ = connected(dp800, handler)
+    held.append(link)
+    armed["on"] = True
+    read_before = len(link.timeouts_asked)
+    with pytest.raises(LinkError, match="replies stayed out of step"):
+        worker._resync("probe")
+    assert len(link.timeouts_asked) - read_before == reads
+    cleared = link.cleared
+    worker._recover("probe")
+    assert link.cleared == cleared + 2
+    armed["on"] = False
+    assert_in_step(worker)
+
+
+def test_a_resync_on_a_link_that_fails_is_cleared_and_does_not_raise_from_recover(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    armed = {"on": False}
+
+    def handler(command: str) -> str | None:
+        if armed["on"] and command == "*IDN?":
+            raise LinkError("the link dropped")
+        return dp832(command)
+
+    worker, link, _ = connected(dp800, handler)
+    armed["on"] = True
+    cleared = link.cleared
+    worker._recover("probe")
+    assert link.cleared == cleared + 2
+    armed["on"] = False
+    assert_in_step(worker)
+
+
+@pytest.mark.usefixtures("fast_schedule")
+def test_an_unexpected_exception_in_the_poll_loop_reconnects_the_worker(
+    dp800: Profile, dp832: Dp832, caplog: pytest.LogCaptureFixture
+) -> None:
+    opened: list[ScriptedLink] = []
+    crashed = {"done": False}
+
+    def handler(command: str) -> str | None:
+        if command == ":MEAS:ALL? CH1" and not crashed["done"]:
+            crashed["done"] = True
+            raise RuntimeError("boom")
+        return dp832(command)
+
+    def opener(address: Any, settings: Any) -> ScriptedLink:
+        opened.append(ScriptedLink(handler))
+        return opened[-1]
+
+    emitter = RecordingEmitter()
+    worker = InstrumentWorker(instrument_config(rate_hz=50), [dp800], emitter, open=opener)
+    worker.start()
+    try:
+        assert wait_until(lambda: len(opened) == 2 and worker.state == "open", timeout_s=5)
+        assert any("an unexpected error" in m for m in emitter.messages())
+        assert any("unexpected error; reconnecting" in r.message for r in caplog.records)
+        before = len(emitter.rows)
+        assert wait_until(lambda: len(emitter.rows) > before + 3)
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+@pytest.mark.usefixtures("fast_schedule")
+def test_a_link_that_drops_inside_a_request_answers_it_and_reconnects(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    opened: list[ScriptedLink] = []
+
+    def handler(command: str) -> str | None:
+        if command == "DROP?":
+            raise LinkError("the link dropped", "other")
+        return dp832(command)
+
+    def opener(address: Any, settings: Any) -> ScriptedLink:
+        opened.append(ScriptedLink(handler))
+        return opened[-1]
+
+    emitter = RecordingEmitter()
+    worker = InstrumentWorker(instrument_config(rate_hz=50), [dp800], emitter, open=opener)
+    worker.start()
+    try:
+        assert wait_until(lambda: worker.state == "open", timeout_s=5)
+        assert ask(worker, "scpi", command="DROP?") == {"error": "the link dropped"}
+        assert wait_until(lambda: len(opened) == 2 and worker.state == "open", timeout_s=5)
+        assert any("disconnected" in m and "the link dropped" in m for m in emitter.messages())
+        assert opened[0].closed
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_request_that_raises_unexpectedly_is_answered_with_its_message(
+    dp800: Profile, dp832: Dp832, caplog: pytest.LogCaptureFixture
+) -> None:
+    def handler(command: str) -> str | None:
+        if command == "BOOM?":
+            raise RuntimeError("kaboom")
+        return dp832(command)
+
+    worker, emitter = start_open(dp800, ScriptedLink(handler))
+    try:
+        assert ask(worker, "scpi", command="BOOM?") == {"error": "scpi failed: kaboom"}
+        assert any("scpi failed" in r.message for r in caplog.records)
+        assert ask(worker, "scpi", command="*IDN?") == {"reply": DP832_IDN}
+        assert worker.state == "open"
+        assert not any("disconnected" in m for m in emitter.messages())
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+class HangingLink(ScriptedLink):
+    """A link whose reads block, once told to, until it is closed."""
+
+    def __init__(self, handler: Callable[[str], str | None]) -> None:
+        super().__init__(handler, "hanging")
+        self.hang = False
+        self.reading = threading.Event()
+        self.freed = threading.Event()
+
+    def read(self, timeout_s: float | None = None) -> str:
+        if self.hang:
+            self.reading.set()
+            self.freed.wait(10)
+            raise LinkError("closed while reading")
+        return super().read(timeout_s)
+
+    def close(self) -> None:
+        super().close()
+        self.freed.set()
+
+
+def test_stop_closes_a_link_that_is_still_blocked_in_a_read(dp800: Profile, dp832: Dp832) -> None:
+    link = HangingLink(dp832)
+    worker, _ = start_open(dp800, link, advanced={"timeout_s": 0.1})
+    try:
+        link.hang = True
+        assert link.reading.wait(5)
+        worker.stop()
+        worker.join(2)
+        assert not worker.is_alive()
+        assert link.closed
+    finally:
+        link.freed.set()

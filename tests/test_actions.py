@@ -8,10 +8,18 @@ from typing import Any
 import pytest
 from zelos_sdk.actions import ActionExecutionError, ValidationError
 
-from tests.conftest import Dp832, RecordingEmitter, ScriptedLink, instrument_config, wait_until
+from tests.conftest import (
+    Dp832,
+    RecordingEmitter,
+    ScriptedLink,
+    instrument_config,
+    opener_for,
+    wait_until,
+)
 from zelos_extension_instruments import actions, discovery
 from zelos_extension_instruments.link import TcpAddress, VisaAddress
-from zelos_extension_instruments.profile import Profile, parse_idn
+from zelos_extension_instruments.profile import Profile, by_id, parse_idn
+from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 
 ACTIONS = {
@@ -471,3 +479,147 @@ def test_auto_config_names_two_of_one_model_apart(monkeypatch: pytest.MonkeyPatc
         "DP832A_1",
         "DP832A_2",
     ]
+
+
+@pytest.fixture
+def scope_bench(profiles: list[Profile]) -> Iterator[tuple[FakeInstrument, RecordingEmitter]]:
+    """One running scope, `scope`, on the simulator."""
+    profile = by_id(profiles, "siglent-sds")
+    assert profile is not None
+    fake = FakeInstrument(profile)
+    emitter = RecordingEmitter()
+    actions.workers.clear()
+    cfg = instrument_config(name="scope", profile=profile.id, rate_hz=50)
+    link = ScriptedLink(fake.handle, "scope")
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
+    worker.start()
+    actions.workers["scope"] = worker
+    assert wait_until(lambda: worker.state == "open", timeout_s=10), worker.health
+    yield fake, emitter
+    worker.stop()
+    worker.join(5)
+    actions.workers.clear()
+
+
+def test_set_channel_sets_every_channel_value_it_is_given(scope_bench) -> None:
+    fake, _ = scope_bench
+    assert run(
+        "set_channel",
+        instrument="scope",
+        channel=2,
+        scale=0.2,
+        offset=-0.1,
+        coupling="ac",
+        probe=10.0,
+        visible=False,
+    ) == {
+        "scale": {"set": 0.2, "readback": 0.2},
+        "offset": {"set": -0.1, "readback": -0.1},
+        "coupling": "ac",
+        "probe": {"set": 10.0, "readback": 10.0},
+        "visible": False,
+    }
+    assert fake.scope is not None
+    assert fake.scope.per_channel[2] == {
+        "visible": False,
+        "scale": 0.2,
+        "offset": -0.1,
+        "coupling": "ac",
+        "bandwidth_limit": "full",
+        "probe": 10.0,
+    }
+    assert fake.scope.per_channel[1]["scale"] == 0.5
+
+
+def test_set_timebase_sets_the_sweep_and_the_delay(scope_bench) -> None:
+    fake, _ = scope_bench
+    assert run("set_timebase", instrument="scope", timebase=0.001, delay=0.0002) == {
+        "timebase": {"set": 0.001, "readback": 0.001},
+        "delay": {"set": 0.0002, "readback": 0.0002},
+    }
+    assert fake.scope is not None
+    assert (fake.scope.shared["timebase"], fake.scope.shared["delay"]) == (0.001, 0.0002)
+
+
+def test_set_trigger_sets_source_level_slope_and_mode(scope_bench) -> None:
+    fake, _ = scope_bench
+    assert run(
+        "set_trigger", instrument="scope", source="ch2", level=0.3, slope="falling", mode="normal"
+    ) == {
+        "trigger_source": "ch2",
+        "trigger_level": {"set": 0.3, "readback": 0.3},
+        "trigger_slope": "falling",
+        "trigger_mode": "normal",
+    }
+    assert fake.scope is not None
+    shared = fake.scope.shared
+    assert shared["trigger_source"] == "ch2" and shared["trigger_level"] == 0.3
+    assert shared["trigger_slope"] == "falling" and shared["trigger_mode"] == "normal"
+
+
+def test_run_control_sends_the_command_it_names(scope_bench) -> None:
+    fake, _ = scope_bench
+    assert fake.scope is not None
+    assert run("run_control", instrument="scope", command="stop") == {
+        "ok": True,
+        "command": "stop",
+    }
+    assert fake.scope.running is False
+    assert run("run_control", instrument="scope", command="single")["command"] == "single"
+    assert fake.scope.shared["trigger_mode"] == "single"
+    assert run("run_control", instrument="scope", command="run")["command"] == "run"
+    assert fake.scope.running is True
+
+
+def test_measure_shows_a_measurement_in_the_slot_asked_for_and_clears_it(scope_bench) -> None:
+    fake, _ = scope_bench
+    shown = run("measure", instrument="scope", channel=2, type="frequency", slot=3)
+    assert shown["slot"] == 3 and shown["channel"] == 2 and shown["type"] == "frequency"
+    assert shown["value"] == pytest.approx(1000.0)
+    assert fake.scope is not None
+    assert fake.scope.slots[3] == (True, "FREQ", "C2")
+    assert run("measure", instrument="scope", channel=2, type="frequency", slot=3, off=True) == {
+        "slot": 3,
+        "off": True,
+    }
+    assert fake.scope.slots[3][0] is False
+
+
+def test_capture_waveform_fetches_the_channel_and_points_it_is_given(scope_bench) -> None:
+    _, emitter = scope_bench
+    captured = run("capture_waveform", instrument="scope", channel=2, points=50)
+    assert captured["channel"] == 2 and captured["samples"] == 50
+    [(name, ch, samples)] = emitter.waveforms
+    assert (name, ch, len(samples)) == ("scope", 2, 50)
+
+
+def test_an_action_the_worker_does_not_answer_in_time_is_cancelled(
+    dp800: Profile, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker never runs a request the person was told had failed."""
+    idle = InstrumentWorker(instrument_config(name="idle"), [dp800], RecordingEmitter())
+    monkeypatch.setattr(actions, "workers", {"idle": idle})
+    with pytest.raises(RuntimeError, match=r"^idle did not answer within 0\.1 s$"):
+        actions._ask("idle", "state", 0.6)
+    [request] = idle._requests
+    assert request.future.cancelled()
+
+
+def test_an_action_for_an_instrument_that_is_not_configured_names_the_ones_that_are(
+    monkeypatch: pytest.MonkeyPatch, dp800: Profile
+) -> None:
+    workers = {
+        name: InstrumentWorker(instrument_config(name=name), [dp800], RecordingEmitter())
+        for name in ("psu", "aux")
+    }
+    monkeypatch.setattr(actions, "workers", workers)
+    with pytest.raises(ValueError, match=r"^no instrument is named nope; configured: psu, aux$"):
+        actions._ask("nope", "state", 1.0)
+
+
+def test_an_action_with_no_instrument_configured_says_how_to_add_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "workers", {})
+    with pytest.raises(ActionExecutionError, match="no instrument is configured: add one"):
+        execute("get_state")

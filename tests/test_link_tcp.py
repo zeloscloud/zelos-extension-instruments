@@ -366,3 +366,75 @@ def test_the_pacer_keeps_the_plain_delay_without_a_command_delay(
         pacer.mark(written)
     pacer.wait()
     assert clock.slept == [0.05, 0.05, 0.05]
+
+
+def test_a_block_comes_back_as_its_payload_with_the_terminator_that_came_with_it(
+    instrument: LineServer,
+) -> None:
+    link = connect(instrument)
+    try:
+        link.write("BLOCK?")
+        assert link.read_block() == b"HELLO"
+        # The line ending behind the block is not the next reply.
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()
+
+
+def test_a_block_split_across_two_sends_is_joined(instrument: LineServer) -> None:
+    link = connect(instrument, LinkSettings(timeout_s=2))
+    try:
+        link.write("BLOCKSPLIT?")
+        assert link.read_block() == b"HELLO"
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()
+
+
+def test_a_block_whose_header_is_split_is_read_whole(instrument: LineServer) -> None:
+    link = connect(instrument, LinkSettings(timeout_s=2))
+    try:
+        link.write("HEADERSPLIT?")
+        assert link.read_any() == b"HELLO"
+        link.write("*IDN?")
+        assert link.read_any() == IDN
+    finally:
+        link.close()
+
+
+@pytest.mark.parametrize("command", ["SHORTBLOCK?", "NOREPLY?"])
+def test_a_block_that_stops_short_times_out_and_the_link_recovers(
+    instrument: LineServer, command: str
+) -> None:
+    link = connect(instrument)
+    try:
+        link.write(command)
+        with pytest.raises(LinkTimeout):
+            link.read_block()
+        link.clear()
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()
+
+
+@pytest.mark.parametrize(
+    ("command", "complaint"),
+    [
+        ("NOTBLOCK?", "expected a #-block"),
+        ("INDEFINITE?", "expected a definite-length block"),
+        ("BADLENGTH?", "expected a block length"),
+    ],
+)
+def test_a_reply_that_is_not_a_block_is_refused_and_the_link_stays_usable(
+    instrument: LineServer, command: str, complaint: str
+) -> None:
+    link = connect(instrument)
+    try:
+        link.write(command)
+        with pytest.raises(LinkError, match=complaint) as caught:
+            link.read_block()
+        assert caught.value.kind == "reply"
+        # What followed the bad header is dropped, not read as the next reply.
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()

@@ -483,3 +483,33 @@ def test_a_waveform_event_exists_only_once_a_channel_is_captured(
     assert not any(name.endswith("/waveform") for name in spy.fields)
     emitter.waveform("scope", 2, np.array([SECOND], dtype=np.int64), np.array([0.5]))
     assert [name for name in spy.fields if name.endswith("/waveform")] == ["scope/ch2/waveform"]
+
+
+def test_a_scopes_acquisition_settings_are_one_event_with_labels_as_indexes(
+    trace_file: Recording, spy: SpySource, profiles: list[Profile]
+) -> None:
+    scope = next(p for p in profiles if p.id == "siglent-sds")
+    emitter = emitter_for(spy)
+    register(emitter, "scope", scope, 2)
+    emitter.acquisition_row(
+        "scope",
+        {"timebase": 0.0005, "trigger_mode": "normal", "trigger_slope": "turbo", "bogus": 1.0},
+        2 * SECOND,
+    )
+    (row,) = trace_file.events()["scope/acquisition"]
+    assert row[TIME] == 2.0
+    assert row["timebase"] == 0.0005
+    assert row["trigger_mode"] == ENUM_FIELDS["trigger_mode"].index("normal")
+    assert row["trigger_slope"] == len(ENUM_FIELDS["trigger_slope"]) - 1
+    assert "bogus" not in row
+    assert spy.fields["scope/acquisition"]["timebase"] == (zelos_sdk.DataType.Float64, "s")
+
+
+def test_an_instrument_without_acquisition_settings_has_no_acquisition_event(
+    trace_file: Recording, spy: SpySource, dp800: Profile
+) -> None:
+    emitter = emitter_for(spy)
+    register(emitter, "psu", dp800, 1)
+    emitter.acquisition_row("psu", {"timebase": 0.0005}, SECOND)
+    assert "psu/acquisition" not in spy.fields
+    assert "psu/acquisition" not in trace_file.events()

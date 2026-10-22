@@ -426,6 +426,20 @@ def _launch(
     return worker
 
 
+def connected(
+    profile: Profile, handler: Callable[[str], str | bytes | None], /, **overrides: Any
+) -> tuple[InstrumentWorker, ScriptedLink, RecordingEmitter]:
+    """A worker that is connected but not running, for a test that steps its methods by hand."""
+    link = ScriptedLink(handler)
+    emitter = RecordingEmitter()
+    overrides.setdefault("rate_hz", 50)
+    worker = InstrumentWorker(
+        instrument_config(**overrides), [profile], emitter, open=opener_for(link)
+    )
+    assert worker._connect(), worker.health
+    return worker, link, emitter
+
+
 def start(
     profile: Profile,
     handler: Callable[[str], str | bytes | None],
@@ -523,6 +537,24 @@ class _Handler(socketserver.BaseRequestHandler):
         elif command == "DROP?":
             sock.sendall(b"PAR")
             return False
+        elif command == "BLOCK?":
+            sock.sendall(b"#15HELLO\r\n")
+        elif command == "BLOCKSPLIT?":
+            sock.sendall(b"#15HE")
+            time.sleep(0.15)
+            sock.sendall(b"LLO\n")
+        elif command == "HEADERSPLIT?":
+            sock.sendall(b"#")
+            time.sleep(0.15)
+            sock.sendall(b"15HELLO\n")
+        elif command == "SHORTBLOCK?":
+            sock.sendall(b"#15HEL")
+        elif command == "NOTBLOCK?":
+            sock.sendall(b"OK\n")
+        elif command == "INDEFINITE?":
+            sock.sendall(b"#0HELLO\n")
+        elif command == "BADLENGTH?":
+            sock.sendall(b"#2xyHELLO\n")
         elif command.startswith("ECHO "):
             sock.sendall(command.removeprefix("ECHO ").encode() + b"\n")
         return True
