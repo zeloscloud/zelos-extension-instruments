@@ -14,31 +14,45 @@ from zelos_sdk import schemas
 from .config import PollRow, poll_key
 from .naming import MAX_BYTES, Namer
 from .profile import BOOL_FIELDS, ENUM_FIELDS, Profile
+from .profile_scope import MEASUREMENT_FIELDS
 
 logger = logging.getLogger(__name__)
 
 STATUS_FIELDS = {"rtt_ms": "ms", "rate_hz": "Hz", "errors": None, "connected": None}
 
 
+IDENTITY_FIELDS = ("manufacturer", "model", "serial", "firmware", "profile", "address")
+
+
 @dataclass(slots=True)
 class _Instrument:
-    channels: dict[int, zelos_sdk.TraceSourceEvent]
-    functions: dict[str, zelos_sdk.TraceSourceEvent]
+    units: dict[str, str | None]
     status: zelos_sdk.TraceSourceEvent
     log: zelos_sdk.TraceSourceEvent
+    identity: zelos_sdk.TraceSourceEvent
     poll: zelos_sdk.TraceSourceEvent | None
     poll_fields: dict[str, str]
-    fields: dict[str, str | None]
     # One event for settings the whole instrument shares, such as a scope's timebase.
     acquisition: zelos_sdk.TraceSourceEvent | None = None
     acquisition_fields: dict[str, str | None] = field(default_factory=dict)
-    # The waveform event's name per channel; a capture is written as one batch.
-    waveforms: dict[int, str] = field(default_factory=dict)
+    # Each channel's event and the fields it records, registered once the readers are known.
+    channels: dict[int, zelos_sdk.TraceSourceEvent] = field(default_factory=dict)
+    channel_fields: dict[int, dict[str, str | None]] = field(default_factory=dict)
+    # A scope's measurement fields: its readers do not list them, its slots do.
+    measurements: set[str] = field(default_factory=set)
+    # A meter's functions and a channel's waveform get their event at their first value.
+    events: dict[str, zelos_sdk.TraceSourceEvent] = field(default_factory=dict)
+    dmm_units: dict[str, str | None] = field(default_factory=dict)
+    waveform_channels: set[int] = field(default_factory=set)
     warned: set[str] = field(default_factory=set)
 
 
 class Emitter:
-    """Names and writes the trace events of every instrument; the worker decides time."""
+    """Names and writes the trace events of every instrument; the worker decides time.
+
+    An event is registered only once something is written to it, so every signal in the trace
+    holds data.
+    """
 
     def __init__(self, source: zelos_sdk.TraceSource) -> None:
         self._source = source
@@ -48,27 +62,8 @@ class Emitter:
     def add_instrument(
         self, name: str, profile: Profile, channels: int, poll: tuple[PollRow, ...] = ()
     ) -> None:
-        """Register `<name>/ch<n>`, the DMM function events, status, log and the poll table."""
-        # A meter's reading lands under its function's event, not on the channel.
-        units = {k: v for k, v in profile.fields.items() if profile.dmm is None or k != "value"}
-        channel_events: dict[int, zelos_sdk.TraceSourceEvent] = {}
-        fields = [_metadata(field_name, unit) for field_name, unit in units.items()]
-        for ch in range(1, channels + 1):
-            event_name = f"{name}/ch{ch}"
-            if fields:
-                channel_events[ch] = self._source.add_event(event_name, fields)
-                for field_name in units:
-                    if field_name in ENUM_FIELDS:
-                        self._source.add_value_table(
-                            event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
-                        )
-        functions: dict[str, zelos_sdk.TraceSourceEvent] = {}
-        if profile.dmm is not None:
-            for label, unit in profile.dmm.functions.items():
-                functions[label] = self._source.add_event(
-                    f"{name}/{label}",
-                    [zelos_sdk.TraceEventFieldMetadata("value", zelos_sdk.DataType.Float64, unit)],
-                )
+        """Register the status, log, identity, acquisition and poll events. Channels follow
+        through `add_channels`, once the instrument has said which readers it answers."""
         status = self._source.add_event(
             f"{name}/status",
             [
@@ -79,6 +74,13 @@ class Emitter:
             ],
         )
         log = self._source.add_event(f"{name}/log", schemas.Log)
+        identity = self._source.add_event(
+            f"{name}/identity",
+            [
+                zelos_sdk.TraceEventFieldMetadata(k, zelos_sdk.DataType.String)
+                for k in IDENTITY_FIELDS
+            ],
+        )
         poll_event = None
         poll_fields: dict[str, str] = {}
         if poll:
@@ -111,36 +113,74 @@ class Emitter:
                     self._source.add_value_table(
                         event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
                     )
-        waveforms: dict[int, str] = {}
-        if profile.scope is not None and profile.scope.waveform is not None:
-            for ch in range(1, channels + 1):
-                waveforms[ch] = f"{name}/ch{ch}/waveform"
-                self._source.add_event(
-                    waveforms[ch],
-                    [zelos_sdk.TraceEventFieldMetadata("voltage", zelos_sdk.DataType.Float64, "V")],
-                )
+        scope = profile.scope
         self._instruments[name] = _Instrument(
-            channel_events,
-            functions,
-            status,
-            log,
-            poll_event,
-            poll_fields,
-            dict(units),
-            acquisition,
-            dict(acquisition_fields),
-            waveforms,
+            # A meter's reading lands under its function's event, not on the channel.
+            units={k: v for k, v in profile.fields.items() if profile.dmm is None or k != "value"},
+            status=status,
+            log=log,
+            identity=identity,
+            poll=poll_event,
+            poll_fields=poll_fields,
+            acquisition=acquisition,
+            acquisition_fields=dict(acquisition_fields),
+            measurements=set(MEASUREMENT_FIELDS) if scope is not None else set(),
+            dmm_units=dict(profile.dmm.functions) if profile.dmm is not None else {},
+            waveform_channels=(
+                set(range(1, channels + 1))
+                if scope is not None and scope.waveform is not None
+                else set()
+            ),
         )
+
+    def add_channels(self, name: str, fields: dict[int, set[str]]) -> None:
+        """Register `<name>/ch<n>` with the fields its readers produce; a channel that reads
+        nothing gets no event."""
+        inst = self._instruments[name]
+        for ch, names in sorted(fields.items()):
+            if ch in inst.channels:
+                continue
+            kept = {k: u for k, u in inst.units.items() if k in names or k in inst.measurements}
+            if not kept:
+                continue
+            event_name = f"{name}/ch{ch}"
+            inst.channels[ch] = self._source.add_event(
+                event_name, [_metadata(k, u) for k, u in kept.items()]
+            )
+            inst.channel_fields[ch] = kept
+            for field_name in kept:
+                if field_name in ENUM_FIELDS:
+                    self._source.add_value_table(
+                        event_name, field_name, dict(enumerate(ENUM_FIELDS[field_name]))
+                    )
+
+    def _event(
+        self, inst: _Instrument, event_name: str, field_name: str, unit: str | None
+    ) -> zelos_sdk.TraceSourceEvent:
+        event = inst.events.get(event_name)
+        if event is None:
+            event = self._source.add_event(
+                event_name,
+                [zelos_sdk.TraceEventFieldMetadata(field_name, zelos_sdk.DataType.Float64, unit)],
+            )
+            inst.events[event_name] = event
+        return event
 
     def row(self, name: str, ch: int, values: dict[str, Any], time_ns: int) -> None:
         """Write the fields of one channel read at `time_ns`; labels become their table index."""
         inst = self._instruments[name]
         event = inst.channels.get(ch)
-        if event is None or not values:
+        if event is None:
             return
-        row = _typed(values, inst.fields)
+        row = _typed(values, inst.channel_fields[ch])
         if row:
             event.log_at(time_ns, **row)
+
+    def identity(self, name: str, values: dict[str, str], time_ns: int) -> None:
+        """Who the instrument is and how it is reached, written at every connect."""
+        self._instruments[name].identity.log_at(
+            time_ns, **{k: str(values.get(k) or "") for k in IDENTITY_FIELDS}
+        )
 
     def acquisition_row(self, name: str, values: dict[str, Any], time_ns: int) -> None:
         """Write the instrument-wide fields read at `time_ns`."""
@@ -159,28 +199,30 @@ class Emitter:
         volts: npt.NDArray[np.float64],
     ) -> None:
         """One capture of a channel, written as a single Arrow batch."""
-        event = self._instruments[name].waveforms.get(ch)
-        if event is None:
+        inst = self._instruments[name]
+        if ch not in inst.waveform_channels:
             return
+        event_name = f"{name}/ch{ch}/waveform"
+        self._event(inst, event_name, "voltage", "V")
         batch = pa.record_batch(
             {
                 "time_ns": pa.array(time_ns, type=pa.timestamp("ns", tz="UTC")),
                 "voltage": pa.array(volts, type=pa.float64()),
             }
         )
-        self._source.log_batch(event, batch)
+        self._source.log_batch(event_name, batch)
 
     def reading(self, name: str, function: str, value: float, time_ns: int) -> None:
         """A DMM reading, under the active function's event."""
         inst = self._instruments[name]
-        event = inst.functions.get(function)
-        if event is None:
+        if function not in inst.dmm_units:
             if function not in inst.warned:
                 inst.warned.add(function)
                 logger.warning(
                     "%s: no event for function %s; its readings are dropped", name, function
                 )
             return
+        event = self._event(inst, f"{name}/{function}", "value", inst.dmm_units[function])
         event.log_at(time_ns, value=value)
 
     def poll_value(self, name: str, row_name: str, value: float, time_ns: int) -> None:
@@ -205,7 +247,7 @@ class Emitter:
         )
 
     def fields(self, name: str) -> dict[str, str | None]:
-        return dict(self._instruments[name].fields)
+        return dict(self._instruments[name].units)
 
 
 def _typed(values: dict[str, Any], fields: dict[str, str | None]) -> dict[str, Any]:

@@ -139,10 +139,18 @@ class RecordingEmitter(Emitter):
         self.statuses: list[dict[str, Any]] = []
         self.notes: list[tuple[str, str, str]] = []
         self._fields: dict[str, dict[str, str | None]] = {}
+        self.channel_fields: dict[str, dict[int, set[str]]] = {}
+        self.identities: list[tuple[str, dict[str, str]]] = []
 
     def add_instrument(self, name: str, profile: Profile, channels: int, poll: Any = ()) -> None:
         self.registered.append((name, profile.id, channels))
         self._fields[name] = profile.fields
+
+    def add_channels(self, name: str, fields: dict[int, set[str]]) -> None:
+        self.channel_fields[name] = {ch: set(names) for ch, names in fields.items()}
+
+    def identity(self, name: str, values: dict[str, str], time_ns: int) -> None:
+        self.identities.append((name, dict(values)))
 
     def row(self, name: str, ch: int, values: dict[str, Any], time_ns: int) -> None:
         self.rows.append((name, ch, dict(values), time_ns))
@@ -218,6 +226,20 @@ def test_connects_identifies_and_registers_three_channels(running) -> None:
     assert link.commands[:2] == ["*IDN?", "SYST:REMOTE"]
     assert "connected to 127.0.0.1:5555" in emitter.messages()[0]
     assert worker.health.startswith("Connected to RIGOL TECHNOLOGIES DP832A.")
+    assert emitter.identities == [
+        (
+            "psu",
+            {
+                "manufacturer": "RIGOL TECHNOLOGIES",
+                "model": "DP832A",
+                "serial": "DP8C000001",
+                "firmware": "00.01.16",
+                "profile": "rigol-dp800",
+                "address": "127.0.0.1:5555",
+            },
+        )
+    ]
+    assert set(emitter.channel_fields["psu"]) == {1, 2, 3}
 
 
 def test_polls_measurements_and_state_for_every_channel(running) -> None:
@@ -556,6 +578,9 @@ def test_generic_profile_probes_and_drops_what_the_instrument_refuses() -> None:
             "not answered by this instrument, so not recorded: power" in m
             for m in emitter.messages()
         )
+        # A field the instrument refuses is never registered, so it is no empty signal.
+        assert "power" not in emitter.channel_fields["psu"][1]
+        assert "voltage" in emitter.channel_fields["psu"][1]
         assert wait_until(lambda: any(r[2] == {"voltage": 3.3} for r in emitter.rows))
         assert ask(worker, "set", channel=1, voltage=25.0) == {
             "error": "voltage must be from 0 to 20"

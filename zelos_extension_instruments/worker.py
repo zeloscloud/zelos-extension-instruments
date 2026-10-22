@@ -312,6 +312,19 @@ class InstrumentWorker(threading.Thread):
             self._drain_errors(quiet=True)
             self._read_ranges()
             self._probe_optional()
+            self._emitter.add_channels(self.cfg.name, self._channel_fields())
+            self._emitter.identity(
+                self.cfg.name,
+                {
+                    "manufacturer": idn.manufacturer if idn else "",
+                    "model": idn.model if idn else "",
+                    "serial": idn.serial if idn else "",
+                    "firmware": idn.firmware if idn else "",
+                    "profile": profile.id,
+                    "address": self.where,
+                },
+                self._clock.epoch_ns(self._now()),
+            )
         except (LinkError, RangeError, ParseError) as e:
             self._lost(str(e))
             return False
@@ -471,6 +484,20 @@ class InstrumentWorker(threading.Thread):
                     state.ranges[key] = r.with_bounds(
                         low if low is None or math.isfinite(low) else 0.0, high
                     )
+
+    def _channel_fields(self) -> dict[int, set[str]]:
+        """The fields each channel's readers produce, once the probe has dropped what the
+        instrument refuses; an instrument-wide reader's fields land on every channel."""
+        assert self._plan is not None and self.profile is not None
+        shared = INSTRUMENT_FIELDS[self.profile.category]
+        fields: dict[int, set[str]] = {ch: set() for ch in self._channel}
+        for step in self._plan:
+            names = (
+                {"protection"} if step.flag is not None else set(step.reader.fields) - set(shared)
+            )
+            for ch in [step.channel] if step.channel is not None else list(fields):
+                fields.setdefault(ch, set()).update(names)
+        return fields
 
     def _probe_optional(self) -> None:
         """Run each optional query once; drop the ones the instrument refuses."""
