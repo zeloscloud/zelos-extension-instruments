@@ -15,11 +15,11 @@ import sys
 from pathlib import Path
 
 from . import engine
+from .connect import serial_address
 from .link import (
     Link,
     LinkError,
     LinkSettings,
-    SerialAddress,
     TcpAddress,
     VisaAddress,
     open_link,
@@ -36,15 +36,7 @@ def parse_address(text: str, profile: Profile, baud: int | None = None):
     if "::" in text:
         return VisaAddress(text)
     if text.upper().startswith("COM") or text.startswith("/dev/"):
-        link = profile.link
-        return SerialAddress(
-            text,
-            baud=baud or link.baud,
-            data_bits=link.data_bits,
-            parity=link.parity,  # type: ignore[arg-type]
-            stop_bits=link.stop_bits,
-            flow_control=link.flow_control,  # type: ignore[arg-type]
-        )
+        return serial_address(text, profile, baud)
     found = _HOST_PORT.match(text)
     if found is None:
         raise ValueError(f"not an address: {text}")

@@ -10,8 +10,9 @@ import sys
 import tomllib
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, get_args
 
+from .link import FlowControl, Parity
 from .profile import (
     BADGES,
     BOOL_FIELDS,
@@ -30,6 +31,8 @@ from .profile import (
     SWITCH_SETTERS,
     VALUE_SETTERS,
     VERIFY_FIELD,
+    Badge,
+    Category,
     Dmm,
     Errors,
     Evidence,
@@ -73,8 +76,6 @@ def _head(command: str) -> str:
 
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _PLACEHOLDER = re.compile(r"\{([a-z_][a-z_0-9]*)\}")
-_PARITIES = ("none", "even", "odd", "mark", "space")
-_FLOW = ("none", "rts/cts", "xon/xoff", "dtr/dsr")
 
 
 class ProfileError(Exception):
@@ -114,6 +115,9 @@ def shipped() -> list[Profile]:
 def _at(where: str, key: str) -> str:
     """A key's place in the profile, `match.model`, or the key alone at the top level."""
     return f"{where}.{key}" if where else key
+
+
+_Choice = TypeVar("_Choice", bound=str)
 
 
 class Check:
@@ -176,8 +180,13 @@ class Check:
         return value
 
     def choice(
-        self, raw: dict[str, Any], key: str, choices: tuple[str, ...], default: str, where: str
-    ) -> str:
+        self,
+        raw: dict[str, Any],
+        key: str,
+        choices: tuple[_Choice, ...],
+        default: _Choice,
+        where: str,
+    ) -> _Choice:
         value = raw.get(key, default)
         if value not in choices:
             self.fail(_at(where, key), f"must be one of {', '.join(choices)}.")
@@ -243,7 +252,7 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
     if profile_id and path.suffix == ".toml" and path.stem != profile_id:
         c.fail("id", f"must equal the file name, {path.stem}.")
     name = c.required(raw, "name", "")
-    category = c.choice(raw, "category", CATEGORIES, "psu", "")
+    category: Category = c.choice(raw, "category", CATEGORIES, "psu", "")
     generic = c.boolean(raw, "generic", False, "")
     notes = c.string(raw, "notes", None, "")
 
@@ -300,7 +309,7 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
     return Profile(
         id=profile_id,
         name=name,
-        category=category,  # type: ignore[arg-type]
+        category=category,
         generic=generic,
         notes=notes,
         evidence=evidence,
@@ -320,13 +329,13 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
 
 def _evidence(c: Check, raw: dict[str, Any]) -> Evidence:
     c.unknown(raw, ("badge", "source", "url", "firmware", "date"), "evidence")
-    badge = c.choice(raw, "badge", BADGES, "manual", "evidence")
+    badge: Badge = c.choice(raw, "badge", BADGES, "manual", "evidence")
     source = c.required(raw, "source", "evidence")
     date = c.required(raw, "date", "evidence")
     if date and not _DATE.fullmatch(date):
         c.fail("evidence.date", "must be YYYY-MM-DD.")
     return Evidence(
-        badge=badge,  # type: ignore[arg-type]
+        badge=badge,
         source=source,
         url=c.string(raw, "url", None, "evidence"),
         firmware=c.string(raw, "firmware", None, "evidence"),
@@ -436,9 +445,9 @@ def _link(c: Check, raw: dict[str, Any]) -> LinkDefaults:
         lan_port=c.integer(raw, "lan_port", 5025, "link", low=1),
         baud=c.integer(raw, "baud", 9600, "link", low=50),
         data_bits=c.integer(raw, "data_bits", 8, "link", low=5),
-        parity=c.choice(raw, "parity", _PARITIES, "none", "link"),
+        parity=c.choice(raw, "parity", get_args(Parity), "none", "link"),
         stop_bits=c.number(raw, "stop_bits", 1.0, "link") or 1.0,
-        flow_control=c.choice(raw, "flow_control", _FLOW, "none", "link"),
+        flow_control=c.choice(raw, "flow_control", get_args(FlowControl), "none", "link"),
         remote=c.string(raw, "remote", None, "link"),
         local=tuple(local_raw),
         locks_panel=c.boolean(raw, "locks_panel", False, "link"),

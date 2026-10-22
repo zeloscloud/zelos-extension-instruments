@@ -4,7 +4,6 @@ Everything the thread sends comes from the profile; everything it records goes t
 emitter. Requests from actions arrive on a queue and are served between poll steps.
 """
 
-import base64
 import concurrent.futures
 import dataclasses
 import logging
@@ -16,7 +15,7 @@ from collections.abc import Callable, Generator
 from contextlib import suppress
 from typing import Any, Literal
 
-from . import engine, scope_ops
+from . import connect, engine, scope_ops, serve
 from .clock import HostClock
 from .config import InstrumentConfig, poll_key
 from .emitter import Emitter
@@ -27,24 +26,14 @@ from .link import (
     LinkError,
     LinkSettings,
     LinkTimeout,
-    SerialAddress,
-    TcpAddress,
-    VisaAddress,
     open_link,
 )
 from .profile import (
-    COMMAND_SETTERS,
     ENUM_FIELDS,
     INSTRUMENT_FIELDS,
-    LABEL_SETTERS,
-    SWITCH_SETTERS,
-    VALUE_SETTERS,
-    VERIFY_FIELD,
     Idn,
-    Master,
     Profile,
     Range,
-    Setter,
     by_id,
     find,
     is_identity,
@@ -87,8 +76,6 @@ RequestKind = Literal[
 _State = Literal["connecting", "open", "released", "failed", "stopped"]
 _Future = concurrent.futures.Future[dict[str, Any]]
 _WRITE_KINDS = frozenset({"set", "local", "measure", "command", "scpi", "waveform"})
-# A block reply the SCPI action returns whole, as base64; longer ones return their size.
-_BLOCK_RETURN_MAX = 65536
 
 Opener = Callable[[Address, LinkSettings], Link]
 
@@ -273,9 +260,9 @@ class InstrumentWorker(threading.Thread):
         profile = self._chosen_profile()
         if profile is None:
             return False
-        link_settings = self._link_settings(profile)
+        link_settings = connect.link_settings(self.cfg, profile)
         self._link_timeout_s = link_settings.timeout_s
-        address = self._address(profile)
+        address = connect.address(self.cfg, profile)
         self.where = self.cfg.where if self.cfg.connection == "demo" else address.where
         try:
             link = self._open(address, link_settings)
@@ -291,7 +278,7 @@ class InstrumentWorker(threading.Thread):
         link.clear()
         try:
             if profile.link.first:
-                self._send_first(link, profile)
+                connect.send_first(link, profile)
             idn = self._identify(link, profile)
         except (LinkError, RangeError) as e:
             self._close()
@@ -302,13 +289,13 @@ class InstrumentWorker(threading.Thread):
             return False
         try:
             profile = self._resolve_profile(profile, idn)
-            wanted = self._link_settings(profile)
+            wanted = connect.link_settings(self.cfg, profile)
             self._selector = Selector(profile.link.select)
             self._link_timeout_s = wanted.timeout_s
             if wanted != link_settings:
                 # The matched profile frames lines differently from the one used to identify.
                 link.close()
-                self._link = link = self._open(self._address(profile), wanted)
+                self._link = link = self._open(connect.address(self.cfg, profile), wanted)
             self.profile, self.idn = profile, idn
             if profile.link.remote:
                 self._send(profile.link.remote)
@@ -363,73 +350,18 @@ class InstrumentWorker(threading.Thread):
             self.health = f"No profile is named {choice}. Pick one from the list, or auto."
         return profile
 
-    def _address(self, profile: Profile) -> Address:
-        cfg = self.cfg
-        link = profile.link
-        if cfg.connection == "demo":
-            return TcpAddress(cfg.where, 0)
-        if cfg.connection == "lan":
-            assert cfg.host is not None
-            return TcpAddress(cfg.host, cfg.port or link.lan_port)
-        if cfg.connection == "serial":
-            assert cfg.serial_port is not None
-            return SerialAddress(
-                cfg.serial_port,
-                baud=cfg.baud or link.baud,
-                data_bits=link.data_bits,
-                parity=link.parity,  # type: ignore[arg-type]
-                stop_bits=link.stop_bits,
-                flow_control=link.flow_control,  # type: ignore[arg-type]
-            )
-        assert cfg.resource is not None
-        return VisaAddress(cfg.resource, cfg.backend)
-
-    def _link_settings(self, profile: Profile) -> LinkSettings:
-        cfg = self.cfg
-        link = profile.link
-        return LinkSettings(
-            write_terminator=cfg.line_ending or link.write_terminator,
-            read_terminator=cfg.line_ending or link.read_terminator,
-            timeout_s=cfg.timeout_s or link.timeout_s,
-            delay_ms=link.delay_ms if cfg.delay_ms is None else cfg.delay_ms,
-            command_delay_ms=link.command_delay_ms,
-            device_clear=link.device_clear,
-        )
-
-    def _send_first(self, link: Link, profile: Profile) -> None:
-        """The command an instrument needs before it answers anything, with its ack."""
-        command = profile.link.first
-        assert command is not None
-        link.write(command)
-        if profile.link.ack is not None:
-            reply = link.read()
-            if reply.strip() != profile.link.ack:
-                raise LinkError(f"{self.where} answered {command} with {reply.strip()!r}")
-
     def _identify(self, link: Link, profile: Profile) -> Idn | None:
-        """The identity, asked twice: some units ignore the first query after a connect, and
-        bytes left from before can garble the first reply."""
         command = profile.match.idn
-        for attempt in (1, 2):
-            try:
-                reply = link.query(command)
-            except LinkTimeout:
-                if attempt == 1:
-                    link.clear()
-                    continue
-                text = f"accepted the connection but did not answer {command}"
-                if self.cfg.profile == "auto":
-                    text += (
-                        "; an instrument that speaks a dialect without it needs its profile picked"
-                    )
-                raise LinkError(text, "held") from None
-            if is_identity(reply):
-                return parse_idn(reply)
-            if attempt == 1:
-                link.clear()
-                continue
+        try:
+            reply = connect.ask_identity(link, command)
+        except LinkTimeout:
+            text = f"accepted the connection but did not answer {command}"
+            if self.cfg.profile == "auto":
+                text += "; an instrument that speaks a dialect without it needs its profile picked"
+            raise LinkError(text, "held") from None
+        if not is_identity(reply):
             raise LinkError(f"{self.where} answered {command} with {reply!r}")
-        raise AssertionError("unreachable")
+        return parse_idn(reply)
 
     def _resolve_profile(self, chosen: Profile, idn: Idn | None) -> Profile:
         """`auto` picks the matching profile; a chosen one is kept and the identity checked."""
@@ -553,7 +485,9 @@ class InstrumentWorker(threading.Thread):
     def _failed_open(self, e: LinkError) -> None:
         self._link = None
         self.state = "failed"
-        self.health = f"Cannot open {self.where}: {str(e).rstrip('.')}. {_advice(e)} Retrying."
+        self.health = (
+            f"Cannot open {self.where}: {str(e).rstrip('.')}. {connect.advice(e)} Retrying."
+        )
         self._log_once("open", f"cannot open {self.where}: {e}")
         self._backoff_s = min(self._backoff_s * 2, _BACKOFF_MAX_S)
 
@@ -872,7 +806,7 @@ class InstrumentWorker(threading.Thread):
     def _emit_status(self, *, connected: bool) -> None:
         if not self._registered:
             return
-        rate = len(self._fast_times) / (_RATE_WINDOW_NS / _S) if connected else 0.0
+        rate = self._rate_hz() if connected else 0.0
         self._emitter.status(
             self.cfg.name,
             self._rtt_ms if connected else math.nan,
@@ -986,7 +920,9 @@ class InstrumentWorker(threading.Thread):
     def _serve(self, request: _Request) -> dict[str, Any]:
         kind, args = request.kind, request.args
         if kind == "state":
-            return self._state_report()
+            return serve.state_report(
+                self,
+            )
         if kind == "release":
             self._hand_back()
             self._close()
@@ -1009,7 +945,7 @@ class InstrumentWorker(threading.Thread):
             # An error a poll query raised must not be pinned on this request.
             self._drain_errors(quiet=True)
         if kind == "scpi":
-            return self._scpi(args["command"], args.get("timeout_s"))
+            return serve.scpi(self, args["command"], args.get("timeout_s"))
         if kind == "local":
             local = self.profile.link.local
             if not local:
@@ -1022,259 +958,18 @@ class InstrumentWorker(threading.Thread):
         if ch not in self._channel:
             raise RangeError(f"channel must be from 1 to {self.channels}")
         if kind == "read":
-            return self._read_now(ch)
+            return serve.read_now(self, ch)
         if kind == "clear":
-            return self._clear(ch)
+            return serve.clear_protection(self, ch)
         if kind == "set":
-            return self._set_many(ch, args)
+            return serve.set_many(self, ch, args)
         if kind == "measure":
             return scope_ops.measure(self, ch, args)
         if kind == "waveform":
             return scope_ops.capture(self, ch, args)
         if kind == "command":
-            return self._command(str(args["name"]))
+            return serve.run_command(self, str(args["name"]))
         raise RangeError(f"unknown request {kind}")
-
-    def _setter(self, name: str) -> Setter:
-        assert self.profile is not None
-        setter = self.profile.setters.get(name)
-        if setter is None:
-            raise RangeError(f"the profile {self.profile.id} cannot set {name}")
-        return setter
-
-    def _set_many(self, ch: int, args: dict[str, Any]) -> dict[str, Any]:
-        wanted = {k: v for k, v in args.items() if v is not None and k != "channel"}
-        if not wanted:
-            raise RangeError("give at least one value to set")
-        for name, value in wanted.items():
-            # Every value is checked before any goes out, so a refusal leaves nothing changed.
-            self._check_setting(ch, name, value)
-        results: dict[str, Any] = {}
-        try:
-            for name, value in wanted.items():
-                if name in VALUE_SETTERS:
-                    results[name] = self._set_value(ch, name, float(value))
-                elif name == "function":
-                    results[name] = self._set_function(ch, str(value))["function"]
-                elif name in SWITCH_SETTERS:
-                    results[name] = self._set_switch(ch, name, bool(value))[name]
-                else:
-                    results[name] = self._set_label(ch, name, str(value))[name]
-        except (RangeError, ParseError, LinkError) as e:
-            if results:
-                raise RangeError(f"{e}; already set: {', '.join(results)}") from e
-            raise
-        return results
-
-    def _check_setting(self, ch: int, name: str, value: Any) -> None:
-        assert self.profile is not None
-        if name in VALUE_SETTERS:
-            setter = self._setter(name)
-            key = self.profile.range_key(setter)
-            range_ = self._channel[ch].ranges.get(key) if key else None
-            limit = self.cfg.limits.for_key(key or "")
-            if range_ is not None or limit is not None or self.profile.category != "scope":
-                # A scope setting without a range (an offset, a trigger level) harms nothing;
-                # the readback still has to agree. An output's level must be bounded.
-                engine.check_range(float(value), range_, limit, name)
-            engine.check_resolution(float(value), range_, name)
-        elif name == "function":
-            setter = self._setter("function")
-            if str(value) not in setter.map:
-                raise RangeError(f"function must be one of {', '.join(setter.map)}")
-        elif name in SWITCH_SETTERS:
-            self._setter(name)
-        elif name in LABEL_SETTERS:
-            setter = self._setter(name)
-            if str(value) not in setter.map:
-                raise RangeError(f"{name} must be one of {', '.join(setter.map)}")
-        else:
-            raise RangeError(f"{name} is not something that can be set")
-
-    def _set_label(self, ch: int, name: str, label: str) -> dict[str, Any]:
-        """Set an enumerated setting by its label; the readback must agree."""
-        assert self.profile is not None
-        setter = self._setter(name)
-        word = setter.map.get(label)
-        if word is None:
-            raise RangeError(f"{name} must be one of {', '.join(setter.map)}")
-        self._select(ch if setter.per_channel else None)
-        self._send(engine.render(setter.command, ch=ch if setter.per_channel else None, value=word))
-        self._after_write(f"set ch{ch} {name} {label}")
-        field_name = VERIFY_FIELD[name]
-        reader = self.profile.reader(field_name)
-        verify = self.profile.verify_query(setter)
-        if verify is None or reader is None:
-            return {name: label, "unverified": "the profile has no readback"}
-        reply = self._query(engine.render(verify, ch=ch if reader.per_channel else None))
-        readback = engine.parse_reply(reader, reply, ch)[field_name]
-        if readback != label:
-            raise RangeError(f"{name} reads back {readback}")
-        self._mark_own(ch, field_name, readback)
-        return {name: label}
-
-    def _command(self, name: str) -> dict[str, Any]:
-        """Send a setter that is a bare command, such as a scope's run or stop."""
-        if name not in COMMAND_SETTERS or name == "clear":
-            raise RangeError(f"{name} is not a command of this instrument")
-        setter = self._setter(name)
-        self._select(None)
-        for command in setter.commands:
-            self._send(engine.render(command, ch=None))
-        self._after_write(name)
-        return {"ok": True, "command": name}
-
-    def _set_value(self, ch: int, name: str, value: float) -> dict[str, Any]:
-        assert self.profile is not None
-        setter = self._setter(name)
-        key = self.profile.range_key(setter)
-        range_ = self._channel[ch].ranges.get(key) if key else None
-        self._select(ch if setter.per_channel else None)
-        self._send(engine.setter_command(setter, ch=ch, value=value, range_=range_))
-        self._after_write(f"set ch{ch} {name} {engine.format_value(value, range_)}")
-        readback: float | None = None
-        verify = self.profile.verify_query(setter)
-        if verify is not None:
-            reply = self._query(engine.render(verify, ch=ch))
-            field_name = VERIFY_FIELD.get(name, "")
-            reader = self.profile.reader(field_name)
-            # The reader knows the reply's scale and form; a bare verify query is a number in
-            # the instrument's unit.
-            readback = (
-                float(engine.parse_reply(reader, reply, ch)[field_name])
-                if reader is not None and reader.query == verify
-                else engine.parse_float(reply) * setter.scale
-            )
-            if not engine.verified(value, readback, range_):
-                raise RangeError(
-                    f"{name} reads back {readback:g} after setting {value:g}; "
-                    "the instrument may have clipped it or refused it"
-                )
-        field_name = VERIFY_FIELD.get(name)
-        if field_name is not None and readback is not None:
-            self._mark_own(ch, field_name, readback)
-        if readback is None:
-            return {"set": value, "readback": None, "unverified": "the profile has no readback"}
-        return {"set": value, "readback": readback}
-
-    def _set_switch(self, ch: int, name: str, on: bool) -> dict[str, Any]:
-        assert self.profile is not None
-        setter = self._setter(name)
-        master = setter.master if on else None
-        if master is not None and engine.parse_bool(self._query(master.query)):
-            master = None
-        if master is not None:
-            # Raising the master switches on every armed channel, not only this one.
-            armed = [n for n in range(1, self.channels + 1) if n != ch and self._armed(master, n)]
-            if armed:
-                names = ", ".join(f"ch{n}" for n in armed)
-                raise RangeError(
-                    f"the master output is off, and raising it would also switch on {names}; "
-                    "switch those off first"
-                )
-        self._select(ch if setter.per_channel else None)
-        self._send(engine.setter_command(setter, ch=ch, on=on))
-        if master is not None:
-            self._send(engine.render(master.command, on=True))
-        self._after_write(f"set ch{ch} {name} {'on' if on else 'off'}")
-        verify = self.profile.verify_query(setter)
-        readback: bool | None = None
-        if verify is not None:
-            reader = self.profile.reader(name)
-            reply = self._query(engine.render(verify, ch=ch))
-            readback = (
-                bool(engine.parse_reply(reader, reply, ch)[name])
-                if reader is not None and reader.query == verify
-                else engine.parse_bool(reply)
-            )
-            if readback != on:
-                raise RangeError(f"{name} reads back {'on' if readback else 'off'}")
-            self._mark_own(ch, name, readback)
-        return {name: on if readback is None else readback}
-
-    def _armed(self, master: Master, ch: int) -> bool:
-        self._select(ch)
-        return engine.parse_bool(self._query(engine.render(master.armed, ch=ch)))
-
-    def _set_function(self, ch: int, function: str) -> dict[str, Any]:
-        assert self.profile is not None
-        setter = self._setter("function")
-        self._select(ch if setter.per_channel else None)
-        self._send(engine.setter_command(setter, ch=ch, function=function))
-        self._after_write(f"set ch{ch} function {function}")
-        verify = self.profile.verify_query(setter)
-        field_name = "mode" if self.profile.category == "load" else "function"
-        reader = self.profile.reader(field_name)
-        if verify is None or reader is None:
-            return {"function": function, "unverified": "the profile has no readback"}
-        reply = self._query(engine.render(verify, ch=ch))
-        label = engine.parse_reply(reader, reply, ch)[field_name]
-        if label != function:
-            raise RangeError(f"function reads back {label}")
-        self._mark_own(ch, field_name, label)
-        return {"function": function}
-
-    def _clear(self, ch: int) -> dict[str, Any]:
-        """Clear a latched protection, and report how many queued errors were drained."""
-        assert self.profile is not None
-        cleared = self._drain_errors(quiet=True)
-        setter = self.profile.setters.get("clear")
-        if setter is not None:
-            self._select(ch if setter.per_channel else None)
-            for command in engine.clear_commands(setter, ch=ch):
-                self._send(command)
-            self._after_write(f"clear ch{ch} protection")
-        if self.profile.errors is None:
-            return {"ok": True}
-        return {"ok": True, "errors_cleared": cleared + self._drain_errors(quiet=True)}
-
-    def _read_now(self, ch: int) -> dict[str, Any]:
-        """A fresh reading of every fast signal on one channel."""
-        assert self._plan is not None and self.profile is not None
-        values: dict[str, Any] = {}
-        for step in self._plan.fast:
-            if step.channel not in (ch, None):
-                continue
-            self._select(step.channel)
-            values.update(engine.parse_reply(step.reader, self._query(step.query), step.channel))
-        if self.profile.category == "dmm" and "value" in values:
-            values["function"] = self._function
-        if self._slots:
-            rows: dict[int | None, dict[str, Any]] = {}
-            scope_ops.read_slots(self, rows)
-            values.update(rows.get(ch, {}))
-        for row in self.cfg.poll:
-            key = poll_key(row.name, ch if "{ch}" in row.query else None)
-            if key in self._poll_values:
-                values[key] = self._poll_values[key]
-        return values
-
-    def _scpi(self, command: str, timeout_s: float | None) -> dict[str, Any]:
-        assert self._link is not None
-        command = command.strip()
-        if not command:
-            raise RangeError("give a command")
-        self._selector.forget()
-        # A query keeps its `?` on the header, with or without a parameter after it.
-        is_query = "?" in command
-        self._note("info", f"> {command}", source="tx")
-        if is_query:
-            self._queries += 1
-            self._link.write(command)
-            answer = self._link.read_any(timeout_s)
-            if isinstance(answer, bytes):
-                self._recent.append((self._now(), command, f"<block {len(answer)} bytes>"))
-                self._note("info", f"< <block {len(answer)} bytes>", source="rx")
-                result: dict[str, Any] = {"block_bytes": len(answer)}
-                if len(answer) <= _BLOCK_RETURN_MAX:
-                    result["base64"] = base64.b64encode(answer).decode()
-                return result
-            self._recent.append((self._now(), command, answer))
-            self._note("info", f"< {answer}", source="rx")
-            return {"reply": answer}
-        self._send(command)
-        self._after_write(command, log=False)
-        return {"ok": True}
 
     def _after_write(self, what: str, *, log: bool = True) -> None:
         """Check the error queue after a write; the instrument's own text fails the request."""
@@ -1303,64 +998,13 @@ class InstrumentWorker(threading.Thread):
         if log:
             self._note("info", what, source="action")
 
-    def _mark_own(self, ch: int, field_name: str, value: Any) -> None:
-        state = self._channel[ch]
-        state.own_set_ns[field_name] = self._now()
-        state.values[field_name] = value
-        self._emitter.row(self.cfg.name, ch, {field_name: value}, self._clock.epoch_ns(self._now()))
-
-    def _state_report(self) -> dict[str, Any]:
-        profile = self.profile
-        channels = {}
-        for ch, state in self._channel.items():
-            channels[f"ch{ch}"] = {
-                "values": dict(state.values),
-                "ranges": {
-                    k: {"min": r.min, "max": r.max, "digits": r.digits}
-                    for k, r in state.ranges.items()
-                },
-            }
-        return {
-            "state": self.state,
-            "health": self.health,
-            "acquisition": dict(self._acquisition) if self._acquisition else None,
-            "slots": {
-                str(slot): {"channel": ch, "type": field_name}
-                for slot, (ch, field_name) in sorted(self._slots.items())
-            }
-            if self._slots
-            else None,
-            "where": self.where,
-            "identity": self.idn.text if self.idn else None,
-            "profile": None
-            if profile is None
-            else {
-                "id": profile.id,
-                "name": profile.name,
-                "category": profile.category,
-                "badge": profile.evidence.badge,
-                "notes": profile.notes,
-                "setters": sorted(profile.setters),
-                "single_client": profile.link.single_client,
-            },
-            "channels": channels,
-            "limits": dataclasses.asdict(self.cfg.limits),
-            "counters": {
-                "queries": self._queries,
-                "timeouts": self._timeouts_total,
-                "instrument_errors": self._errors,
-                "last_error": self._last_error,
-                "rtt_ms": None if math.isnan(self._rtt_ms) else round(self._rtt_ms, 2),
-                "rate_hz": round(len(self._fast_times) / (_RATE_WINDOW_NS / _S), 2),
-                "target_hz": self.cfg.rate_hz,
-                "dropped": sorted(self._dropped),
-            },
-            "recent": [{"command": c, "reply": r} for _, c, r in list(self._recent)[-10:]],
-        }
+    def _rate_hz(self) -> float:
+        """The readings per second achieved over the last window."""
+        return len(self._fast_times) / (_RATE_WINDOW_NS / _S)
 
     def _open_health(self) -> str:
         who = f"{self.idn.manufacturer} {self.idn.model}".strip() if self.idn else self.where
-        rate = len(self._fast_times) / (_RATE_WINDOW_NS / _S)
+        rate = self._rate_hz()
         fields = len(self._emitter.fields(self.cfg.name)) if self._registered else 0
         text = f"Connected to {who}. Reading {fields} signals"
         if self.cfg.poll:
@@ -1415,19 +1059,3 @@ def _same(a: float, b: float) -> bool:
 
 def _fmt(value: Any) -> str:
     return f"{value:g}" if isinstance(value, float) else str(value)
-
-
-def _advice(e: LinkError) -> str:
-    return {
-        "refused": "Nothing answers on that port; check the host and port, and that the "
-        "instrument's LAN socket is on.",
-        "not_found": "No such device; check the port or resource, and that the instrument is "
-        "plugged in and on.",
-        "unresolved": "The host name cannot be looked up; use its address.",
-        "busy": "It is in use by another program; close that program.",
-        "held": "Instruments serve one client on their SCPI socket: close the other program "
-        "that uses it, or power-cycle the instrument.",
-        "permission": "This user may not open it; check the device permissions.",
-        "timeout": "It did not answer in time; check the address and the cable.",
-        "config": "Fix the setting the message names.",
-    }.get(e.kind, "")

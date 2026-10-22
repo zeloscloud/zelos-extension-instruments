@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from .link import FlowControl, Parity
 from .profile_scope import (
     ACQUISITION_FIELDS,
     CHANNEL_STATE_FIELDS,
@@ -248,9 +249,9 @@ class LinkDefaults:
     lan_port: int
     baud: int
     data_bits: int
-    parity: str
+    parity: Parity
     stop_bits: float
-    flow_control: str
+    flow_control: FlowControl
     remote: str | None
     # The commands that hand the front panel back, in order; empty when the family has none.
     local: tuple[str, ...]

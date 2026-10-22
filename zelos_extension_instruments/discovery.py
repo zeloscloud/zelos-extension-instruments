@@ -25,7 +25,7 @@ import usb.core
 import zeroconf
 from pyvisa_py.tcpip import TCPIPInstrVxi11
 
-from . import naming
+from . import connect, naming
 from .link import (
     CONNECT_TIMEOUT_S,
     Address,
@@ -505,18 +505,6 @@ class _Attempt:
         except Exception as e:
             log.debug("Closing %s failed: %s", self._address.where, e)
 
-    def _ask(self, link: Link) -> str:
-        """`*IDN?`, asked again on the same link after a silent or garbled first reply: some
-        units ignore the first query after a connect, and bytes left from before garble it."""
-        try:
-            reply = link.query("*IDN?")
-        except LinkTimeout:
-            reply = ""
-        if is_identity(reply):
-            return reply
-        link.clear()
-        return link.query("*IDN?")
-
     def _run(self) -> None:
         link = None
         try:
@@ -525,7 +513,7 @@ class _Attempt:
                 if self._abandoned:
                     return
                 self._link = link
-            self._reply = self._ask(link)
+            self._reply = connect.ask_identity(link, "*IDN?")
         except LinkError as e:
             self._error = e
         except Exception as e:

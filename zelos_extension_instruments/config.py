@@ -11,6 +11,8 @@ from typing import Any, Literal
 from jsonschema import Draft7Validator
 from jsonschema.exceptions import ValidationError
 
+from .link import VisaBackend
+
 _SCHEMA = json.loads(
     (Path(__file__).resolve().parent.parent / "config.schema.json").read_text(encoding="utf-8")
 )
@@ -72,7 +74,7 @@ class InstrumentConfig:
     host: str | None
     port: int | None
     resource: str | None
-    backend: Literal["auto", "py", "ivi"]
+    backend: VisaBackend
     serial_port: str | None
     baud: int | None
     category: Category
