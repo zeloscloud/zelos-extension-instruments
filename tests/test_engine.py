@@ -325,6 +325,15 @@ def test_parse_reply_bool() -> None:
     assert parse_reply(reader("bool", index=1), "0,1") == {"x": True}
 
 
+def test_parse_reply_bool_reads_the_instruments_own_words_through_its_map() -> None:
+    sense = reader("bool", map={"int": "off", "ext": "on"})
+    assert parse_reply(sense, "EXT") == {"x": True}
+    assert parse_reply(sense, '"INT"') == {"x": False}
+    assert parse_reply(sense, "1") == {"x": True}
+    with pytest.raises(ParseError):
+        parse_reply(sense, "AUTO")
+
+
 def test_parse_reply_bool_raises_on_garbage() -> None:
     with pytest.raises(ParseError):
         parse_reply(reader("bool"), "maybe")

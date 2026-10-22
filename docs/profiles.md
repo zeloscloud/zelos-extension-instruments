@@ -284,7 +284,7 @@ A setter with no range known refuses to set until the config names a limit for i
 | `parse` | How the reply is read. See [Parsers](#parsers). |
 | `fields` | For `parse = "floats"`: the field each value lands in, in order. |
 | `index` | For `parse = "float"`, `"int"`, `"bool"`, `"map"` or `"bits"`, and for a protection flag: which comma-separated value to take, from 0. |
-| `map` | For `parse = "map"` and `"bits"`: reply text (or bit value) to the field's label. |
+| `map` | For `parse = "map"` and `"bits"`: reply text (or bit value) to the field's label. For `parse = "bool"`: an instrument's own words to `"on"` or `"off"` (`EXT = "on"`). |
 | `mask`, `shift` | For `parse = "bits"`: a whole number, or a list with one per channel when the instrument packs every channel into one status word (`mask = [0x10, 0x20]`). |
 | `format` | For `parse = "bits"` and `"int"`: `"int"` (default) or `"hex"`. |
 | `scale` | For `parse = "float"` and `"floats"`: multiplies the number, so a slew rate the instrument states in A/µs lands in A/s with `scale = 1e6`. |
@@ -365,7 +365,7 @@ The Capture Waveform action. `setup` is the list of commands that select the sou
 | `float` | A number in any SCPI form: `12.000`, `+1.23456E-02`, `1.2e3`, with optional trailing unit letters and a metric prefix (`10M`, `1.00GSa/s`, `5mV`). Text before the number (a header such as `C1:VDIV 5.00E-01V`) is a parse error, logged once. `9.9E+37` and larger read as not-a-number, as SCPI defines. | float |
 | `floats` | Comma-separated numbers. | one float per entry of `fields` |
 | `int` | A whole number, decimal or `0x` hex (`format = "hex"` reads bare hex). | int |
-| `bool` | `0`, `1`, `ON`, `OFF`, `TRUE`, `FALSE`, `YES`, `NO`, any case. | bool |
+| `bool` | `0`, `1`, `ON`, `OFF`, `TRUE`, `FALSE`, `YES`, `NO`, any case, and the words in `map`. | bool |
 | `map` | Text; quotes and spaces stripped; matched case-insensitively against `map`. A reply not in the map reads as `unknown` and is logged once. | label |
 | `bits` | An integer; `(value & mask) >> shift`, then `map` keyed by the number as text, or a bool when there is no map. | label or bool |
 | `str` | The text as it is. | text |
