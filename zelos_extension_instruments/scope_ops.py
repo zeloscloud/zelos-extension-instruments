@@ -142,7 +142,10 @@ def measure(worker: InstrumentWorker, ch: int, args: dict[str, Any]) -> dict[str
             raise RangeError(f"the profile {profile.id} cannot clear a slot")
         worker._send(engine.render(scope.measure.off, slot=slot))
         worker._after_write(f"slot {slot} off")
+        # A slow-round scan already under way read the slot as on; it must not put it back.
+        worker._slot_scans += 1
         worker._slots.pop(slot, None)
+        worker._busy_slots.discard(slot)
         return {"slot": slot, "off": True}
     for command in scope.measure.commands:
         worker._send(engine.render(command, slot=slot, ch=ch, type=word))

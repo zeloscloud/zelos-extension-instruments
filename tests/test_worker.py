@@ -1047,6 +1047,28 @@ def test_a_slot_scan_an_action_overtook_never_overwrites_its_result(
     assert worker._slots[shown["slot"]] == (2, "frequency")
 
 
+def test_a_slot_turned_off_during_a_slot_scan_stays_off(profiles: list[Profile]) -> None:
+    scope = next(p for p in profiles if p.id == "siglent-sds")
+    fake = FakeInstrument(scope)
+    link = ScriptedLink(fake.handle, "scope")
+    cfg = instrument_config(name="scope", profile=scope.id)
+    worker = InstrumentWorker(
+        cfg, [scope], RecordingEmitter(), settings_for(cfg), open=opener_for(link)
+    )
+    assert worker._connect()
+    assert worker._plan is not None
+    shown = scope_ops.measure(worker, 2, {"type": "frequency"})
+    round_ = worker._slow_round()
+    # Step the round until its slot scan has read this slot as on.
+    enabled = f":MEASure:ADVanced:P{shown['slot']}?"
+    while enabled not in link.commands[-3:]:
+        next(round_)
+    scope_ops.measure(worker, 2, {"type": "frequency", "slot": shown["slot"], "off": True})
+    for _ in round_:
+        pass
+    assert shown["slot"] not in worker._slots
+
+
 @pytest.mark.parametrize("profile_choice", ["auto", "rohde-schwarz-hmp"])
 def test_a_channel_command_selects_its_channel_whichever_way_the_profile_was_chosen(
     profile_choice: str,
