@@ -5,6 +5,7 @@ manual, and `docs/profiles.md` is the format's reference.
 """
 
 import dataclasses
+import functools
 import re
 import sys
 import tomllib
@@ -533,8 +534,9 @@ def load_dir(directory: Path | str) -> list[Profile]:
     return [load_file(p) for p in sorted(Path(directory).rglob("*.toml"))]
 
 
+@functools.cache
 def shipped() -> list[Profile]:
-    """The profiles that ship with the extension."""
+    """The profiles that ship with the extension, read once: every search and list asks."""
     return load_dir(SHIPPED_DIR)
 
 
