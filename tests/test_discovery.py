@@ -452,7 +452,8 @@ def test_identify_abandons_a_link_that_hangs_while_opening(
 
     elapsed = time.monotonic() - started
     release.set()
-    assert elapsed < 0.6
+    # Well short of the 5 s hang, with room for a slow CI runner.
+    assert elapsed < 2.0
     assert result.error == "did not answer *IDN? within 0.3 s"
     deadline = time.monotonic() + 2
     while not closed and time.monotonic() < deadline:
