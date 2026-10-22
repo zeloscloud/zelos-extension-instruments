@@ -1,6 +1,8 @@
 """Shared by every test: an isolated trace recording, a scripted fake link, and the shipped
 profiles."""
 
+import socket
+import socketserver
 import threading
 import time
 import uuid
@@ -15,10 +17,12 @@ import zelos_sdk
 
 from zelos_extension_instruments import ACTION_PREFIX, config
 from zelos_extension_instruments.config import InstrumentConfig
+from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.link import Address, Link, LinkError, LinkSettings, LinkTimeout
 from zelos_extension_instruments.profile import Profile
-from zelos_extension_instruments.profile_load import load_file, shipped
+from zelos_extension_instruments.profile_load import from_dict, load_file, shipped
 from zelos_extension_instruments.waveform import BlockError, block_payload
+from zelos_extension_instruments.worker import InstrumentWorker
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Not reader.time_range(): it raises on a trace that holds no rows.
@@ -188,3 +192,311 @@ def wait_until(
             return True
         time.sleep(every_s)
     return condition()
+
+
+class Dp832:
+    """A three-channel supply that answers like a Rigol DP832 and keeps its own state."""
+
+    def __init__(self) -> None:
+        self.volt = {1: 5.0, 2: 0.0, 3: 0.0}
+        self.curr = {1: 1.0, 2: 0.5, 3: 0.5}
+        self.out = {1: True, 2: False, 3: False}
+        self.load = {1: 10.0, 2: 10.0, 3: 10.0}
+        self.errors: list[str] = []
+        self.ovp_tripped = {1: False, 2: False, 3: False}
+        self.ovp_level = {1: 33.0, 2: 33.0, 3: 5.5}
+        self.ocp_level = {1: 3.3, 2: 3.3, 3: 3.3}
+        self.ovp_on = {1: False, 2: False, 3: False}
+        self.ocp_on = {1: False, 2: False, 3: False}
+        self.silent = False
+        # An error the next command (not a query) queues, as a refused setting does.
+        self.fail_next_set: str | None = None
+        self.calls: list[str] = []
+
+    def measured(self, ch: int) -> tuple[float, float, float]:
+        if not self.out[ch]:
+            return 0.0, 0.0, 0.0
+        v = min(self.volt[ch], self.curr[ch] * self.load[ch])
+        i = v / self.load[ch]
+        return v, i, v * i
+
+    def mode(self, ch: int) -> str:
+        if not self.out[ch]:
+            return "UR"
+        return "CV" if self.volt[ch] <= self.curr[ch] * self.load[ch] else "CC"
+
+    def __call__(self, command: str) -> str | None:
+        self.calls.append(command)
+        if self.fail_next_set is not None and not command.endswith("?"):
+            self.errors.append(self.fail_next_set)
+            self.fail_next_set = None
+        if self.silent:
+            raise LinkTimeout("no reply from dp832")
+        head, _, arg = command.partition(" ")
+        if head == "*IDN?":
+            return "RIGOL TECHNOLOGIES,DP832A,DP8C000001,00.01.16"
+        if head == "SYST:ERR?":
+            return self.errors.pop(0) if self.errors else '0,"No error"'
+        if head == ":MEAS:ALL?":
+            v, i, p = self.measured(int(arg[2:]))
+            return f"{v:.4f},{i:.4f},{p:.3f}"
+        if head == ":OUTP?":
+            return "ON" if self.out[int(arg[2:])] else "OFF"
+        if head == ":OUTP:MODE?":
+            return self.mode(int(arg[2:]))
+        if head == ":OUTP:OVP:QUES?":
+            return "1" if self.ovp_tripped[int(arg[2:])] else "0"
+        if head == ":OUTP:OCP:QUES?":
+            return "0"
+        if head in (":OUTP:OVP:VAL?", ":OUTP:OCP:VAL?"):
+            table = self.ovp_level if "OVP" in head else self.ocp_level
+            return f"{table[int(arg[2:])]:.3f}"
+        if head in (":OUTP:OVP?", ":OUTP:OCP?"):
+            table = self.ovp_on if "OVP" in head else self.ocp_on
+            return "ON" if table[int(arg[2:])] else "OFF"
+        if head == ":OUTP:SENS?":
+            return "OFF"
+        if head in (":OUTP:OVP:VAL", ":OUTP:OCP:VAL"):
+            ch, _, level = arg.partition(",")
+            table = self.ovp_level if "OVP" in head else self.ocp_level
+            table[int(ch[2:])] = float(level)
+            return None
+        if head in (":OUTP:OVP", ":OUTP:OCP"):
+            ch, _, state = arg.partition(",")
+            table = self.ovp_on if "OVP" in head else self.ocp_on
+            table[int(ch[2:])] = state == "ON"
+            return None
+        if head == ":OUTP":
+            ch, _, state = arg.partition(",")
+            self.out[int(ch[2:])] = state == "ON"
+            return None
+        if head in (":OUTP:OCP:CLEAR", ":OUTP:OVP:CLEAR"):
+            self.ovp_tripped[int(arg[2:])] = False
+            return None
+        if head in ("SYST:REMOTE", "SYST:LOCAL", "*RST"):
+            return None
+        if head.startswith(":SOUR"):
+            ch = int(head[5])
+            field = head.split(":")[2]
+            table = self.volt if field.startswith("VOLT") else self.curr
+            if field.endswith("?"):
+                return f"{table[ch]:.3f}"
+            value = float(arg)
+            limit = 30.0 if table is self.volt else 3.0
+            if value > limit:
+                self.errors.append('-222,"Data out of range"')
+                return None
+            table[ch] = value
+            return None
+        self.errors.append('-113,"Undefined header"')
+        return None
+
+
+@pytest.fixture
+def dp832() -> Dp832:
+    return Dp832()
+
+
+class RecordingEmitter(Emitter):
+    """Records what the worker writes instead of a trace."""
+
+    def __init__(self) -> None:
+        self.registered: list[tuple[str, str, int]] = []
+        self.rows: list[tuple[str, int, dict[str, Any], int]] = []
+        self.readings: list[tuple[str, str, float, int]] = []
+        self.polls: list[tuple[str, str, float, int]] = []
+        self.acquisitions: list[tuple[str, dict[str, Any], int]] = []
+        self.waveforms: list[tuple[str, int, list[tuple[int, float]]]] = []
+        self.statuses: list[dict[str, Any]] = []
+        self.notes: list[tuple[str, str, str]] = []
+        self._fields: dict[str, dict[str, str | None]] = {}
+        self.channel_fields: dict[str, dict[int, set[str]]] = {}
+        self.identities: list[tuple[str, dict[str, str]]] = []
+
+    def add_instrument(self, name: str, profile: Profile, channels: int, poll: Any = ()) -> None:
+        self.registered.append((name, profile.id, channels))
+        self._fields[name] = profile.fields
+
+    def add_channels(self, name: str, fields: dict[int, set[str]]) -> None:
+        self.channel_fields[name] = {ch: set(names) for ch, names in fields.items()}
+
+    def identity(self, name: str, values: dict[str, str], time_ns: int) -> None:
+        self.identities.append((name, dict(values)))
+
+    def row(self, name: str, ch: int, values: dict[str, Any], time_ns: int) -> None:
+        self.rows.append((name, ch, dict(values), time_ns))
+
+    def reading(self, name: str, function: str, value: float, time_ns: int) -> None:
+        self.readings.append((name, function, value, time_ns))
+
+    def poll_value(self, name: str, row_name: str, value: float, time_ns: int) -> None:
+        self.polls.append((name, row_name, value, time_ns))
+
+    def acquisition_row(self, name: str, values: dict[str, Any], time_ns: int) -> None:
+        self.acquisitions.append((name, dict(values), time_ns))
+
+    def waveform(self, name: str, ch: int, time_ns: Any, volts: Any) -> None:
+        self.waveforms.append((name, ch, list(zip(time_ns.tolist(), volts.tolist(), strict=True))))
+
+    def status(
+        self, name: str, rtt_ms: float, rate_hz: float, errors: int, connected: bool, time_ns: int
+    ) -> None:
+        self.statuses.append(
+            {"rtt_ms": rtt_ms, "rate_hz": rate_hz, "errors": errors, "connected": connected}
+        )
+
+    def note(
+        self, name: str, level: str, message: str, time_ns: int, source: str = "instruments"
+    ) -> None:
+        self.notes.append((level, message, source))
+
+    def fields(self, name: str) -> dict[str, str | None]:
+        return dict(self._fields.get(name, {}))
+
+    def messages(self) -> list[str]:
+        return [m for _, m, _ in self.notes]
+
+
+def _launch(
+    profile: Profile,
+    link: ScriptedLink,
+    emitter: RecordingEmitter,
+    opener: Callable[[Address, LinkSettings], Link] | None,
+    overrides: dict[str, Any],
+) -> InstrumentWorker:
+    overrides.setdefault("rate_hz", 50)
+    cfg = instrument_config(**overrides)
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener or opener_for(link))
+    worker.start()
+    return worker
+
+
+def start(
+    profile: Profile,
+    handler: Callable[[str], str | bytes | None],
+    emitter: RecordingEmitter,
+    /,
+    *,
+    opener: Any = None,
+    where: str = "127.0.0.1:5555",
+    **overrides: Any,
+) -> tuple[InstrumentWorker, ScriptedLink]:
+    """Start a worker on a scripted link without waiting for it to open."""
+    link = ScriptedLink(handler, where)
+    return _launch(profile, link, emitter, opener, overrides), link
+
+
+def start_open(
+    profile: Profile, link: ScriptedLink, /, **overrides: Any
+) -> tuple[InstrumentWorker, RecordingEmitter]:
+    """Start a worker on `link` and wait until it is open."""
+    emitter = RecordingEmitter()
+    worker = _launch(profile, link, emitter, None, overrides)
+    assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
+    return worker, emitter
+
+
+def ask(worker: InstrumentWorker, kind: Any, **args: Any) -> dict[str, Any]:
+    return worker.request(kind, **args).result(timeout=5)
+
+
+@pytest.fixture
+def running(dp800: Profile, dp832: Dp832):
+    emitter = RecordingEmitter()
+    worker, link = start(dp800, dp832, emitter)
+    assert wait_until(lambda: worker.state == "open")
+    yield worker, link, emitter, dp832
+    worker.stop()
+    worker.join(2)
+
+
+def minimal() -> dict[str, Any]:
+    """The smallest profile that passes every check."""
+    return {
+        "schema": 1,
+        "id": "acme-psu",
+        "name": "Acme PSU",
+        "category": "psu",
+        "evidence": {"badge": "manual", "source": "Acme manual", "date": "2026-10-20"},
+        "match": {"manufacturer": "(?i)^acme", "model": "^P1$"},
+        "signals": {"voltage": {"query": "MEAS:VOLT? {ch}", "parse": "float"}},
+    }
+
+
+def profile_from(raw: dict[str, Any]) -> Profile:
+    return from_dict(raw, f"{raw['id']}.toml")
+
+
+# A loopback server that answers the link tests' commands.
+IDN = "ACME,PSU-1,SN1,1.0"
+
+
+class _Handler(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        server = self.server
+        assert isinstance(server, LineServer)
+        pending = b""
+        while True:
+            try:
+                data = self.request.recv(1024)
+            except OSError:
+                return
+            if not data:
+                return
+            pending += data
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                text = line.decode().rstrip("\r")
+                server.received.append(text)
+                if not self.answer(text):
+                    return
+
+    def answer(self, command: str) -> bool:
+        sock = self.request
+        if command == "*IDN?":
+            sock.sendall(f"{IDN}\n".encode())
+        elif command == "SPLIT?":
+            sock.sendall(b"HEL")
+            time.sleep(0.15)
+            sock.sendall(b"LO\n")
+        elif command == "TWO?":
+            sock.sendall(b"ONE\nTWO\n")
+        elif command == "CRLF?":
+            sock.sendall(b"OK\r\n")
+        elif command == "BAD?":
+            sock.sendall(b"\xff\xfeA\n")
+        elif command == "DROP?":
+            sock.sendall(b"PAR")
+            return False
+        elif command.startswith("ECHO "):
+            sock.sendall(command.removeprefix("ECHO ").encode() + b"\n")
+        return True
+
+
+class LineServer(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _Handler)
+        self.received: list[str] = []
+
+    @property
+    def port(self) -> int:
+        return self.server_address[1]
+
+
+@pytest.fixture
+def instrument() -> Iterator[LineServer]:
+    server = LineServer()
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture
+def closed_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]

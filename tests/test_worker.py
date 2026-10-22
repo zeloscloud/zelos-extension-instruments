@@ -1,219 +1,29 @@
-"""The instrument worker against a scripted link: connect, poll, set, errors, reconnect."""
+"""The instrument worker against a scripted link: connect, poll, schedule, reconnect, hand back."""
 
+import dataclasses
 import math
 import threading
 import time
-from collections.abc import Callable
 from typing import Any
 
 import pytest
 
 from tests.conftest import (
+    Dp832,
+    RecordingEmitter,
     ScriptedLink,
+    ask,
     instrument_config,
     opener_for,
+    start,
+    start_open,
     wait_until,
 )
-from zelos_extension_instruments import scope_ops
-from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.link import LinkError, LinkTimeout
 from zelos_extension_instruments.profile import Profile, by_id
 from zelos_extension_instruments.profile_load import from_dict, load_file, shipped
 from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
-
-
-class Dp832:
-    """A three-channel supply that answers like a Rigol DP832 and keeps its own state."""
-
-    def __init__(self) -> None:
-        self.volt = {1: 5.0, 2: 0.0, 3: 0.0}
-        self.curr = {1: 1.0, 2: 0.5, 3: 0.5}
-        self.out = {1: True, 2: False, 3: False}
-        self.load = {1: 10.0, 2: 10.0, 3: 10.0}
-        self.errors: list[str] = []
-        self.ovp_tripped = {1: False, 2: False, 3: False}
-        self.ovp_level = {1: 33.0, 2: 33.0, 3: 5.5}
-        self.ocp_level = {1: 3.3, 2: 3.3, 3: 3.3}
-        self.ovp_on = {1: False, 2: False, 3: False}
-        self.ocp_on = {1: False, 2: False, 3: False}
-        self.silent = False
-        # An error the next command (not a query) queues, as a refused setting does.
-        self.fail_next_set: str | None = None
-        self.calls: list[str] = []
-
-    def measured(self, ch: int) -> tuple[float, float, float]:
-        if not self.out[ch]:
-            return 0.0, 0.0, 0.0
-        v = min(self.volt[ch], self.curr[ch] * self.load[ch])
-        i = v / self.load[ch]
-        return v, i, v * i
-
-    def mode(self, ch: int) -> str:
-        if not self.out[ch]:
-            return "UR"
-        return "CV" if self.volt[ch] <= self.curr[ch] * self.load[ch] else "CC"
-
-    def __call__(self, command: str) -> str | None:
-        self.calls.append(command)
-        if self.fail_next_set is not None and not command.endswith("?"):
-            self.errors.append(self.fail_next_set)
-            self.fail_next_set = None
-        if self.silent:
-            raise LinkTimeout("no reply from dp832")
-        head, _, arg = command.partition(" ")
-        if head == "*IDN?":
-            return "RIGOL TECHNOLOGIES,DP832A,DP8C000001,00.01.16"
-        if head == "SYST:ERR?":
-            return self.errors.pop(0) if self.errors else '0,"No error"'
-        if head == ":MEAS:ALL?":
-            v, i, p = self.measured(int(arg[2:]))
-            return f"{v:.4f},{i:.4f},{p:.3f}"
-        if head == ":OUTP?":
-            return "ON" if self.out[int(arg[2:])] else "OFF"
-        if head == ":OUTP:MODE?":
-            return self.mode(int(arg[2:]))
-        if head == ":OUTP:OVP:QUES?":
-            return "1" if self.ovp_tripped[int(arg[2:])] else "0"
-        if head == ":OUTP:OCP:QUES?":
-            return "0"
-        if head in (":OUTP:OVP:VAL?", ":OUTP:OCP:VAL?"):
-            table = self.ovp_level if "OVP" in head else self.ocp_level
-            return f"{table[int(arg[2:])]:.3f}"
-        if head in (":OUTP:OVP?", ":OUTP:OCP?"):
-            table = self.ovp_on if "OVP" in head else self.ocp_on
-            return "ON" if table[int(arg[2:])] else "OFF"
-        if head == ":OUTP:SENS?":
-            return "OFF"
-        if head in (":OUTP:OVP:VAL", ":OUTP:OCP:VAL"):
-            ch, _, level = arg.partition(",")
-            table = self.ovp_level if "OVP" in head else self.ocp_level
-            table[int(ch[2:])] = float(level)
-            return None
-        if head in (":OUTP:OVP", ":OUTP:OCP"):
-            ch, _, state = arg.partition(",")
-            table = self.ovp_on if "OVP" in head else self.ocp_on
-            table[int(ch[2:])] = state == "ON"
-            return None
-        if head == ":OUTP":
-            ch, _, state = arg.partition(",")
-            self.out[int(ch[2:])] = state == "ON"
-            return None
-        if head in (":OUTP:OCP:CLEAR", ":OUTP:OVP:CLEAR"):
-            self.ovp_tripped[int(arg[2:])] = False
-            return None
-        if head in ("SYST:REMOTE", "SYST:LOCAL", "*RST"):
-            return None
-        if head.startswith(":SOUR"):
-            ch = int(head[5])
-            field = head.split(":")[2]
-            table = self.volt if field.startswith("VOLT") else self.curr
-            if field.endswith("?"):
-                return f"{table[ch]:.3f}"
-            value = float(arg)
-            limit = 30.0 if table is self.volt else 3.0
-            if value > limit:
-                self.errors.append('-222,"Data out of range"')
-                return None
-            table[ch] = value
-            return None
-        self.errors.append('-113,"Undefined header"')
-        return None
-
-
-@pytest.fixture
-def dp832() -> Dp832:
-    return Dp832()
-
-
-class RecordingEmitter(Emitter):
-    """Records what the worker writes instead of a trace."""
-
-    def __init__(self) -> None:
-        self.registered: list[tuple[str, str, int]] = []
-        self.rows: list[tuple[str, int, dict[str, Any], int]] = []
-        self.readings: list[tuple[str, str, float, int]] = []
-        self.polls: list[tuple[str, str, float, int]] = []
-        self.acquisitions: list[tuple[str, dict[str, Any], int]] = []
-        self.waveforms: list[tuple[str, int, list[tuple[int, float]]]] = []
-        self.statuses: list[dict[str, Any]] = []
-        self.notes: list[tuple[str, str, str]] = []
-        self._fields: dict[str, dict[str, str | None]] = {}
-        self.channel_fields: dict[str, dict[int, set[str]]] = {}
-        self.identities: list[tuple[str, dict[str, str]]] = []
-
-    def add_instrument(self, name: str, profile: Profile, channels: int, poll: Any = ()) -> None:
-        self.registered.append((name, profile.id, channels))
-        self._fields[name] = profile.fields
-
-    def add_channels(self, name: str, fields: dict[int, set[str]]) -> None:
-        self.channel_fields[name] = {ch: set(names) for ch, names in fields.items()}
-
-    def identity(self, name: str, values: dict[str, str], time_ns: int) -> None:
-        self.identities.append((name, dict(values)))
-
-    def row(self, name: str, ch: int, values: dict[str, Any], time_ns: int) -> None:
-        self.rows.append((name, ch, dict(values), time_ns))
-
-    def reading(self, name: str, function: str, value: float, time_ns: int) -> None:
-        self.readings.append((name, function, value, time_ns))
-
-    def poll_value(self, name: str, row_name: str, value: float, time_ns: int) -> None:
-        self.polls.append((name, row_name, value, time_ns))
-
-    def acquisition_row(self, name: str, values: dict[str, Any], time_ns: int) -> None:
-        self.acquisitions.append((name, dict(values), time_ns))
-
-    def waveform(self, name: str, ch: int, time_ns: Any, volts: Any) -> None:
-        self.waveforms.append((name, ch, list(zip(time_ns.tolist(), volts.tolist(), strict=True))))
-
-    def status(
-        self, name: str, rtt_ms: float, rate_hz: float, errors: int, connected: bool, time_ns: int
-    ) -> None:
-        self.statuses.append(
-            {"rtt_ms": rtt_ms, "rate_hz": rate_hz, "errors": errors, "connected": connected}
-        )
-
-    def note(
-        self, name: str, level: str, message: str, time_ns: int, source: str = "instruments"
-    ) -> None:
-        self.notes.append((level, message, source))
-
-    def fields(self, name: str) -> dict[str, str | None]:
-        return dict(self._fields.get(name, {}))
-
-    def messages(self) -> list[str]:
-        return [m for _, m, _ in self.notes]
-
-
-def start(
-    dp800: Profile,
-    handler: Callable[[str], str | None],
-    emitter: RecordingEmitter,
-    *,
-    opener: Any = None,
-    **overrides: Any,
-) -> tuple[InstrumentWorker, ScriptedLink]:
-    link = ScriptedLink(handler, "127.0.0.1:5555")
-    overrides.setdefault("rate_hz", 50)
-    cfg = instrument_config(**overrides)
-    worker = InstrumentWorker(cfg, [dp800], emitter, open=opener or opener_for(link))
-    worker.start()
-    return worker, link
-
-
-def ask(worker: InstrumentWorker, kind: Any, **args: Any) -> dict[str, Any]:
-    return worker.request(kind, **args).result(timeout=5)
-
-
-@pytest.fixture
-def running(dp800: Profile, dp832: Dp832):
-    emitter = RecordingEmitter()
-    worker, link = start(dp800, dp832, emitter)
-    assert wait_until(lambda: worker.state == "open")
-    yield worker, link, emitter, dp832
-    worker.stop()
-    worker.join(2)
 
 
 def test_connects_identifies_and_registers_three_channels(running) -> None:
@@ -264,87 +74,6 @@ def test_timestamps_increase_and_status_reports_rate(running) -> None:
     assert math.isfinite(status["rtt_ms"])
 
 
-def test_set_voltage_verifies_by_readback_and_logs(running) -> None:
-    worker, link, emitter, dp832 = running
-    # A value the supply's three digits would round away is refused, never sent rounded.
-    assert ask(worker, "set", channel=2, voltage=12.3456) == {
-        "error": "voltage 12.3456 is finer than the instrument's 3 decimals; "
-        "it would be sent as 12.346"
-    }
-    result = ask(worker, "set", channel=2, voltage=12.346)
-    assert result == {"voltage": {"set": 12.346, "readback": 12.346}}
-    assert dp832.volt[2] == 12.346
-    assert ":SOUR2:VOLT 12.346" in link.commands
-    assert ("info", "set ch2 voltage 12.346", "action") in emitter.notes
-    own = [r for r in emitter.rows if r[1] == 2 and r[2] == {"voltage_set": 12.346}]
-    assert own, "the setpoint lands in the trace at once"
-
-
-def test_set_several_values_in_one_request(running) -> None:
-    worker, link, emitter, dp832 = running
-    result = ask(worker, "set", channel=1, voltage=6.0, current=0.25)
-    assert result["voltage"]["readback"] == 6.0 and result["current"]["readback"] == 0.25
-    assert dp832.volt[1] == 6.0 and dp832.curr[1] == 0.25
-
-
-def test_set_refuses_a_value_outside_the_profile_range(running) -> None:
-    worker, link, emitter, dp832 = running
-    assert ask(worker, "set", channel=1, voltage=31.0) == {"error": "voltage must be from 0 to 30"}
-    assert not any(c.startswith(":SOUR1:VOLT 31") for c in link.commands)
-
-
-def test_set_refuses_a_value_above_the_configured_limit(dp800: Profile, dp832: Dp832) -> None:
-    emitter = RecordingEmitter()
-    worker, link = start(dp800, dp832, emitter, advanced={"limits": {"max_voltage": 15}})
-    try:
-        assert wait_until(lambda: worker.state == "open")
-        assert ask(worker, "set", channel=1, voltage=20.0) == {
-            "error": "voltage must be at most 15, the configured limit"
-        }
-        assert ask(worker, "set", channel=1, voltage=14.0)["voltage"]["readback"] == 14.0
-    finally:
-        worker.stop()
-        worker.join(2)
-
-
-def test_channel_3_uses_its_own_range(running) -> None:
-    worker, link, emitter, dp832 = running
-    assert ask(worker, "set", channel=3, voltage=6.0) == {"error": "voltage must be from 0 to 5"}
-    assert ask(worker, "set", channel=3, voltage=4.5)["voltage"]["readback"] == 4.5
-
-
-def test_set_reports_the_instruments_own_error(running) -> None:
-    worker, link, emitter, dp832 = running
-    dp832.fail_next_set = '-221,"Settings conflict"'
-    result = ask(worker, "set", channel=1, voltage=7.0)
-    assert result == {"error": "the instrument reported -221,Settings conflict"}
-    assert any("Settings conflict" in m for m in emitter.messages())
-
-
-def test_set_reports_a_readback_that_disagrees(running) -> None:
-    worker, link, emitter, dp832 = running
-    original = dp832.__call__
-
-    def clipping(command: str) -> str | None:
-        if command == ":SOUR1:VOLT 9.000":
-            dp832.volt[1] = 8.0
-            dp832.calls.append(command)
-            return None
-        return original(command)
-
-    link._handler = clipping
-    result = ask(worker, "set", channel=1, voltage=9.0)
-    assert result["error"].startswith("voltage reads back 8 after setting 9")
-
-
-def test_output_switches_and_verifies(running) -> None:
-    worker, link, emitter, dp832 = running
-    assert ask(worker, "set", channel=2, output=True) == {"output": True}
-    assert dp832.out[2] is True
-    assert ask(worker, "set", channel=2, output=False) == {"output": False}
-    assert ("info", "set ch2 output off", "action") in emitter.notes
-
-
 def test_external_setpoint_change_is_logged_but_our_own_is_not(running) -> None:
     worker, link, emitter, dp832 = running
     assert wait_until(lambda: any("voltage_set" in r[2] for r in emitter.rows))
@@ -373,22 +102,6 @@ def test_mode_and_protection_changes_are_logged(running) -> None:
     assert dp832.ovp_tripped[1] is False
 
 
-def test_read_returns_fresh_measurements(running) -> None:
-    worker, link, emitter, dp832 = running
-    assert ask(worker, "read", channel=1) == {"voltage": 5.0, "current": 0.5, "power": 2.5}
-
-
-def test_scpi_query_and_command(running) -> None:
-    worker, link, emitter, dp832 = running
-    assert ask(worker, "scpi", command="*IDN?") == {
-        "reply": "RIGOL TECHNOLOGIES,DP832A,DP8C000001,00.01.16"
-    }
-    assert ask(worker, "scpi", command="BOGUS") == {
-        "error": "the instrument reported -113,Undefined header"
-    }
-    assert ("info", "> *IDN?", "tx") in emitter.notes
-
-
 def test_instrument_errors_in_the_queue_are_logged_and_counted(running) -> None:
     worker, link, emitter, dp832 = running
     dp832.errors.append('-350,"Queue overflow"')
@@ -400,17 +113,6 @@ def test_instrument_errors_in_the_queue_are_logged_and_counted(running) -> None:
     assert state["counters"]["instrument_errors"] == 1
     assert state["counters"]["last_error"] == "-350,Queue overflow"
     assert "Last instrument error: -350,Queue overflow." in worker.health
-
-
-def test_state_report_has_identity_profile_channels_and_ranges(running) -> None:
-    worker, link, emitter, dp832 = running
-    state = ask(worker, "state")
-    assert state["identity"] == "RIGOL TECHNOLOGIES,DP832A,DP8C000001,00.01.16"
-    assert state["profile"]["id"] == "rigol-dp800" and state["profile"]["badge"] == "manual"
-    assert state["channels"]["ch3"]["ranges"]["voltage"]["max"] == 5.0
-    assert state["channels"]["ch1"]["ranges"]["voltage"]["max"] == 30.0
-    assert state["counters"]["target_hz"] == 50
-    assert state["recent"][-1]["command"]
 
 
 def test_three_timeouts_in_a_row_reconnect_and_log_the_gap(dp800: Profile, dp832: Dp832) -> None:
@@ -1021,47 +723,6 @@ def test_the_slow_round_runs_between_fast_readings_without_delaying_them(
     assert max(runs) < len(slow), f"{max(runs)} settings queries in one gap"
 
 
-def test_a_slot_scan_an_action_overtook_never_overwrites_its_result(
-    profiles: list[Profile],
-) -> None:
-    """A slow round scans slots between fast passes; a Measure in between must survive it."""
-    scope = next(p for p in profiles if p.id == "siglent-sds")
-    fake = FakeInstrument(scope)
-    link = ScriptedLink(fake.handle, "scope")
-    cfg = instrument_config(name="scope", profile=scope.id)
-    worker = InstrumentWorker(cfg, [scope], RecordingEmitter(), open=opener_for(link))
-    assert worker._connect()
-    assert worker._plan is not None
-    round_ = worker._slow_round()
-    for _ in range(len(worker._plan.slow) + 2):
-        next(round_)
-    assert link.commands[-1] == ":MEASure:ADVanced:P1?"
-    shown = scope_ops.measure(worker, 2, {"type": "frequency"})
-    for _ in round_:
-        pass
-    assert worker._slots[shown["slot"]] == (2, "frequency")
-
-
-def test_a_slot_turned_off_during_a_slot_scan_stays_off(profiles: list[Profile]) -> None:
-    scope = next(p for p in profiles if p.id == "siglent-sds")
-    fake = FakeInstrument(scope)
-    link = ScriptedLink(fake.handle, "scope")
-    cfg = instrument_config(name="scope", profile=scope.id)
-    worker = InstrumentWorker(cfg, [scope], RecordingEmitter(), open=opener_for(link))
-    assert worker._connect()
-    assert worker._plan is not None
-    shown = scope_ops.measure(worker, 2, {"type": "frequency"})
-    round_ = worker._slow_round()
-    # Step the round until its slot scan has read this slot as on.
-    enabled = f":MEASure:ADVanced:P{shown['slot']}?"
-    while enabled not in link.commands[-3:]:
-        next(round_)
-    scope_ops.measure(worker, 2, {"type": "frequency", "slot": shown["slot"], "off": True})
-    for _ in round_:
-        pass
-    assert shown["slot"] not in worker._slots
-
-
 @pytest.mark.parametrize("profile_choice", ["auto", "rohde-schwarz-hmp"])
 def test_a_channel_command_selects_its_channel_whichever_way_the_profile_was_chosen(
     profile_choice: str,
@@ -1119,3 +780,288 @@ def test_stopping_answers_every_pending_request_even_after_one_was_abandoned(
     waiting = worker.request("state")
     worker._fail_pending("the extension is stopping")
     assert waiting.result(timeout=0) == {"error": "the extension is stopping"}
+
+
+def test_a_request_the_action_gave_up_on_never_reaches_the_instrument(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    link = ScriptedLink(dp832)
+    worker, emitter = start_open(dp800, link)
+    try:
+        future = worker.request("set", channel=1, voltage=4.2)
+        future.cancel()
+        future2 = worker.request("read", channel=1)
+        assert "voltage" in future2.result(timeout=5)
+        assert ":SOUR1:VOLT 4.200" not in link.commands
+        assert any("dropped" in m for m in emitter.messages())
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_silent_query_in_a_request_fails_the_request_and_keeps_the_link(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    original = dp832.__call__
+
+    def mostly(command: str) -> str | None:
+        if command == "NOPE?":
+            raise LinkTimeout("no reply")
+        return original(command)
+
+    link = ScriptedLink(mostly)
+    worker, emitter = start_open(dp800, link)
+    try:
+        result = ask(worker, "scpi", command="NOPE?")
+        assert "no reply" in result["error"]
+        time.sleep(0.3)
+        assert worker.state == "open"
+        assert not any("disconnected" in m for m in emitter.messages())
+        assert ask(worker, "scpi", command="*IDN?")["reply"].startswith("RIGOL")
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_lost_cycle_waits_the_backoff_before_reconnecting(dp800: Profile) -> None:
+    opened: list[float] = []
+
+    def opener(address: Any, settings: Any) -> ScriptedLink:
+        opened.append(time.monotonic())
+        dp832 = Dp832()
+        original = dp832.__call__
+
+        def broken(command: str) -> str | None:
+            if command.startswith(":MEAS"):
+                raise LinkError("the connection was lost", "other")
+            return original(command)
+
+        return ScriptedLink(broken)
+
+    cfg = instrument_config(rate_hz=50)
+    worker = InstrumentWorker(cfg, [dp800], RecordingEmitter(), open=opener)
+    worker.start()
+    try:
+        time.sleep(2.0)
+        assert 2 <= len(opened) <= 4, opened
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_readings_are_stamped_at_their_own_query(dp800: Profile, dp832: Dp832) -> None:
+    """A slow request between two channels' queries must not move either reading in time."""
+    original = dp832.__call__
+
+    def slow_set(command: str) -> str | None:
+        reply = original(command)
+        if command.startswith(":SOUR2:VOLT ") and "?" not in command:
+            time.sleep(0.4)
+        return reply
+
+    link = ScriptedLink(slow_set)
+    worker, emitter = start_open(dp800, link)
+    try:
+        before = len(emitter.rows)
+        ask(worker, "set", channel=2, voltage=1.0)
+        assert wait_until(lambda: len(emitter.rows) > before + 6, timeout_s=5)
+        rows = [r for r in emitter.rows[before:] if "voltage" in r[2]]
+        stamps = sorted(r[3] for r in rows)
+        gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
+        # Cycles are 20 ms apart at 50 Hz; the 400 ms set shows once as a gap between cycles,
+        # never inside one.
+        assert max(gaps) < 600_000_000
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_the_panel_is_handed_back_on_the_worker_thread(dp800: Profile, dp832: Dp832) -> None:
+    writers: list[str] = []
+    original = dp832.__call__
+
+    def noting(command: str) -> str | None:
+        if command == "SYST:LOCAL":
+            writers.append(threading.current_thread().name)
+        return original(command)
+
+    link = ScriptedLink(noting)
+    worker, _ = start_open(dp800, link, advanced={"keep_panel": False})
+    worker.stop()
+    worker.join(3)
+    assert writers and all(w == worker.name for w in writers)
+
+
+def test_keep_panel_hands_the_panel_back_once_a_second(dp800: Profile, dp832: Dp832) -> None:
+    link = ScriptedLink(dp832)
+    worker, _ = start_open(dp800, link)
+    try:
+        time.sleep(1.3)
+        assert link.commands.count("SYST:LOCAL") >= 1
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_the_link_is_flushed_and_the_error_queue_drained_before_the_first_poll(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    """Bytes a banner or another client left, and errors another session queued, are not ours."""
+    dp832.errors.append('-113,"Undefined header"')
+    dp832.errors.append('-222,"Data out of range"')
+    link = ScriptedLink(dp832)
+    worker, emitter = start_open(dp800, link)
+    try:
+        assert link.cleared >= 1
+        assert not dp832.errors
+        state = ask(worker, "state")
+        assert state["counters"]["instrument_errors"] == 2
+        assert not any("instrument error" in m for m in emitter.messages())
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_late_reply_is_not_recorded_under_the_next_query(dp800: Profile, dp832: Dp832) -> None:
+    """One silent query, then its reply arrives with the next one: the worker resynchronizes
+    instead of shifting every later reading by one field."""
+    original = dp832.__call__
+    late: list[str] = []
+    silent = {"armed": True}
+
+    def slow(command: str) -> str | None:
+        reply = original(command)
+        if silent["armed"] and command == ":MEAS:ALL? CH1":
+            silent["armed"] = False
+            late.append(reply or "")
+            raise LinkTimeout("no reply")
+        if late and reply is not None:
+            held, reply = late.pop(), reply
+            link.push(held)
+        return reply
+
+    link = ScriptedLink(slow)
+    worker, emitter = start_open(dp800, link)
+    try:
+        assert wait_until(
+            lambda: any("replies were out of step" in m for m in emitter.messages()), timeout_s=5
+        )
+        time.sleep(0.3)
+        # Channel 2 is off: its voltage is 0, never channel 1's 5 V shifted down by one reply.
+        rows = [r for r in emitter.rows if r[1] == 2 and "voltage" in r[2]]
+        assert rows and all(abs(r[2]["voltage"]) < 1e-6 for r in rows), rows[-3:]
+        assert ask(worker, "state")["counters"]["timeouts"] == 1
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_resync_accepts_only_the_identity(dp800: Profile, dp832: Dp832) -> None:
+    """Decoys that arrive after the clear, ahead of the identity, are read past."""
+    original = dp832.__call__
+    decoys = {"armed": False}
+
+    def with_decoys(command: str) -> str | None:
+        if command == "*IDN?" and decoys["armed"]:
+            decoys["armed"] = False
+            link.push("5.000,1.000,5.000")
+            link.push("another,comma,reply")
+        return original(command)
+
+    link = ScriptedLink(with_decoys)
+    worker, _ = start_open(dp800, link)
+    try:
+        decoys["armed"] = True
+        worker._resync("test")
+        assert worker._recent[-1][2].startswith("RIGOL TECHNOLOGIES,DP832A")
+        assert worker._recent[-1][1] == "*IDN?"
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_keep_panel_is_skipped_for_a_meter_that_needs_remote() -> None:
+    profile = load_file(next(p.path for p in shipped() if p.id == "agilent-34401a" and p.path))
+    assert profile.link.needs_remote and profile.link.locks_panel and profile.link.local
+    commands: list[str] = []
+
+    def meter(command: str) -> str | None:
+        commands.append(command)
+        if command == "*IDN?":
+            return "HEWLETT-PACKARD,34401A,0,11-5-2"
+        if "ERR" in command:
+            return '0,"No error"'
+        if "READ" in command:
+            return "+1.00000000E+00"
+        if "FUNC" in command:
+            return '"VOLT"'
+        return "0" if command.endswith("?") else None
+
+    link = ScriptedLink(meter)
+    emitter = RecordingEmitter()
+    cfg = instrument_config(rate_hz=50, profile="agilent-34401a")
+    worker = InstrumentWorker(cfg, [profile], emitter, open=opener_for(link))
+    worker.start()
+    try:
+        assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
+        time.sleep(0.3)
+        assert profile.link.remote in commands
+        assert profile.link.local not in commands
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_stop_hands_the_panel_back(dp800: Profile, dp832: Dp832) -> None:
+    link = ScriptedLink(dp832)
+    worker, _ = start_open(dp800, link, advanced={"keep_panel": False})
+    worker.stop()
+    worker.join(2)
+    assert "SYST:LOCAL" in link.commands[-4:]
+
+
+def test_a_missed_reply_sends_the_remote_command_again(dp800: Profile, dp832: Dp832) -> None:
+    """A 34401A that idled out of remote mode answered nothing until SYST:REM was resent."""
+    original = dp832.__call__
+    silent = {"armed": True}
+
+    def drops_remote(command: str) -> str | None:
+        if silent["armed"] and command == ":MEAS:ALL? CH1":
+            silent["armed"] = False
+            raise LinkTimeout("no reply")
+        return original(command)
+
+    link = ScriptedLink(drops_remote)
+    worker, emitter = start_open(dp800, link)
+    try:
+        assert wait_until(
+            lambda: any("replies were out of step" in m for m in emitter.messages()), timeout_s=5
+        )
+        after = link.commands[link.commands.index(":MEAS:ALL? CH1") + 1 :]
+        assert after[after.index("SYST:REMOTE") + 1] == "*IDN?"
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_local_of_several_commands_sends_them_in_order(dp800: Profile, dp832: Dp832) -> None:
+    """A DL3000 returns to local only through its virtual panel: two commands with a pause."""
+    profile = dataclasses.replace(
+        dp800, link=dataclasses.replace(dp800.link, local=("DEBug:KEY 1", "SYSTem:KEY 8"))
+    )
+    original = dp832.__call__
+
+    def panel(command: str) -> str | None:
+        return None if command in ("DEBug:KEY 1", "SYSTem:KEY 8") else original(command)
+
+    link = ScriptedLink(panel)
+    worker, _ = start_open(profile, link)
+    try:
+        assert ask(worker, "local") == {"ok": True}
+        first = link.commands.index("DEBug:KEY 1")
+        assert link.commands[first + 1] == "SYSTem:KEY 8"
+    finally:
+        worker.stop()
+        worker.join(2)
+    # Stopping hands the panel back the same way.
+    assert link.commands[-2:] == ["DEBug:KEY 1", "SYSTem:KEY 8"]

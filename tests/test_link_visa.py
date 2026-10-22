@@ -7,8 +7,8 @@ import pytest
 import pyvisa
 from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
-from test_link_tcp import IDN, FakeInstrument, closed_port, instrument  # noqa: F401
 
+from tests.conftest import IDN, LineServer
 from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, VisaAddress
 from zelos_extension_instruments.link.visa import open_visa
 
@@ -356,7 +356,7 @@ def test_real_pyvisa_py_resource_string_that_cannot_be_parsed_is_config() -> Non
     assert caught.value.kind == "config"
 
 
-def test_real_pyvisa_py_socket_against_a_fake_instrument(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_real_pyvisa_py_socket_against_a_fake_instrument(instrument: LineServer) -> None:
     resource = f"TCPIP::127.0.0.1::{instrument.port}::SOCKET"
     link = open_visa(VisaAddress(resource, "py"), LinkSettings(timeout_s=0.5))
     try:
@@ -373,7 +373,7 @@ def test_real_pyvisa_py_socket_against_a_fake_instrument(instrument: FakeInstrum
         link.close()
 
 
-def test_a_one_character_reply_does_not_wait_for_more(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_a_one_character_reply_does_not_wait_for_more(instrument: LineServer) -> None:
     """`OUTP?` answers `1` and a newline: two bytes that are already the whole reply."""
     resource = f"TCPIP::127.0.0.1::{instrument.port}::SOCKET"
     link = open_visa(VisaAddress(resource, "py"), LinkSettings(timeout_s=1.0))
@@ -387,7 +387,7 @@ def test_a_one_character_reply_does_not_wait_for_more(instrument: FakeInstrument
         link.close()
 
 
-def test_real_pyvisa_py_socket_to_a_closed_port_fails(closed_port: int) -> None:  # noqa: F811
+def test_real_pyvisa_py_socket_to_a_closed_port_fails(closed_port: int) -> None:
     resource = f"TCPIP::127.0.0.1::{closed_port}::SOCKET"
     with pytest.raises(LinkError):
         link = open_visa(VisaAddress(resource, "py"), FAST)

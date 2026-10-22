@@ -1,3 +1,5 @@
+"""The fake instrument a profile builds: replies, errors, scenarios and faults."""
+
 import math
 from pathlib import Path
 from typing import Any
@@ -6,10 +8,9 @@ import pytest
 
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.profile import VERIFY_FIELD, Profile, parse_idn
-from zelos_extension_instruments.profile_load import SHIPPED_DIR, from_dict, load_file
+from zelos_extension_instruments.profile_load import from_dict, load_file
 from zelos_extension_instruments.sim.fake import FakeInstrument
 
-RIGOL = SHIPPED_DIR / "psu" / "rigol-dp800.toml"
 EVIDENCE = {"badge": "manual", "source": "test", "date": "2026-10-20"}
 
 SELECT_PSU: dict[str, Any] = {
@@ -180,11 +181,6 @@ def build(raw: dict[str, Any]) -> Profile:
     return from_dict(raw, f"{raw['id']}.toml")
 
 
-@pytest.fixture
-def rigol() -> Profile:
-    return load_file(RIGOL)
-
-
 def drain(fake: FakeInstrument) -> list[engine.InstrumentError]:
     errors = fake.profile.errors
     assert errors is not None
@@ -249,22 +245,22 @@ def read(fake: FakeInstrument, field: str, ch: int = 1) -> Any:
     return engine.parse_reply(reader, reply)[field]
 
 
-def test_default_model_is_one_the_profile_matches(rigol):
-    fake = FakeInstrument(rigol)
+def test_default_model_is_one_the_profile_matches(dp800):
+    fake = FakeInstrument(dp800)
     idn = fake.handle_text("*IDN?")
     assert idn == fake.idn
-    assert idn is not None and rigol.matches(parse_idn(idn))
-    assert fake.channels == rigol.channels_for(fake.model)
+    assert idn is not None and dp800.matches(parse_idn(idn))
+    assert fake.channels == dp800.channels_for(fake.model)
 
 
-def test_model_and_channels_can_be_given(rigol):
-    assert FakeInstrument(rigol, "DP832").channels == 3
-    assert FakeInstrument(rigol, "DP832", channels=2).channels == 2
-    fake = FakeInstrument(rigol, "DP821", idn="RIGOL TECHNOLOGIES,DP821,DP8A000001,00.01.16")
+def test_model_and_channels_can_be_given(dp800):
+    assert FakeInstrument(dp800, "DP832").channels == 3
+    assert FakeInstrument(dp800, "DP832", channels=2).channels == 2
+    fake = FakeInstrument(dp800, "DP821", idn="RIGOL TECHNOLOGIES,DP821,DP8A000001,00.01.16")
     assert fake.handle_text("*IDN?") == "RIGOL TECHNOLOGIES,DP821,DP8A000001,00.01.16"
 
 
-def test_a_model_pattern_it_cannot_spell_needs_an_explicit_model(rigol):
+def test_a_model_pattern_it_cannot_spell_needs_an_explicit_model(dp800):
     raw = {**LOAD, "match": {"manufacturer": "(?i)^acme", "model": "^(?!X)EL"}}
     profile = build(raw)
     with pytest.raises(ValueError, match="model="):
@@ -272,8 +268,8 @@ def test_a_model_pattern_it_cannot_spell_needs_an_explicit_model(rigol):
     assert FakeInstrument(profile, "EL100").model == "EL100"
 
 
-def test_every_rigol_reader_round_trips(rigol):
-    fake = FakeInstrument(rigol, "DP832")
+def test_every_rigol_reader_round_trips(dp800):
+    fake = FakeInstrument(dp800, "DP832")
     for ch, volts in ((1, 5.0), (2, 12.0), (3, 3.3)):
         set_value(fake, "voltage", ch, volts)
         set_value(fake, "current", ch, 1.0)
@@ -302,14 +298,14 @@ def test_every_rigol_reader_round_trips(rigol):
     assert drain(fake) == []
 
 
-def test_rigol_setters_verify_by_readback(rigol):
-    fake = FakeInstrument(rigol, "DP832")
+def test_rigol_setters_verify_by_readback(dp800):
+    fake = FakeInstrument(dp800, "DP832")
     for name, value in (("voltage", 4.321), ("current", 2.5)):
-        setter = rigol.setters[name]
-        range_ = rigol.range_for(name, fake.model, 2)
+        setter = dp800.setters[name]
+        range_ = dp800.range_for(name, fake.model, 2)
         fake.handle_text(engine.setter_command(setter, ch=2, value=value, range_=range_))
-        query = rigol.verify_query(setter)
-        reader = rigol.reader(VERIFY_FIELD[name])
+        query = dp800.verify_query(setter)
+        reader = dp800.reader(VERIFY_FIELD[name])
         assert query is not None and reader is not None
         readback = engine.parse_reply(reader, fake.handle_text(engine.render(query, ch=2)) or "")
         assert engine.verified(value, readback[VERIFY_FIELD[name]], range_)
@@ -318,13 +314,13 @@ def test_rigol_setters_verify_by_readback(rigol):
         assert read(fake, "output", 2) is on
     fake.trip(2, "ovp")
     assert read(fake, "output", 2) is False
-    fake.handle_text(engine.setter_command(rigol.setters["clear"], ch=2))
+    fake.handle_text(engine.setter_command(dp800.setters["clear"], ch=2))
     assert poll(fake)[("ovp", 2)] is False
     assert drain(fake) == []
 
 
-def test_scpi_spelling_is_tolerated(rigol):
-    fake = FakeInstrument(rigol, "DP832")
+def test_scpi_spelling_is_tolerated(dp800):
+    fake = FakeInstrument(dp800, "DP832")
     assert fake.handle_text("sour1:volt 2.5") is None
     assert fake.handle_text("SOUR1:VOLT?") == "2.5"
     assert fake.handle_text("  :sour1:volt?  ") == "2.5"
@@ -334,8 +330,8 @@ def test_scpi_spelling_is_tolerated(rigol):
     assert drain(fake) == []
 
 
-def test_out_of_range_values_are_refused(rigol):
-    fake = FakeInstrument(rigol, "DP832")
+def test_out_of_range_values_are_refused(dp800):
+    fake = FakeInstrument(dp800, "DP832")
     assert fake.handle_text(":SOUR3:VOLT 6.000") is None
     assert read(fake, "voltage_set", 3) == 0.0
     assert fake.handle_text(":SOUR1:VOLT 6.000") is None
@@ -345,16 +341,16 @@ def test_out_of_range_values_are_refused(rigol):
     assert [(e.code, e.text) for e in drain(fake)] == [(-222, "Data out of range")] * 3
 
 
-def test_unknown_command_queues_undefined_header(rigol):
-    fake = FakeInstrument(rigol)
+def test_unknown_command_queues_undefined_header(dp800):
+    fake = FakeInstrument(dp800)
     assert fake.handle_text("FOO:BAR?") is None
     assert fake.handle_text("SYST:ERR?") == '-113,"Undefined header"'
     assert fake.handle_text("SYST:ERR?") == '0,"No error"'
     assert fake.transcript[0] == ("FOO:BAR?", None)
 
 
-def test_error_queue_is_first_in_first_out_and_bounded(rigol):
-    fake = FakeInstrument(rigol)
+def test_error_queue_is_first_in_first_out_and_bounded(dp800):
+    fake = FakeInstrument(dp800)
     fake.handle_text("NOPE")
     fake.handle_text(":SOUR1:VOLT 99")
     assert [e.code for e in drain(fake)] == [-113, -222]
@@ -369,8 +365,8 @@ def test_error_queue_is_first_in_first_out_and_bounded(rigol):
     assert set(codes[:-1]) == {-113}
 
 
-def test_common_commands(rigol):
-    fake = FakeInstrument(rigol, "DP832")
+def test_common_commands(dp800):
+    fake = FakeInstrument(dp800, "DP832")
     assert fake.handle_text("*OPC?") == "1"
     set_value(fake, "voltage", 1, 5.0)
     set_value(fake, "current", 1, 1.0)
@@ -508,8 +504,8 @@ def test_ac_source_drives_its_load():
     assert fake.handle_text("FREQ?") == "50"
 
 
-def test_scenario_arguments_are_checked(rigol):
-    fake = FakeInstrument(rigol)
+def test_scenario_arguments_are_checked(dp800):
+    fake = FakeInstrument(dp800)
     with pytest.raises(ValueError):
         fake.trip(1, "bogus")
     with pytest.raises(ValueError):

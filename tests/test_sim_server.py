@@ -1,3 +1,5 @@
+"""The TCP server that serves a fake instrument."""
+
 import socket
 import time
 from collections.abc import Callable, Iterator
@@ -5,14 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import wait_until
 from zelos_extension_instruments.profile import Profile
-from zelos_extension_instruments.profile_load import SHIPPED_DIR, from_dict, load_file
+from zelos_extension_instruments.profile_load import from_dict
 from zelos_extension_instruments.record import load_transcript
 from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.sim.faults import Faults
 from zelos_extension_instruments.sim.server import FakeServer
-
-RIGOL = SHIPPED_DIR / "psu" / "rigol-dp800.toml"
 
 
 class Client:
@@ -60,13 +61,8 @@ class Client:
 
 
 @pytest.fixture
-def rigol() -> Profile:
-    return load_file(RIGOL)
-
-
-@pytest.fixture
-def instrument(rigol: Profile) -> FakeInstrument:
-    return FakeInstrument(rigol, "DP832")
+def instrument(dp800: Profile) -> FakeInstrument:
+    return FakeInstrument(dp800, "DP832")
 
 
 @pytest.fixture
@@ -81,15 +77,6 @@ def connect() -> Iterator[Callable[..., Client]]:
     yield open_client
     for client in clients:
         client.close()
-
-
-def eventually(check: Callable[[], bool], timeout: float = 2.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if check():
-            return True
-        time.sleep(0.02)
-    return check()
 
 
 def test_query_round_trip(instrument, connect):
@@ -149,7 +136,7 @@ def test_refuse_second_client(instrument, connect):
             except (EOFError, OSError):
                 return False
 
-        assert eventually(third_answers)
+        assert wait_until(third_answers, timeout_s=2.0)
 
 
 def test_drop_after_closes_once(instrument, connect):

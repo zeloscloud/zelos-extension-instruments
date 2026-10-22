@@ -11,8 +11,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import instrument_config, wait_until
-from tests.test_worker import RecordingEmitter
+from tests.conftest import RecordingEmitter, instrument_config, wait_until
 from zelos_extension_instruments.link import SerialAddress, TcpAddress
 from zelos_extension_instruments.profile import by_id
 from zelos_extension_instruments.profile_load import shipped

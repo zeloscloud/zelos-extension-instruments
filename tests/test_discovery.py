@@ -1,3 +1,5 @@
+"""Finding instruments on the LAN, USB and serial ports and identifying what answers."""
+
 import dataclasses
 import ipaddress
 import logging
@@ -5,7 +7,6 @@ import socketserver
 import threading
 import time
 from collections.abc import Callable, Iterator
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -27,10 +28,8 @@ from zelos_extension_instruments.link import (
     VisaAddress,
 )
 from zelos_extension_instruments.profile import Idn
-from zelos_extension_instruments.profile_load import load_file
 
 real_identify = discovery._identify
-PROFILE_PATH = Path(__file__).parent.parent / "profiles" / "psu" / "rigol-dp800.toml"
 DP832_REPLY = "RIGOL TECHNOLOGIES,DP832,DP8A123456,00.01.16"
 
 
@@ -40,8 +39,8 @@ def _reset_warnings() -> None:
 
 
 @pytest.fixture(scope="module")
-def profiles() -> list[profile.Profile]:
-    return [load_file(PROFILE_PATH)]
+def dp800_only(dp800: profile.Profile) -> list[profile.Profile]:
+    return [dp800]
 
 
 # --- mDNS and VXI-11 -------------------------------------------------------------------------
@@ -399,11 +398,11 @@ def _found(address: TcpAddress | SerialAddress | VisaAddress, detail: str = "x")
 
 
 def test_identify_matches_the_profile_over_a_real_socket(
-    serve: Callable[[str | None], TcpAddress], profiles: list[profile.Profile]
+    serve: Callable[[str | None], TcpAddress], dp800_only: list[profile.Profile]
 ) -> None:
     address = serve(DP832_REPLY)
 
-    result = discovery.identify(_found(address), profiles, timeout_s=2.0)
+    result = discovery.identify(_found(address), dp800_only, timeout_s=2.0)
 
     assert result.address == address
     assert result.idn == Idn("RIGOL TECHNOLOGIES", "DP832", "DP8A123456", "00.01.16")
@@ -413,9 +412,9 @@ def test_identify_matches_the_profile_over_a_real_socket(
 
 
 def test_identify_reports_an_identity_no_profile_matches(
-    serve: Callable[[str | None], TcpAddress], profiles: list[profile.Profile]
+    serve: Callable[[str | None], TcpAddress], dp800_only: list[profile.Profile]
 ) -> None:
-    result = discovery.identify(_found(serve("ACME,Widget 9,1,2")), profiles)
+    result = discovery.identify(_found(serve("ACME,Widget 9,1,2")), dp800_only)
 
     assert result.idn is not None
     assert result.profile_id is None
@@ -423,21 +422,21 @@ def test_identify_reports_an_identity_no_profile_matches(
 
 
 def test_identify_rejects_a_reply_that_is_not_an_identity(
-    serve: Callable[[str | None], TcpAddress], profiles: list[profile.Profile]
+    serve: Callable[[str | None], TcpAddress], dp800_only: list[profile.Profile]
 ) -> None:
-    result = discovery.identify(_found(serve("hello")), profiles)
+    result = discovery.identify(_found(serve("hello")), dp800_only)
 
     assert result.idn is None
     assert result.error == "did not answer *IDN? as an instrument"
 
 
 def test_identify_gives_up_on_a_silent_server_after_asking_twice(
-    serve: Callable[[str | None], TcpAddress], profiles: list[profile.Profile]
+    serve: Callable[[str | None], TcpAddress], dp800_only: list[profile.Profile]
 ) -> None:
     address = serve(None)
     started = time.monotonic()
 
-    result = discovery.identify(_found(address), profiles, timeout_s=0.4)
+    result = discovery.identify(_found(address), dp800_only, timeout_s=0.4)
 
     # Two queries of 0.4 s each, with room for a slow CI runner.
     assert 0.75 < time.monotonic() - started < 1.5
@@ -446,7 +445,7 @@ def test_identify_gives_up_on_a_silent_server_after_asking_twice(
 
 
 def test_identify_abandons_a_link_that_hangs_while_opening(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     release = threading.Event()
     closed: list[str] = []
@@ -464,7 +463,7 @@ def test_identify_abandons_a_link_that_hangs_while_opening(
     monkeypatch.setattr(discovery, "open_link", hang)
     started = time.monotonic()
 
-    result = discovery.identify(_found(TcpAddress("10.255.255.1", 5025)), profiles, timeout_s=0.3)
+    result = discovery.identify(_found(TcpAddress("10.255.255.1", 5025)), dp800_only, timeout_s=0.3)
 
     elapsed = time.monotonic() - started
     release.set()
@@ -478,20 +477,20 @@ def test_identify_abandons_a_link_that_hangs_while_opening(
 
 
 def test_identify_turns_a_link_error_into_its_sentence(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     def refuse(address: Any, settings: LinkSettings) -> None:
         raise LinkError("Connection refused by 10.0.0.5:5025.", "refused")
 
     monkeypatch.setattr(discovery, "open_link", refuse)
 
-    result = discovery.identify(_found(TcpAddress("10.0.0.5", 5025)), profiles)
+    result = discovery.identify(_found(TcpAddress("10.0.0.5", 5025)), dp800_only)
 
     assert result.error == "Connection refused by 10.0.0.5:5025."
 
 
 def test_identify_tries_serial_at_9600_then_115200(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     bauds: list[int] = []
 
@@ -512,7 +511,7 @@ def test_identify_tries_serial_at_9600_then_115200(
 
     monkeypatch.setattr(discovery, "open_link", open_link)
 
-    result = discovery.identify(_found(SerialAddress("COM3")), profiles)
+    result = discovery.identify(_found(SerialAddress("COM3")), dp800_only)
 
     assert bauds == [9600, 115200]
     assert result.address == SerialAddress("COM3", baud=115200)
@@ -520,7 +519,7 @@ def test_identify_tries_serial_at_9600_then_115200(
 
 
 def test_identify_does_not_retry_serial_when_the_port_is_busy(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     bauds: list[int] = []
 
@@ -530,7 +529,7 @@ def test_identify_does_not_retry_serial_when_the_port_is_busy(
 
     monkeypatch.setattr(discovery, "open_link", open_link)
 
-    result = discovery.identify(_found(SerialAddress("COM3")), profiles)
+    result = discovery.identify(_found(SerialAddress("COM3")), dp800_only)
 
     assert bauds == [9600]
     assert result.error == "COM3 is in use by another program."
@@ -543,7 +542,7 @@ def test_identify_does_not_retry_serial_when_the_port_is_busy(
 def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
     monkeypatch: pytest.MonkeyPatch,
     serve: Callable[[str | None], TcpAddress],
-    profiles: list[profile.Profile],
+    dp800_only: list[profile.Profile],
 ) -> None:
     live = serve(DP832_REPLY)
     # Another host: a held address holds its whole host, and the live one shares localhost.
@@ -585,7 +584,7 @@ def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
     monkeypatch.setattr(discovery, "_identify", identify)
 
     results = discovery.discover(
-        profiles, serial=False, budget_s=0.01, identify_timeout_s=1.0, skip={held.where}
+        dp800_only, serial=False, budget_s=0.01, identify_timeout_s=1.0, skip={held.where}
     )
 
     assert [(f.source, f.detail) for f in results] == [("mdns", "a"), ("mdns", "b"), ("usb", "m")]
@@ -596,12 +595,12 @@ def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
     assert opened == [live.where]
 
 
-def test_discover_with_nothing_to_list_returns_nothing(profiles: list[profile.Profile]) -> None:
-    assert discovery.discover(profiles, lan=False, usb=False, serial=False) == []
+def test_discover_with_nothing_to_list_returns_nothing(dp800_only: list[profile.Profile]) -> None:
+    assert discovery.discover(dp800_only, lan=False, usb=False, serial=False) == []
 
 
 def test_discover_never_raises_when_identify_does(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     monkeypatch.setattr(
         discovery, "list_usb", lambda: [_found(VisaAddress("USB0::1::2::S::INSTR"), "m")]
@@ -614,7 +613,7 @@ def test_discover_never_raises_when_identify_does(
 
     monkeypatch.setattr(discovery, "_identify", boom)
 
-    results = discovery.discover(profiles, lan=False, usb=True)
+    results = discovery.discover(dp800_only, lan=False, usb=True)
 
     assert [f.error for f in results] == ["boom"]
 
@@ -638,7 +637,7 @@ def test_default_name_is_at_most_64_bytes() -> None:
 
 
 def test_discover_keeps_one_address_per_instrument(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     """A host reached by VXI-11 and by raw socket is one instrument: the address that
     identified wins, then the kind the caller prefers. Two sockets on one host stay two."""
@@ -660,7 +659,7 @@ def test_discover_keeps_one_address_per_instrument(
     monkeypatch.setattr(discovery, "_identify", identify)
 
     def run(prefer: str = "socket") -> list[str]:
-        found = discovery.discover(profiles, usb=False, budget_s=0.01, prefer=prefer)  # type: ignore[arg-type]
+        found = discovery.discover(dp800_only, usb=False, budget_s=0.01, prefer=prefer)  # type: ignore[arg-type]
         return [f.address.where for f in found]
 
     assert run() == ["10.0.0.5:5025", "10.0.0.5:5555"]
@@ -720,18 +719,18 @@ def _in_thread(fn: Callable[[], Any]) -> tuple[threading.Thread, list[Any]]:
 
 
 def test_a_caller_that_arrives_during_a_search_takes_its_result(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     """Two searches at once scanned every subnet twice and walked libusb from two threads."""
     calls, started, release = _held_search(monkeypatch)
     first_tried: list[str] = []
     second_tried: list[str] = []
     first, first_out = _in_thread(
-        lambda: discovery.discover(profiles, usb=True, budget_s=2.0, tried=first_tried)
+        lambda: discovery.discover(dp800_only, usb=True, budget_s=2.0, tried=first_tried)
     )
     assert started.wait(5)
     second, second_out = _in_thread(
-        lambda: discovery.discover(profiles, usb=False, budget_s=1.0, tried=second_tried)
+        lambda: discovery.discover(dp800_only, usb=False, budget_s=1.0, tried=second_tried)
     )
     time.sleep(0.2)
     release.set()
@@ -746,12 +745,12 @@ def test_a_caller_that_arrives_during_a_search_takes_its_result(
 
 
 def test_a_caller_asking_for_more_waits_and_searches_again(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     calls, started, release = _held_search(monkeypatch)
-    first, _ = _in_thread(lambda: discovery.discover(profiles, usb=False, budget_s=1.0))
+    first, _ = _in_thread(lambda: discovery.discover(dp800_only, usb=False, budget_s=1.0))
     assert started.wait(5)
-    second, second_out = _in_thread(lambda: discovery.discover(profiles, usb=True, budget_s=1.0))
+    second, second_out = _in_thread(lambda: discovery.discover(dp800_only, usb=True, budget_s=1.0))
     time.sleep(0.2)
     assert calls == [1.0]
     release.set()
@@ -763,12 +762,12 @@ def test_a_caller_asking_for_more_waits_and_searches_again(
 
 
 def test_a_caller_after_a_search_searches_again(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     calls, _, release = _held_search(monkeypatch)
     release.set()
-    discovery.discover(profiles, usb=False)
-    discovery.discover(profiles, usb=False)
+    discovery.discover(dp800_only, usb=False)
+    discovery.discover(dp800_only, usb=False)
     assert calls == [2.0, 2.0]
 
 
@@ -814,13 +813,13 @@ class _SleepyHandler(socketserver.StreamRequestHandler):
                     self.wfile.write(DP832_REPLY.encode() + b"\n")
 
 
-def test_identify_asks_again_on_the_same_connection(profiles: list[profile.Profile]) -> None:
+def test_identify_asks_again_on_the_same_connection(dp800_only: list[profile.Profile]) -> None:
     server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _SleepyHandler)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         address = TcpAddress("127.0.0.1", server.server_address[1])
-        result = discovery.identify(_found(address), profiles, timeout_s=0.5)
+        result = discovery.identify(_found(address), dp800_only, timeout_s=0.5)
         assert result.error is None
         assert result.idn is not None and result.idn.model == "DP832"
     finally:
@@ -832,7 +831,7 @@ def test_identify_asks_again_on_the_same_connection(profiles: list[profile.Profi
 
 
 def test_a_listing_that_hangs_ends_at_the_deadline_and_keeps_no_thread_alive(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     release = threading.Event()
 
@@ -852,7 +851,7 @@ def test_a_listing_that_hangs_ends_at_the_deadline_and_keeps_no_thread_alive(
     tried: list[str] = []
     started = time.monotonic()
     try:
-        results = discovery.discover(profiles, deadline_s=0.5, tried=tried)
+        results = discovery.discover(dp800_only, deadline_s=0.5, tried=tried)
         elapsed = time.monotonic() - started
         stuck = [
             t for t in threading.enumerate() if not t.daemon and t is not threading.main_thread()
@@ -866,7 +865,7 @@ def test_a_listing_that_hangs_ends_at_the_deadline_and_keeps_no_thread_alive(
 
 
 def test_an_instrument_still_answering_at_the_deadline_is_reported_as_out_of_time(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     monkeypatch.setattr(
         discovery,
@@ -882,7 +881,7 @@ def test_an_instrument_still_answering_at_the_deadline_is_reported_as_out_of_tim
     monkeypatch.setattr(discovery, "_identify", slow)
     started = time.monotonic()
     try:
-        results = discovery.discover(profiles, usb=False, deadline_s=0.5)
+        results = discovery.discover(dp800_only, usb=False, deadline_s=0.5)
     finally:
         release.set()
     assert time.monotonic() - started < 1.0
@@ -890,7 +889,7 @@ def test_an_instrument_still_answering_at_the_deadline_is_reported_as_out_of_tim
 
 
 def test_one_instruments_addresses_are_asked_one_after_another(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     """Two clients at once on one instrument's parser garble each other's replies."""
     addresses = [
@@ -910,28 +909,13 @@ def test_one_instruments_addresses_are_asked_one_after_another(
         return dataclasses.replace(found, error="silent")
 
     monkeypatch.setattr(discovery, "_identify", timed)
-    discovery.discover(profiles, usb=False, deadline_s=5.0)
+    discovery.discover(dp800_only, usb=False, deadline_s=5.0)
 
     def overlap(a: str, b: str) -> bool:
         return spans[a][0] < spans[b][1] and spans[b][0] < spans[a][1]
 
     assert not overlap("10.0.0.5:5025", "TCPIP::10.0.0.5::INSTR")
     assert overlap("10.0.0.5:5025", "10.0.0.6:5025")
-
-
-@pytest.mark.parametrize(
-    ("reply", "expected"),
-    [
-        ("RIGOL TECHNOLOGIES,DP832,DP8A1,00.01.16", True),
-        ("LAMBDA,GEN60-12.5", True),
-        ("EA Elektro-Automatik GmbH & Co. KG, PS 9040-20 T", True),
-        ("12.0,0.5,6.0", False),
-        ("0.00E+00", False),
-        ("", False),
-    ],
-)
-def test_an_identity_names_a_maker(reply: str, expected: bool) -> None:
-    assert profile.is_identity(reply) is expected
 
 
 def test_the_port_scan_starts_no_batch_past_its_deadline() -> None:
@@ -944,7 +928,7 @@ def test_the_port_scan_starts_no_batch_past_its_deadline() -> None:
 
 
 def test_an_instrument_held_under_its_host_name_is_held_at_its_address(
-    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
 ) -> None:
     monkeypatch.setattr(
         discovery,
@@ -956,5 +940,24 @@ def test_an_instrument_held_under_its_host_name_is_held_at_its_address(
         "_identify",
         lambda *a: pytest.fail("a held instrument was opened"),
     )
-    results = discovery.discover(profiles, usb=False, skip={"localhost:5025"}, deadline_s=5.0)
+    results = discovery.discover(dp800_only, usb=False, skip={"localhost:5025"}, deadline_s=5.0)
     assert [f.error for f in results] == [discovery.IN_USE]
+
+
+def test_a_held_instrument_is_held_under_its_other_address_too(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    held = discovery.Found(
+        VisaAddress("TCPIP::10.0.0.5::INSTR"), None, None, None, "vxi11", "v", None
+    )
+    sock = discovery.Found(TcpAddress("10.0.0.5", 5025), None, None, None, "scan", "s", None)
+    monkeypatch.setattr(
+        discovery, "list_lan", lambda budget_s, tried=None, deadline_s=10.0: [held, sock]
+    )
+    monkeypatch.setattr(
+        discovery, "identify", lambda f, p, t=2.0: pytest.fail("opened a held host")
+    )
+    found = discovery.discover(profiles, usb=False, budget_s=0.01, skip={"10.0.0.5:5025"})
+    assert [(f.address.where, f.error) for f in found] == [
+        ("10.0.0.5:5025", discovery.IN_USE),
+    ]
