@@ -2,13 +2,13 @@ schema = 1
 id = "keithley-2110"
 name = "Keithley Model 2110"
 category = "dmm"
-notes = """Transcribed from the Model 2110 Reference Manual; never run on a unit. Only the 2110 is covered: the manual used does not describe the 2100, which needs its own profile. The 2110 has USB (TMC-compliant) and an optional GPIB interface, no LAN and no RS-232. The meter refuses READ? in local mode (error 550), so the profile sends SYST:REM after connect; remote mode disables every front-panel button except LOCAL. The meter must be in its DEFAULT language; in COMPATIBLE language mode, SYST:IDNS can change the *IDN? reply, and this profile then no longer matches. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC". Ratio (VOLT:RAT) and the secondary display function have no label and read as unknown. The meter has a primary and a secondary display; this profile reads and sets the primary function only. READ? puts the trigger system in wait-for-trigger and returns the reading without storing it, so with an external or bus trigger source it times out. CONF takes an optional range and resolution, and this profile sends neither; CONF sets all other controls of the function to their *RST values, so each function change resets that function's range, resolution and NPLC. Temperature needs a transducer set on the meter (TEMP:TRAN) and reads in the unit the meter is set to, which the profile does not read. Frequency and period on the current input read correctly but the setter selects the voltage input."""
+notes = """Transcribed from the Model 2110 Reference Manual; never run on a unit. Only the 2110 is covered: the manual used does not describe the 2100, which needs its own profile. The 2110 has USB (TMC-compliant) and an optional GPIB interface, no LAN and no RS-232. The meter refuses READ? in local mode (error 550), so the profile sends SYST:REM after connect; remote mode disables every front-panel button except LOCAL. The meter must be in its DEFAULT language; in COMPATIBLE language mode, SYST:IDNS can change the *IDN? reply, and this profile then no longer matches. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC". Ratio (VOLT:RAT) and the secondary display function have no label and read as unknown. The meter has a primary and a secondary display; this profile reads and sets the primary function only. READ? puts the trigger system in wait-for-trigger and returns the reading without storing it, so with an external or bus trigger source it times out. CONF takes an optional range and resolution, and this profile sends neither; CONF sets all other controls of the function to their *RST values, so each function change resets that function's range, resolution and NPLC. Temperature needs a transducer set on the meter (TEMP:TRAN) and reads in the unit the meter is set to, which the profile does not read. Frequency and period on the current input read correctly but the setter selects the voltage input. The range, auto range and integration time setters act on the meter's current function: the profile sends, for example, VOLT:DC:RANG, and the meter takes the range that covers the value. Frequency and period take the input voltage range (FREQ:VOLT, PER:VOLT), and capacitance has its own range; temperature, diode and continuity have none, so the setters refuse them. The integration time takes 0.001, 0.006, 0.02, 0.06, 0.2, 0.6, 1, 2, 10 or 100 cycles and works on DC volts, DC amps and 2-wire and 4-wire resistance; the AC functions have none. Each setter reads its own value back with the function's query, but Get State does not show the range, auto range or integration time. The manual documents no *TST? command and no *SAV or *RCL entry, and no command that locks the front panel beyond SYST:REM. The display switch turns off the measurement display. The display text goes to the secondary display, up to 16 characters, and the meter truncates the rest."""
 
 [evidence]
 badge = "manual"
 source = "Keithley Model 2110 5½ Digit Multimeter Reference Manual, 2110-901-01 Rev. B, July 2012 (cover; the page footers read Rev. A)"
 url = "http://instrumentationlab.berkeley.edu/sites/default/files/BSC01/Keithley-DMM_2110.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -22,6 +22,9 @@ needs_remote = true
 
 [errors]
 query = "SYST:ERR?"
+
+[ranges]
+nplc = { choices = [0.001, 0.006, 0.02, 0.06, 0.2, 0.6, 1, 2, 10, 100] }
 
 [signals.value]
 query = "READ?"
@@ -53,3 +56,26 @@ continuity = "Ohm"
 [setters.function]
 command = "CONF:{function}"
 map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = "{function}:RANG {value}"
+verify = "{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.autorange]
+command = "{function}:RANG:AUTO {on}"
+verify = "{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.nplc]
+command = "{function}:NPLC {value}"
+verify = "{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES" }
+
+[system]
+self_test = false
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 16
+display_clear = "DISP:TEXT:CLE"

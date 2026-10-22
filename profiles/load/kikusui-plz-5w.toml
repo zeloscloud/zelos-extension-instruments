@@ -9,13 +9,16 @@ Current, voltage and power each have ranges (H, M and L for current and power, H
 The manual recommends remote mode before remote control: SYST:COMM:RLST REM locks the panel except the ESCAPE key. The RS-232 settings are 8 data bits and 1 stop bit, fixed, with no parity; the user's manual lists the bit rate as 9600, 19200, 38400, 57600 or 115200 in its menu and as 9600, 19200, 38400 or 115200 in its specification table, and shows no factory default. The user's manual names a SCPI-RAW LAN service without a port, and the PLZ-5WH2 manual fixes its port at 5025, which the profile keeps. \
 The PLZ-5WH2 manual's identity example is KIKUSUI,PLZ1005WH2,AB123400,IFO0.53.0086 FPGA0.126.0011 IOC0.07.0062; the PLZ-5W reply form was not checked. \
 The mode state reads CC, CR, CV and CP; the ARB mode reads as unknown. \
-The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 8 overpower, 16 overtemperature, and 32, 512, 1024, 2048 and 4096 for the watchdog, undervoltage, external error, reverse voltage and connection error. The Clear setter clears the protection alarms."""
+The protection state reads the questionable status condition register: weight 1 overvoltage, 2 overcurrent, 8 overpower, 16 overtemperature, and 32, 512, 1024, 2048 and 4096 for the watchdog, undervoltage, external error, reverse voltage and connection error. The Clear setter clears the protection alarms. \
+The slew rate (CURR:SLEWrate) is one value for both edges, in A/us, and the profile scales it to A/s; the manual has no separate rise and fall commands and no short command, and the current range is not set remotely, so there are no short or range setters. \
+The system functions follow the PLZ-5WH2 manual as well. Save and recall take memory numbers 0 to 19. SYST:COMM:RLST RWL locks every panel key including ESCAPE, and SYST:COMM:RLST REM returns to the remote state in which ESCAPE works. \
+The beep command only switches the beeper on or off, so there is no beep function."""
 
 [evidence]
 badge = "manual"
 source = "Kikusui Electronic Load PLZ-5W series Communication Interface Manual (web edition, no longer reachable); PLZ-5W User's Manual, IB027941, Mar. 2016 (ratings); PLZ-5WH2 Communication Interface Manual, IB035123, Apr 2022 (command cross-check, https://www.kikusui.cn/resources/001/pdf/plz-5wh2_interface_manual.pdf)"
 url = "https://kikusui-korea.co.kr/files/PDF/PLZ_5W_M.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^kikusui'
@@ -28,6 +31,13 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 19 }
+lock = "SYST:COMM:RLST RWL"
+unlock = "SYST:COMM:RLST REM"
 
 [ranges]
 voltage = { min = 0, max = 157.5, digits = 3 }
@@ -68,6 +78,11 @@ parse = "float"
 query = "POW?"
 parse = "float"
 
+[state.slew_set]
+query = "CURR:SLEW?"
+parse = "float"
+scale = 1e6
+
 [state.output]
 query = "INP?"
 parse = "bool"
@@ -101,6 +116,10 @@ map = { cc = "CC", cv = "CV", cp = "CP", cr = "CR" }
 
 [setters.output]
 command = "INP {on}"
+
+[setters.slew]
+command = "CURR:SLEW {value}"
+scale = 1e6
 
 [setters.clear]
 command = "INP:PROT:CLE"

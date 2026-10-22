@@ -8,13 +8,17 @@ The guide has no remote or local command. Any command puts the load in remote mo
 The guide says commands sent over RS232 end with CR LF, and this profile sends a newline, so set the write terminator in the config for an RS232 link. \
 The current and resistance ranges each have a low and a high range, and the high range is the default. The guide's List-mode ranges are 0 to 6 A or 0 to 60 A and 0 to 15 or 0 to 15000 ohms, and it does not state the DL3021's low current range. \
 The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 12 overvoltage and bit 13 protection shutdown, which covers overcurrent, overpower and overtemperature. \
-The load starts to sink only above its start voltage (Von), and the input turns off when a protection trips."""
+The load starts to sink only above its start voltage (Von), and the input turns off when a protection trips. \
+*TST? returns a text line with one item per check, such as OppRef: PASS,VmonTrig: PASS,Temp1: PASS, and not a 0 or 1 flag; the profile counts a reply as a pass when every item reads PASS. \
+The current range applies to CC mode and the voltage range to CV mode; MIN selects the low range and MAX the high range, and the range queries return a number that depends on the model, so the ranges are set but not read. \
+The rise and fall slew rates are the :SOUR:CURR:SLEW:POS and :SOUR:CURR:SLEW:NEG rates for transient operation, in A/s; the both-edges command (:SOUR:CURR:SLEW:BOTH) is for CC mode and is not used. \
+The guide has no save and recall commands, no short command and no panel lock."""
 
 [evidence]
 badge = "manual"
 source = "Rigol DL3000 Series Programmable DC Electronic Load Programming Guide, PGJ01103-1110, Feb. 2017"
 url = "https://docs.ampnuts.ru/my_docs/Rigol/DL3021/doc/DL3000_ProgrammingGuide.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rigol'
@@ -30,6 +34,9 @@ command_delay_ms = 500
 
 [errors]
 query = ":SYST:ERR?"
+
+[system]
+self_test_ok = '^\s*(\w+:\s*PASS\s*,?\s*)+$'
 
 [ranges]
 voltage = { min = 0, max = 150, digits = 3 }
@@ -83,6 +90,14 @@ query = ":SOUR:FUNC?"
 parse = "map"
 map = { CC = "cc", CV = "cv", CP = "cp", CR = "cr" }
 
+[state.slew_rise_set]
+query = ":SOUR:CURR:SLEW:POS?"
+parse = "float"
+
+[state.slew_fall_set]
+query = ":SOUR:CURR:SLEW:NEG?"
+parse = "float"
+
 [state.protection]
 flags = [
   { query = ":STAT:QUES:COND?", parse = "bits", mask = 4096, shift = 12, value = "ovp" },
@@ -109,3 +124,17 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = ":SOUR:INP:STAT {on}"
+
+[setters.current_range]
+command = ":SOUR:CURR:RANG {value}"
+map = { low = "MIN", high = "MAX" }
+
+[setters.voltage_range]
+command = ":SOUR:VOLT:RANG {value}"
+map = { low = "MIN", high = "MAX" }
+
+[setters.slew_rise]
+command = ":SOUR:CURR:SLEW:POS {value}"
+
+[setters.slew_fall]
+command = ":SOUR:CURR:SLEW:NEG {value}"

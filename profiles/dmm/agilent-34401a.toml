@@ -2,13 +2,13 @@ schema = 1
 id = "agilent-34401a"
 name = "HP / Agilent / Keysight 34401A"
 category = "dmm"
-notes = """Transcribed from the 34401A User's Guide; never run on a unit. The meter has GPIB and RS-232 only, no LAN and no USB. RS-232 is fixed at 1 start bit and 2 stop bits. The factory setting is 9600 baud, even parity and 7 data bits; choosing parity None in the front-panel I/O menu gives 8 data bits, so change data_bits and parity in the config to match the meter. The meter holds DTR false while it has a reply to send: set the serial flow control to DTR/DSR in the config, or disable the handshake by leaving DTR unconnected and tying DSR to logic true. Over RS-232 the meter refuses READ? with error 550 until it receives SYST:REM, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 only, so on GPIB each one adds error 514 to the error queue. The Truevolt meters (34460A, 34461A) list SYSTem:LOCal and SYSTem:LOCK but no SYSTem:REMote, and answer as a 34401A after SYST:IDEN HP34401A. READ? takes a new reading each poll. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC", which later Keysight meters return. The manual's CONF syntax lists both range and resolution, so the function setter sends DEF for each (CONF:VOLT:DC DEF,DEF); diode and continuity take no parameters. Ratio (VOLT:DC:RAT) has no label and reads as unknown. The meter has no temperature or capacitance function. A driver for this meter allows 10 s per reply because a 100 NPLC reading takes about 5 s, so the profile does too. An RS-232 owner without the handshake reports that queries stopped timing out once each waited 100 ms; set delay_ms in the config for such a link. One owner reports that the meter left remote mode after about 10 idle minutes and ignored READ? until SYST:REM was sent again."""
+notes = """Transcribed from the 34401A User's Guide; never run on a unit. The meter has GPIB and RS-232 only, no LAN and no USB. RS-232 is fixed at 1 start bit and 2 stop bits. The factory setting is 9600 baud, even parity and 7 data bits; choosing parity None in the front-panel I/O menu gives 8 data bits, so change data_bits and parity in the config to match the meter. The meter holds DTR false while it has a reply to send: set the serial flow control to DTR/DSR in the config, or disable the handshake by leaving DTR unconnected and tying DSR to logic true. Over RS-232 the meter refuses READ? with error 550 until it receives SYST:REM, so the profile sends it after connect; remote mode disables every front-panel key except LOCAL. SYST:REM, SYST:LOC and SYST:RWLock are allowed over RS-232 only, so on GPIB each one adds error 514 to the error queue. The Truevolt meters (34460A, 34461A) list SYSTem:LOCal and SYSTem:LOCK but no SYSTem:REMote, and answer as a 34401A after SYST:IDEN HP34401A. READ? takes a new reading each poll. The manual says FUNC? returns a quoted string and does not print the strings; this profile reads the short SCPI form, such as "VOLT" or "CURR:AC", which later Keysight meters return. The manual's CONF syntax lists both range and resolution, so the function setter sends DEF for each (CONF:VOLT:DC DEF,DEF); diode and continuity take no parameters. Ratio (VOLT:DC:RAT) has no label and reads as unknown. The meter has no temperature or capacitance function. A driver for this meter allows 10 s per reply because a 100 NPLC reading takes about 5 s, so the profile does too. An RS-232 owner without the handshake reports that queries stopped timing out once each waited 100 ms; set delay_ms in the config for such a link. One owner reports that the meter left remote mode after about 10 idle minutes and ignored READ? until SYST:REM was sent again. The profile sends *CLS after connect, as a driver for this meter does when it opens the link. The range, auto range and integration time setters act on the meter's current function: the profile sends, for example, VOLT:DC:RANG, and the meter picks the range that covers the value. Frequency and period take the input voltage range (FREQ:VOLT, PER:VOLT). The integration time takes 0.02, 0.2, 1, 10 or 100 cycles and works on DC volts, DC amps and both resistance functions only; the AC functions have none, so the setter refuses them. Each setter reads its own value back with the function's query, but Get State does not show the range, auto range or integration time, because those queries need the function word. The meter has no save or recall of setups. The display text takes up to 12 characters and the meter truncates the rest. Lock sends SYSTem:RWLock and unlock sends SYSTem:REMote, which like SYST:LOC work over RS-232 only. The self-test takes about 15 s and clears reading memory."""
 
 [evidence]
 badge = "manual"
 source = "HP 34401A Multimeter User's Guide, 34401-90004, February 1996"
 url = "https://xdevs.com/doc/HP_Agilent_Keysight/HP%2034401A%20User.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(hewlett-?packard|hp|agilent|keysight)'
@@ -20,6 +20,7 @@ data_bits = 7
 parity = "even"
 stop_bits = 2
 timeout_s = 10
+init = "*CLS"
 remote = "SYST:REM"
 local = "SYST:LOC"
 locks_panel = true
@@ -27,6 +28,9 @@ needs_remote = true
 
 [errors]
 query = "SYST:ERR?"
+
+[ranges]
+nplc = { choices = [0.02, 0.2, 1, 10, 100], digits = 2 }
 
 [signals.value]
 query = "READ?"
@@ -56,3 +60,27 @@ continuity = "Ohm"
 [setters.function]
 command = "CONF:{function}"
 map = { dc_voltage = "VOLT:DC DEF,DEF", ac_voltage = "VOLT:AC DEF,DEF", dc_current = "CURR:DC DEF,DEF", ac_current = "CURR:AC DEF,DEF", resistance = "RES DEF,DEF", resistance_4w = "FRES DEF,DEF", frequency = "FREQ DEF,DEF", period = "PER DEF,DEF", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = "{function}:RANG {value}"
+verify = "{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT" }
+
+[setters.autorange]
+command = "{function}:RANG:AUTO {on}"
+verify = "{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT" }
+
+[setters.nplc]
+command = "{function}:NPLC {value}"
+verify = "{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES" }
+
+[system]
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 12
+display_clear = "DISP:TEXT:CLE"
+lock = "SYSTem:RWLock"
+unlock = "SYSTem:REMote"

@@ -2,13 +2,13 @@ schema = 1
 id = "chroma-63200"
 name = "Chroma 63200A series"
 category = "load"
-notes = """Transcribed from the operation and programming manual, not tried on a unit. The model string carries the voltage and current rating (63205A-150-500 is 150 V and 500 A), and the ranges follow the manual's specification tables. The A632009 and A632010 parallel systems do not support the optional interfaces and are not matched. The manual has no CHAN select command: each load is one channel, and a multi-load frame is addressed through its interface cards. The remote interfaces are optional GPIB, Ethernet, CAN and USB cards, used one at a time, and the first one used locks the rest out until a reset. The Ethernet socket port is 2101, set on the front panel with the address. The manual has no resistance measurement query, so resistance is not read, and its resistance range depends on the mode range, so the resistance setter refuses until the config names a limit. MODE combines the function with a range: CCL, CCM and CCH are CC at the low, middle and high range, and the same suffixes apply to CV, CP and CR. The mode state folds each range to its function, and the function setter selects the high range. Dynamic, battery and other modes read as unknown. SYST:REM puts the load in remote mode and disables the front panel except LOCAL. The protection state reads LOAD:PROTection? by bit weight: 1, 2 and 65536 overvoltage, 8, 16 and 32 overcurrent, 64, 128 and 256 overpower, 512 and 32768 overtemperature, and 4 reverse voltage. The Clear setter resets the latched status."""
+notes = """Transcribed from the operation and programming manual, not tried on a unit. The model string carries the voltage and current rating (63205A-150-500 is 150 V and 500 A), and the ranges follow the manual's specification tables. The A632009 and A632010 parallel systems do not support the optional interfaces and are not matched. The manual has no CHAN select command: each load is one channel, and a multi-load frame is addressed through its interface cards. The remote interfaces are optional GPIB, Ethernet, CAN and USB cards, used one at a time, and the first one used locks the rest out until a reset. The Ethernet socket port is 2101, set on the front panel with the address. The manual has no resistance measurement query, so resistance is not read, and its resistance range depends on the mode range, so the resistance setter refuses until the config names a limit. MODE combines the function with a range: CCL, CCM and CCH are CC at the low, middle and high range, and the same suffixes apply to CV, CP and CR. The mode state folds each range to its function, and the function setter selects the high range. Dynamic, battery and other modes read as unknown. SYST:REM puts the load in remote mode and disables the front panel except LOCAL. The protection state reads LOAD:PROTection? by bit weight: 1, 2 and 65536 overvoltage, 8, 16 and 32 overcurrent, 64, 128 and 256 overpower, 512 and 32768 overtemperature, and 4 reverse voltage. The Clear setter resets the latched status. The short setter sends LOAD:SHOR. The voltage range setter sends CONF:VOLT:RANG with LOW, MIDDLE or HIGH, which the manual describes as the voltage measurement range in CC mode. The current range is part of MODE, so a current range setter would also change the function and the profile has none. The rise and fall slew rates are the constant-current static ones (CURR:STAT:RISE and CURR:STAT:FALL) in A/s; the dynamic, power and resistance rates are not offered. Save takes 1 to 20 and recall takes 0 to 20, where 0 is the factory default file, so the profile offers 1 to 20. *RST also aborts, clears the protection status and returns the settings to the factory defaults. The manual has no self-test query, so the profile has none."""
 
 [evidence]
 badge = "manual"
 source = "Chroma 63200A Series DC Electronic Load Operation and Programming Manual, Version 2.3, October 2024"
 url = "https://www.finaltest.com.mx/v/vspfiles/assets/datasheet/UM-63200A-DC-Electronic-Load-102024.pdf"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^chroma'
@@ -22,6 +22,12 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 20 }
 
 [[ranges.models]]
 model = '^63202A-150-200$'
@@ -282,6 +288,23 @@ query = "MODE?"
 parse = "map"
 map = { CCL = "cc", CCM = "cc", CCH = "cc", CVL = "cv", CVM = "cv", CVH = "cv", CPL = "cp", CPM = "cp", CPH = "cp", CRL = "cr", CRM = "cr", CRH = "cr" }
 
+[state.short]
+query = "LOAD:SHOR?"
+parse = "bool"
+
+[state.voltage_range]
+query = "CONF:VOLT:RANG?"
+parse = "map"
+map = { LOW = "low", MIDDLE = "mid", HIGH = "high" }
+
+[state.slew_rise_set]
+query = "CURR:STAT:RISE?"
+parse = "float"
+
+[state.slew_fall_set]
+query = "CURR:STAT:FALL?"
+parse = "float"
+
 [state.protection]
 flags = [
   { query = "LOAD:PROT?", parse = "bits", mask = 65539, value = "ovp" },
@@ -309,6 +332,19 @@ map = { cc = "CCH", cv = "CVH", cp = "CPH", cr = "CRH" }
 
 [setters.output]
 command = "LOAD {on}"
+
+[setters.short]
+command = "LOAD:SHOR {on}"
+
+[setters.voltage_range]
+command = "CONF:VOLT:RANG {value}"
+map = { low = "LOW", mid = "MIDDLE", high = "HIGH" }
+
+[setters.slew_rise]
+command = "CURR:STAT:RISE {value}"
+
+[setters.slew_fall]
+command = "CURR:STAT:FALL {value}"
 
 [setters.clear]
 command = "LOAD:PROT:CLE"

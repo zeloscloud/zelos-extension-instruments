@@ -8,13 +8,13 @@ The guide has no resistance measurement query, so resistance is not read. \
 The interfaces are RS-232, USB and GPIB with no LAN port in the guide. RS-232 offers 4800, 9600, 19200, 38400, 57600 or 115200 baud, 8 data bits with no parity or 7 bits with even or odd parity, set with Shift + System on the front panel, and the guide names no default. The guide contradicts itself on the cable: it says the load can connect to a PC through a null modem cable, and later says to use a straight-through cable and not a null modem cable. \
 SYST:REM puts the load in remote mode and disables every front-panel key except LOCAL. \
 The function query reply form is not stated; the profile accepts the short and the long word. \
-A protection trip latches the input off until the Clear setter's command, which restores the earlier input state, so send it only once the fault is gone. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage."""
+A protection trip latches the input off until the Clear setter's command, which restores the earlier input state, so send it only once the fault is gone. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage. The slew rate is in A/us and the profile scales it to A/s; the rise rate is CURR:SLEW:POS and the fall rate is CURR:SLEW:NEG, and the both-edges command is not used. The current range command takes MIN for the low range and MAX for the high range; its query returns a number that depends on the model, so the range is set but not read. The load has one voltage range, so there is no voltage range setter. Save takes 0 to 100 and recall takes 0 to 9, so the profile offers 0 to 9. SYST:RWL locks every key including LOCAL until SYST:LOC. The display text command needs DISP:MODE TEXT and a row number and has no clear command, so the profile has no display functions."""
 
 [evidence]
 badge = "manual"
 source = "ITECH Series IT8800 Programmable DC Electronic Load Programming Guide, V2.1, 2022; IT8800 Series User's Manual (ratings)"
 url = "https://assets.testequity.com/te1/Documents/pdf/itech/ITECH_IT8800-Programming-Guide-EN.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^itech'
@@ -27,6 +27,13 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+lock = "SYST:RWL"
+unlock = "SYST:LOC"
 
 [[ranges.models]]
 model = '^IT8811$'
@@ -93,6 +100,20 @@ query = "SOUR:FUNC?"
 parse = "map"
 map = { CURR = "cc", CURRENT = "cc", VOLT = "cv", VOLTAGE = "cv", POW = "cp", POWER = "cp", RES = "cr", RESISTANCE = "cr" }
 
+[state.short]
+query = "SOUR:INP:SHOR:STAT?"
+parse = "bool"
+
+[state.slew_rise_set]
+query = "SOUR:CURR:SLEW:POS?"
+parse = "float"
+scale = 1e6
+
+[state.slew_fall_set]
+query = "SOUR:CURR:SLEW:NEG?"
+parse = "float"
+scale = 1e6
+
 [state.protection]
 flags = [
   { query = "STAT:QUES:COND?", parse = "bits", mask = 4096, shift = 12, value = "ovp" },
@@ -119,6 +140,21 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = "SOUR:INP:STAT {on}"
+
+[setters.short]
+command = "SOUR:INP:SHOR {on}"
+
+[setters.current_range]
+command = "SOUR:CURR:RANG {value}"
+map = { low = "MIN", high = "MAX" }
+
+[setters.slew_rise]
+command = "SOUR:CURR:SLEW:POS {value}"
+scale = 1e6
+
+[setters.slew_fall]
+command = "SOUR:CURR:SLEW:NEG {value}"
+scale = 1e6
 
 [setters.clear]
 command = "SOUR:PROT:CLE"

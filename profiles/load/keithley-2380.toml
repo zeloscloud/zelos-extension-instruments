@@ -8,13 +8,17 @@ MEAS:POW? starts a new power measurement. The interfaces are RS-232, USB (USBTMC
 SYST:REM puts the load in remote mode and disables the front-panel keys except Shift+7 (Info), Local and Esc. \
 The function query reply form is not stated; the profile accepts the short and the long word. \
 A protection trip latches the input off until PROT:CLE, which the Clear setter sends once the fault is removed; the input then returns to the state it had before the fault, which may be on. The protection state reads the questionable status condition register: bit 1 overcurrent, bit 3 overpower, bit 4 overtemperature and bit 12 overvoltage. \
-Each model has a low and a high current range, and the load selects the range that matches the value programmed; the current range and slew rate are not read, because the slew rate is in A/uS or A/mS by speed mode and the range query returns a number. The 2380J models share the commands."""
+Each model has a low and a high current range, and the load selects the range that matches the value programmed. The current range command takes MIN for the low range and MAX for the high range; its query returns a number that depends on the model, so the range is set but not read. \
+The voltage range command takes a voltage or MIN and MAX, which the manual describes as limits (0 V and a little above the rating) rather than ranges, so there is no voltage range setter. \
+The slew rate is not read or set, because it is in A/uS or A/mS depending on the speed mode (CURR:SLOW:STAT) and the profile cannot tell which. \
+Save and recall take 0 to 100. SYST:RWL locks the front panel including LOCAL until SYST:LOC, and the manual says it is not suitable for GPIB. \
+The display text command needs DISP:MODE TEXT and a character position and has no clear command, so the profile has no display functions. The 2380J models share the commands."""
 
 [evidence]
 badge = "manual"
 source = "Keithley Models 2380-500 and 2380-120 Programmable DC Electronic Load Instruments User's Manual, 2380-120-60-900-01 Rev. A, November 2015, and the 2380-500-30 User's Manual, 2380-500-30-900-01 Rev. A"
 url = "https://download.tek.com/manual/2380-120-60-900-01_A_Nov_2015.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -27,6 +31,13 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 100 }
+lock = "SYST:RWL"
+unlock = "SYST:LOC"
 
 [ranges]
 voltage = { min = 0, max = 120, digits = 3 }
@@ -85,6 +96,10 @@ query = "SOUR:FUNC?"
 parse = "map"
 map = { CURR = "cc", CURRENT = "cc", VOLT = "cv", VOLTAGE = "cv", POW = "cp", POWER = "cp", RES = "cr", RESISTANCE = "cr" }
 
+[state.short]
+query = "SOUR:INP:SHOR:STAT?"
+parse = "bool"
+
 [state.protection]
 flags = [
   { query = "STAT:QUES:COND?", parse = "bits", mask = 4096, shift = 12, value = "ovp" },
@@ -111,6 +126,13 @@ map = { cc = "CURR", cv = "VOLT", cp = "POW", cr = "RES" }
 
 [setters.output]
 command = "SOUR:INP:STAT {on}"
+
+[setters.short]
+command = "SOUR:INP:SHOR {on}"
+
+[setters.current_range]
+command = "SOUR:CURR:RANG {value}"
+map = { low = "MIN", high = "MAX" }
 
 [setters.clear]
 command = "SOUR:PROT:CLE"

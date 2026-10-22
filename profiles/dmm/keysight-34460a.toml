@@ -2,13 +2,13 @@ schema = 1
 id = "keysight-34460a"
 name = "Keysight Truevolt 34460A, 34461A, 34465A, 34470A"
 category = "dmm"
-notes = """Transcribed from the Truevolt programming reference; never run on a unit. The 34460A needs option 34460A-LAN or 3446LANU for LAN. The guide lists no RS-232 interface for these meters. READ? starts a new measurement each poll and returns every sample of the sample count, so leave SAMP:COUN at 1; with an external or bus trigger source it waits for the trigger and times out. FUNC? replies in the short form with quotes, such as "VOLT" for DC volts and "CURR:AC" for AC amps. Voltage ratio (VOLT:RAT) has no label here and reads as unknown. Capacitance exists on the 34465A and 34470A only; the 34460A and 34461A reject CONF:CAP. Temperature reads in the unit set by UNIT:TEMP, degrees C by default. CONF:TEMP with no argument selects the 4-wire RTD probe type (FRTD); the setter sends no argument, so it cannot select a 2-wire RTD or a thermistor. Choosing a function with CONF resets that function's range and resolution to the defaults. SYST:IDEN can make the meter answer as a 34401A or as an older Agilent model; an HP34401A identity matches the agilent-34401a profile instead."""
+notes = """Transcribed from the Truevolt Operating and Service Guide, Edition 13; never run on a unit. The 34460A needs option 34460A-LAN or 3446LANU for LAN. The guide lists no RS-232 interface for these meters. READ? starts a new measurement each poll and returns every sample of the sample count, so leave SAMP:COUN at 1; with an external or bus trigger source it waits for the trigger and times out. FUNC? replies in the short form with quotes, such as "VOLT" for DC volts and "CURR:AC" for AC amps. Voltage ratio (VOLT:RAT) has no label here and reads as unknown. Capacitance exists on the 34465A and 34470A only; the 34460A and 34461A reject the capacitance function. Temperature reads in the unit set by UNIT:TEMP, degrees C by default. The function setter sends FUNC "<function>", which keeps the range, resolution and integration time each function had (printed page 309 of the guide), where CONFigure resets them to the defaults and sets autorange (printed pages 239 and 240). So the setter keeps the probe type chosen on the meter for temperature and cannot select a 2-wire RTD or a thermistor. Changing the function turns off scaling, limit testing, histogram and statistics. SYST:IDEN can make the meter answer as a 34401A or as an older Agilent model; an HP34401A identity matches the agilent-34401a profile instead. A 100 PLC reading can take longer than the default 2 s, so the profile allows 10 s per reply. The range and auto range setters act on the current function and send, for example, VOLT:DC:RANG; the meter takes the fixed range you ask for and turns autorange off. Frequency and period take the input voltage range (FREQ:VOLT, PER:VOLT). The integration time takes 0.02, 0.2, 1, 10 or 100 cycles on the 34460A and 34461A, and 0.02, 0.06, 0.2, 1, 10 or 100 on the 34465A and 34470A, on DC volts, DC amps, resistance and temperature; the DIG option adds 0.001, 0.002 and 0.006 cycles, which the profile does not offer. The AC functions have none. Each setter reads its own value back with the function's query, but Get State does not show the range, auto range or integration time. Save and recall take state files 0 to 4; the meter overwrites state 0 with its power-down state when power is cycled. The display switch dims the display and the display text still shows while the display is off. The text takes up to 40 characters, the meter clears it at power-on, and a reset does not clear it."""
 
 [evidence]
 badge = "manual"
-source = "Keysight Truevolt Series Digital Multimeters Operating and Service Guide, 34460-90901, Edition 5, 2017"
-url = "https://www.farnell.com/datasheets/2607860.pdf"
-date = "2026-10-21"
+source = "Keysight Truevolt Series Digital Multimeters Operating and Service Guide, 34460-90901, Edition 13, September 2025"
+url = "https://www.keysight.com/content/dam/keysight/en/doc/gate/service-manuals/9018-03876.pdf"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(keysight|agilent)'
@@ -16,10 +16,18 @@ model = '^344(60|61|65|70)A$'
 
 [link]
 lan_port = 5025
+timeout_s = 10
 local = "SYST:LOC"
 
 [errors]
 query = "SYST:ERR?"
+
+[ranges]
+nplc = { choices = [0.02, 0.2, 1, 10, 100], digits = 2 }
+
+[[ranges.models]]
+model = '^344(65|70)A$'
+nplc = { choices = [0.02, 0.06, 0.2, 1, 10, 100], digits = 2 }
 
 [signals.value]
 query = "READ?"
@@ -49,5 +57,30 @@ diode = "V"
 continuity = "Ohm"
 
 [setters.function]
-command = "CONF:{function}"
-map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }
+command = 'FUNC "{function}"'
+map = { dc_voltage = "VOLT", ac_voltage = "VOLT:AC", dc_current = "CURR", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ", period = "PER", temperature = "TEMP", capacitance = "CAP", diode = "DIOD", continuity = "CONT" }
+
+[setters.range]
+command = "{function}:RANG {value}"
+verify = "{function}:RANG?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.autorange]
+command = "{function}:RANG:AUTO {on}"
+verify = "{function}:RANG:AUTO?"
+map = { dc_voltage = "VOLT:DC", ac_voltage = "VOLT:AC", dc_current = "CURR:DC", ac_current = "CURR:AC", resistance = "RES", resistance_4w = "FRES", frequency = "FREQ:VOLT", period = "PER:VOLT", capacitance = "CAP" }
+
+[setters.nplc]
+command = "{function}:NPLC {value}"
+verify = "{function}:NPLC?"
+map = { dc_voltage = "VOLT:DC", dc_current = "CURR:DC", resistance = "RES", resistance_4w = "FRES", temperature = "TEMP" }
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 4 }
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 40
+display_clear = "DISP:TEXT:CLE"
