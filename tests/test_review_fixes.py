@@ -249,6 +249,15 @@ def test_a_line_ending_that_arrives_after_a_block_is_not_an_empty_reply() -> Non
     assert lines.pop() == "NEXT"
 
 
+def test_a_line_ending_that_arrives_after_a_block_does_not_hide_the_next_block() -> None:
+    lines = Lines("\n")
+    lines.feed(b"#13abc")
+    assert lines.pop_block() == b"abc"
+    lines.feed(b"\n#14wxyz\n")
+    assert lines.starts_block() is True
+    assert lines.pop_block() == b"wxyz"
+
+
 # ---------------------------------------------------------------- the real scope's waveform
 
 
