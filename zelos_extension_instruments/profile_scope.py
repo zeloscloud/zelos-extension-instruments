@@ -5,6 +5,7 @@ acquisition settings. Which slots are on, what they measure and from which chann
 the instrument; the extension never turns a measurement on at connect.
 """
 
+import dataclasses
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -153,7 +154,7 @@ def load_scope(c: "Check", raw: Any, category: str) -> Scope | None:
         c.fail("scope", "is only for the scope category.")
         return None
     raw = c.table(raw, "scope")
-    c.unknown(raw, ("grid", "slots", "measure", "waveform"), "scope")
+    c.unknown(raw, [f.name for f in dataclasses.fields(Scope)], "scope")
     grid = c.integer(raw, "grid", 10, "scope", low=1)
     slots = _slots(c, raw.get("slots"))
     measure = _measure(c, raw.get("measure"), slots)
@@ -187,11 +188,7 @@ def _slots(c: "Check", raw: Any) -> Slots | None:
             if "{slot}" not in text:
                 c.fail(f"{where}.{key}", "must contain {slot}.")
     pattern_text = c.required(raw, "source_pattern", where)
-    try:
-        pattern = re.compile(pattern_text)
-    except re.error as e:
-        c.fail(f"{where}.source_pattern", f"is not a valid regular expression: {e}.")
-        pattern = re.compile("$^")
+    pattern = c.pattern(pattern_text, f"{where}.source_pattern")
     if not _CHANNEL_GROUP.search(pattern_text):
         c.fail(f"{where}.source_pattern", "must capture the channel number as (?P<ch>...).")
     types = raw.get("types")
@@ -241,17 +238,10 @@ def _measure(c: "Check", raw: Any, slots: Slots | None) -> Measure | None:
         return None
     raw = c.table(raw, "scope.measure")
     where = "scope.measure"
-    c.unknown(raw, ("commands", "off"), where)
+    c.unknown(raw, [f.name for f in dataclasses.fields(Measure)], where)
     if slots is None:
         c.fail(where, "needs scope.slots: a measurement is read back through the slots.")
-    commands = raw.get("commands")
-    if (
-        not isinstance(commands, list)
-        or not commands
-        or not all(isinstance(x, str) and x for x in commands)
-    ):
-        c.fail(f"{where}.commands", "must be a non-empty list of commands.")
-        commands = []
+    commands = c.commands(raw, "commands", where, required=True)
     for command in commands:
         c.template(command, {"slot", "ch", "type"}, f"{where}.commands")
     if commands and not any("{type}" in x for x in commands):
@@ -267,12 +257,9 @@ def _waveform(c: "Check", raw: Any) -> Waveform | None:
         return None
     raw = c.table(raw, "scope.waveform")
     where = "scope.waveform"
-    c.unknown(raw, ("format", "setup", "preamble", "data", "max_points", "points"), where)
+    c.unknown(raw, [f.name for f in dataclasses.fields(Waveform)], where)
     fmt = c.choice(raw, "format", WAVEFORM_FORMATS, "wavedesc", where)
-    setup = raw.get("setup", [])
-    if not isinstance(setup, list) or not all(isinstance(x, str) and x for x in setup):
-        c.fail(f"{where}.setup", "must be a list of commands.")
-        setup = []
+    setup = c.commands(raw, "setup", where)
     for command in setup:
         c.template(command, {"ch", "points", "interval"}, f"{where}.setup")
     preamble = c.required(raw, "preamble", where)
