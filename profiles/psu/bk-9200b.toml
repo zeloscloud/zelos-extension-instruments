@@ -14,7 +14,8 @@ Constant-voltage and constant-current mode are not read: the questionable regist
 Protection reads OVP from VOLT:PROT:TRIP? and OCP and the fan-fault over-temperature bit from the questionable condition register. \
 The manual gives the overcurrent bit as bit 11 in its register table and as bit 1 in the command section, so the OCP flag is unconfirmed; the profile reads bit 11. \
 The OVP and OCP levels act only while their states (VOLT:PROT:STAT, CURR:PROT:STAT) are on; the OVP on and OCP on switches set them. \
-Clear resets the OVP trip only."""
+Clear resets the OVP trip only. \
+A real 9205B rejects a VISA device clear with VI_ERROR_NSUP_OPER, so the extension skips it."""
 
 [evidence]
 badge = "manual"
@@ -33,6 +34,7 @@ delay_ms = 50
 remote = "SYST:REM"
 local = "SYST:LOC"
 locks_panel = true
+device_clear = false
 
 [errors]
 query = "SYST:ERR?"

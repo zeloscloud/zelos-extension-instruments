@@ -5,7 +5,7 @@ category = "psu"
 notes = """Covers the single-output PS 10000, PSI 10000 and PSB 10000 (PSBE 10000) models from the 10000 and 20000 series programming guide. \
 The PSI 9000 and PSB 9000 series have their own programming guide, which was not available; they are not matched. \
 The device never enters remote control by itself and accepts no set command before SYST:LOCK ON, which the profile sends once after connecting. \
-It refuses the request when the front-panel Local condition is active, when another interface holds the control or when the setup menu is open. The Local action sends SYST:LOCK OFF. \
+It refuses the request when the front-panel Local condition is active, when another interface holds the control or when the setup menu is open. The Local action sends SYST:LOCK OFF. Leaving remote control switches the DC output off unless POWer:STAGe:AFTer:REMote is AUTO, and OFF is the factory setting. \
 Ranges are read from the instrument after connecting (SYST:NOM:VOLT? and SYST:NOM:CURR?); setpoints accept up to 102 percent of the rating. \
 The PSB 10000 is bidirectional: a negative measured current or power means the supply is sinking. The sink side (SINK:CURR, SINK:POW and their protection levels) is not wired. \
 Mode reads constant voltage, constant current and constant power from the operation condition register. \

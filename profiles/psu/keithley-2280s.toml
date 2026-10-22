@@ -5,6 +5,7 @@ category = "psu"
 notes = """Source and measure commands follow the Series 2280 Reference Manual. \
 The manual lists no power measurement, so power is not read. \
 A MEAS query switches the instrument's measurement function and enters single-measurement mode, so the extension's polling changes what the front panel shows. \
+Real units answer :MEAS:VOLT? with the current, the voltage and a relative time, each with its unit letter, as the default :FORMat:ELEMents list gives, so one query reads both. \
 The raw socket port is 5025 from firmware 1.06 and 5050 before; one manual page says 1.06 and earlier use 5050, another says 1.05 and earlier. \
 Remote operation locks every front-panel key except LOCAL and OUTPUT until the Local action runs. \
 CURR sets the current limit of the voltage source. \
@@ -45,13 +46,10 @@ current = { min = 0, max = 3.3, digits = 3 }
 ovp = { min = 0.5, max = 61, digits = 3 }
 ocp = { min = 0.1, max = 3.3, digits = 3 }
 
-[signals.voltage]
+[signals.measure]
 query = ":MEAS:VOLT?"
-parse = "float"
-
-[signals.current]
-query = ":MEAS:CURR?"
-parse = "float"
+parse = "floats"
+fields = ["current", "voltage"]
 
 [state.voltage_set]
 query = ":SOUR:VOLT?"

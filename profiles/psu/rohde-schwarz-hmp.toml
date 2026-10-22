@@ -6,6 +6,7 @@ notes = """Covers the HMP2020, HMP2030, HMP4030 and HMP4040. \
 Channel commands act on the channel chosen with INST:NSEL, so the extension selects before every query and set. \
 SYST:REM locks the front panel; the Remote key or the Local action (SYST:LOC) unlocks it. \
 OUTP switches the selected channel on and turns the output on, and OUTP? reads the output state. The manual also lists OUTP:SEL and OUTP:GEN as separate steps; they are not used. \
+The general output switches on every channel activated with OUTP:SEL, so OUTP ON may also switch on other activated channels. A bench NGE100 does this; it was not measured on an HMP. \
 FUSE activates the electronic fuse function of the selected channel and FUSE? reads it; the manual gives *RST as off. \
 Constant-current and constant-voltage mode come from the questionable status register of the channel; a reading of zero is shown as off, which the manual does not state. \
 The manual lists no power measurement, so power is not read. \
@@ -13,7 +14,9 @@ The current ranges come from the R&S HMP series data sheet (HMP2020 channel 1 10
 The manual gives the current resolution as 0.1 mA (0.2 mA on the HMP4030 and HMP4040) and CURR? MIN as 0.0005 A. \
 The OVP level is 0.100 to 32.500 V in 0.100 V steps. \
 Clear resets the OVP trip only; the manual lists no command that clears a fuse trip. \
-RS-232 needs the HO720 interface option; the manual's example uses 9600 baud, 1 stop bit, no parity and handshake on. Without handshake the manual asks for 50 ms to 100 ms between commands; the profile sets no delay. \
+RS-232 needs the HO720 interface option. \
+The HO720 answers on either RS-232 or its USB virtual COM port, as chosen in the Interface menu; a real HMP2020 left on RS-232 did not answer over USB. \
+For RS-232 the manual's example uses 9600 baud, 1 stop bit, no parity and handshake on. Without handshake the manual asks for 50 ms to 100 ms between commands; the profile sets no delay. \
 The LAN socket port is 5025."""
 
 [evidence]
