@@ -70,14 +70,19 @@ class TcpAddress:
         return f"{host}:{self.port}"
 
 
+Parity = Literal["none", "even", "odd", "mark", "space"]
+FlowControl = Literal["none", "rts/cts", "xon/xoff", "dtr/dsr"]
+VisaBackend = Literal["auto", "py", "ivi"]
+
+
 @dataclass(frozen=True, slots=True)
 class SerialAddress:
     port: str
     baud: int = 9600
     data_bits: int = 8
-    parity: Literal["none", "even", "odd", "mark", "space"] = "none"
+    parity: Parity = "none"
     stop_bits: float = 1.0
-    flow_control: Literal["none", "rts/cts", "xon/xoff", "dtr/dsr"] = "none"
+    flow_control: FlowControl = "none"
 
     @property
     def where(self) -> str:
@@ -88,7 +93,7 @@ class SerialAddress:
 class VisaAddress:
     resource: str
     # "auto" uses the system VISA for USB and GPIB resources when one is installed, else pyvisa-py.
-    backend: Literal["auto", "py", "ivi"] = "auto"
+    backend: VisaBackend = "auto"
 
     @property
     def where(self) -> str:
