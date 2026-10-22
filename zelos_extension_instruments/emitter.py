@@ -222,8 +222,9 @@ class Emitter:
                     "%s: no event for function %s; its readings are dropped", name, function
                 )
             return
-        event = self._event(inst, f"{name}/{function}", "value", inst.dmm_units[function])
-        event.log_at(time_ns, value=value)
+        # The signal carries the function's name: a plot legend shows the signal name alone.
+        event = self._event(inst, f"{name}/{function}", function, inst.dmm_units[function])
+        event.log_at(time_ns, **{function: value})
 
     def poll_value(self, name: str, row_name: str, value: float, time_ns: int) -> None:
         inst = self._instruments[name]

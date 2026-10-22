@@ -309,7 +309,7 @@ Scope labels: `coupling` `dc`, `ac`, `gnd`; `bandwidth_limit` `full`, `20mhz`, `
 
 A scope's measurements are not read with fixed queries: the profile's `[scope.slots]` says how the instrument's own measurement slots are read, and whatever a slot shows lands under its source channel. The instrument-wide fields land in `<name>/acquisition`.
 
-A DMM's `value` lands in the event named after the active function (`<name>/dc_voltage`), so each keeps its unit.
+A DMM's `value` is recorded under the active function, as `<name>/dc_voltage.dc_voltage`, so each function keeps its unit and a plot legend names it.
 
 ## `[setters]`
 
