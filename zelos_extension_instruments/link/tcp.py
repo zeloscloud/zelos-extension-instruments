@@ -8,6 +8,7 @@ from contextlib import suppress
 from typing import Any
 
 from . import (
+    CLOSE_CHECK_S,
     CONNECT_TIMEOUT_S,
     LineLink,
     Link,
@@ -20,8 +21,6 @@ from . import (
 _CHUNK = 4096
 # Silence that means a late reply has finished arriving.
 _QUIET_S = 0.1
-# How soon a blocked read notices a close from another thread.
-_CLOSE_CHECK_S = 0.25
 # A waveform arrives in megabytes; read it in large pieces.
 _BLOCK_CHUNK = 1 << 20
 _TCP_USER_TIMEOUT = 18  # Linux; Python only exposes the constant from 3.12
@@ -185,7 +184,7 @@ class TcpLink(LineLink):
             if remaining <= 0:
                 raise self._no_reply()
             try:
-                self._sock.settimeout(min(remaining, _CLOSE_CHECK_S))
+                self._sock.settimeout(min(remaining, CLOSE_CHECK_S))
                 chunk = self._sock.recv(size)
             except TimeoutError:
                 continue

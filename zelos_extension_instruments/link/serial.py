@@ -7,7 +7,7 @@ from contextlib import suppress
 
 import serialx
 
-from . import LineLink, Link, LinkError, LinkSettings, SerialAddress, seconds
+from . import CLOSE_CHECK_S, LineLink, Link, LinkError, LinkSettings, SerialAddress, seconds
 
 _WRITE_TIMEOUT_S = 1.0
 _CHUNK = 256
@@ -76,20 +76,24 @@ class SerialLink(LineLink):
             raise self._broken(exc) from exc
 
     def _receive(self, deadline: float, size: int) -> None:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise self._no_reply()
+        """One more chunk into the line buffer, or the timeout. The wait is sliced: a close from
+        another thread does not wake a serial read on Linux or macOS."""
         chunk = bytearray(size)
-        try:
-            count = self._port.readinto(chunk, timeout=remaining)
-        except Exception as exc:
-            raise self._broken(exc) from exc
-        if self._closed:
-            raise self._broken(None)
-        if count == 0:
-            # The wait ran out with nothing; a block read restarts its clock per piece.
-            raise self._no_reply()
-        self._lines.feed(bytes(chunk[:count]))
+        while True:
+            if self._closed:
+                raise self._broken(None)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise self._no_reply()
+            try:
+                count = self._port.readinto(chunk, timeout=min(remaining, CLOSE_CHECK_S))
+            except Exception as exc:
+                raise self._broken(exc) from exc
+            if self._closed:
+                raise self._broken(None)
+            if count:
+                self._lines.feed(bytes(chunk[:count]))
+                return
 
     def clear(self) -> None:
         self._lines.clear()
