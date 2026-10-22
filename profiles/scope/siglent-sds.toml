@@ -5,21 +5,32 @@ category = "scope"
 notes = """The series the SDS Series Programming Guide EN11G covers: SDS800X HD, SDS1000X HD, \
 SDS2000X HD, SDS2000X Plus, SDS3000X HD, SDS5000X, SDS6000A, SDS6000 Pro, SDS6000L and SDS7000A. \
 The measurements recorded are the ones the scope's own measurement slots show, in Advanced mode; \
-the Measure action puts one there. Older SDS1000X-E and SDS2000X units speak the legacy command \
-set and do not match. The guide documents no error queue; the SDS824X HD answers \
-:SYSTem:ERRor? all the same. Its raw socket (port 5025) serves one client and stays held when a \
-client vanishes; VXI-11 (TCPIP::<host>::INSTR) does not."""
+the Measure action puts one there. Older SDS1000X, SDS2000X, SDS1000X-E and SDS2000X-E units \
+speak the legacy command set and match the Siglent SDS legacy profile instead. The guide \
+documents no error queue and no self-test; the SDS824X HD answers :SYSTem:ERRor? and *TST? all \
+the same. Its raw socket (port 5025) serves one client and stays held when a client vanishes; \
+VXI-11 (TCPIP::<host>::INSTR) does not. Save and recall use the ten internal setup slots. Lock \
+turns on remote mode, which locks the touch screen and front panel. A screenshot is a PNG; the \
+SDS824X HD sends it with no block header. The SDS824X HD is back about 30 seconds after a \
+reboot. The scope cannot read or load its whole setup over the bus. Averages switches the \
+acquisition to average mode with that count, a power of two from 4 to 8192; the scope reports \
+the count only together with the mode, so it is not recorded. Pulse width sets the upper limit, \
+which the less-than condition uses; the greater-than condition uses the lower limit, set on the \
+scope. Force selects the forced trigger mode, which acquires a frame whether or not the trigger \
+fires. \
+On an SDS824X HD with firmware 3.8.11.1.1.3.3 at 10 Mpts, the scope ignored :ACQuire:TYPE AVERage and refused ERES \
+with -200 Execution error, while NORMal and PEAK switched; the extension reports what the scope answers."""
 
 [evidence]
 badge = "transcript"
 source = "Siglent SDS Series Digital Oscilloscope Programming Guide EN11G, 2024, and SDS800X HD data sheet EN01B; transcript from an SDS824X HD"
 firmware = "3.8.11.1.1.3.3"
 url = "https://www.siglenteu.com/wp-content/uploads/dlm_uploads/2024/09/SDS800XHD_Series_ProgrammingGuide_EN11G.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^siglent'
-model = '(?i)^SDS\d{3,4}X(\s*(HD|Plus|PLUS))?$|^SDS[67]\d{3}(A|L|\s*Pro|\s*PRO)$'
+model = '(?i)^SDS5\d{3}X$|^SDS\d{3,4}X\s*(HD|Plus|PLUS)$|^SDS[67]\d{3}(A|L|\s*Pro|\s*PRO)$'
 channels = 4
 
 # The digit before the X, A or L suffix is the channel count (SDS802X HD, SDS2102X Plus, SDS6202A).
@@ -33,6 +44,17 @@ timeout_s = 3
 
 [errors]
 query = ":SYSTem:ERRor?"
+
+[system]
+save = ":SAVE:SETup INTernal,{slot}"
+recall = ":RECall:SETup INTernal,{slot}"
+slots = { min = 1, max = 10 }
+lock = ":SYSTem:REMote ON"
+unlock = ":SYSTem:REMote OFF"
+reboot = ":SYSTem:REBoot"
+reboot_s = 40
+screenshot = ":PRINt? PNG"
+screenshot_framing = "png"
 
 [ranges]
 scale = { min = 0.0005, max = 10, digits = 4 }
@@ -116,6 +138,26 @@ map = { RISing = "rising", FALLing = "falling", ALTernate = "either" }
 query = ":TRIGger:FREQuency?"
 parse = "float"
 
+[state.acquisition_mode]
+query = ":ACQuire:TYPE?"
+parse = "map"
+index = 0
+map = { NORMal = "normal", PEAK = "peak", AVERage = "average", ERES = "hires" }
+
+[state.trigger_type]
+query = ":TRIGger:TYPE?"
+parse = "map"
+map = { EDGE = "edge", PULSE = "pulse", SLOPe = "other", INTerval = "other", PATTern = "other", RUNT = "other", WINDow = "other", DROPout = "other", VIDeo = "other", QUALified = "other", NEDGe = "other", DELay = "other", SHOLd = "other", IIC = "other", SPI = "other", UART = "other", LIN = "other", CAN = "other", FLEXray = "other", CANFd = "other", IIS = "other", M1553 = "other", SENT = "other", A429 = "other" }
+
+[state.pulse_width]
+query = ":TRIGger:PULSe:TUPPer?"
+parse = "float"
+
+[state.pulse_condition]
+query = ":TRIGger:PULSe:LIMit?"
+parse = "map"
+map = { LESSthan = "less", GREATerthan = "greater", INNer = "other", OUTer = "other" }
+
 [setters.visible]
 command = ":CHANnel{ch}:SWITch {on}"
 
@@ -128,6 +170,10 @@ command = ":CHANnel{ch}:OFFSet {value}"
 [setters.coupling]
 command = ":CHANnel{ch}:COUPling {value}"
 map = { dc = "DC", ac = "AC", gnd = "GND" }
+
+[setters.bandwidth_limit]
+command = ":CHANnel{ch}:BWLimit {value}"
+map = { full = "FULL", "20mhz" = "20M", "200mhz" = "200M" }
 
 [setters.probe]
 command = ":CHANnel{ch}:PROBe VALue,{value}"
@@ -159,6 +205,29 @@ command = ":TRIGger:MODE {value}"
 channel = false
 map = { auto = "AUTO", normal = "NORMal", single = "SINGle", forced = "FTRIG" }
 
+[setters.acquisition_mode]
+command = ":ACQuire:TYPE {value}"
+channel = false
+map = { normal = "NORMal", peak = "PEAK", average = "AVERage", hires = "ERES" }
+
+[setters.averages]
+command = ":ACQuire:TYPE AVERage,{value}"
+channel = false
+
+[setters.trigger_type]
+command = ":TRIGger:TYPE {value}"
+channel = false
+map = { edge = "EDGE", pulse = "PULSE" }
+
+[setters.pulse_width]
+command = ":TRIGger:PULSe:TUPPer {value}"
+channel = false
+
+[setters.pulse_condition]
+command = ":TRIGger:PULSe:LIMit {value}"
+channel = false
+map = { less = "LESSthan", greater = "GREATerthan" }
+
 [setters.run]
 command = ":TRIGger:RUN"
 channel = false
@@ -173,6 +242,10 @@ channel = false
 
 [setters.autoset]
 command = ":AUToset"
+channel = false
+
+[setters.force]
+command = ":TRIGger:MODE FTRIG"
 channel = false
 
 [scope]

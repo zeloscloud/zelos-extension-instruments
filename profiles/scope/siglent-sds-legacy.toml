@@ -1,0 +1,271 @@
+schema = 1
+id = "siglent-sds-legacy"
+name = "Siglent SDS legacy oscilloscopes"
+category = "scope"
+notes = """The SDS1000X, SDS1000X+, SDS2000X, SDS1000X-E and SDS2000X-E, which speak the older \
+command set of the Digital Oscilloscope Series Programming Guide EN02E. The extension sends CHDR \
+OFF at connect, so replies come without headers. The scope has no measurement slots to read, so \
+the extension asks for each measurement directly and records the ones the Measure action added. \
+Coupling is read but not set: each coupling word also picks the input impedance (1 MOhm or \
+50 Ohm). Bandwidth limit switches the 20 MHz filter and is not read back, because the scope \
+reports every channel in one reply. Trigger level and slope act on the trigger source channel \
+and are not recorded. Setting the trigger source selects the edge trigger; setting the pulse \
+width or pulse condition selects the pulse trigger. Choosing the edge trigger turns its holdoff \
+off, and choosing the pulse trigger starts with the less-than condition. Pulse width sets the \
+limit the less-than and greater-than conditions use. Trigger status knows the Trig'd, Auto, \
+Ready and Stop states the guide names. Save and recall use the internal setups 1 to 20. Errors \
+are read from the command and execution error registers (CMR? and EXR?), which the older SDS2000 \
+Remote Control Manual documents and EN02E does not. EN02E documents no self-test and no force \
+trigger. A screenshot is SCDP, which answers a BMP image with no block header. Waveform \
+capture is not verified: the guide shows the \
+reply starting with DAT2, ahead of its data block. Written from the manual; not yet run on a \
+unit."""
+
+[evidence]
+badge = "manual"
+source = "Siglent Digital Oscilloscope Series Programming Guide EN02E (SDS1000 Series, SDS2000X, SDS2000X-E), and SDS2000 Series Remote Control Manual RC01020-E01A for CMR? and EXR?"
+url = "https://www.siglenteu.com/wp-content/uploads/dlm_uploads/2025/11/SDS1000-SeriesSDS2000XSDS2000X-E_ProgrammingGuide_EN02E.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^siglent'
+model = '(?i)^SDS[12]\d{2}[24]X(\+|-E)?$'
+channels = 4
+
+# The digit before the X is the channel count (SDS1202X-E, SDS2104X).
+[[match.models]]
+model = '(?i)^SDS\d{3}2X'
+channels = 2
+
+[link]
+lan_port = 5025
+init = "CHDR OFF"
+skip_blank = true
+
+[errors]
+query = ["CMR?", "EXR?"]
+bare = true
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 20 }
+setup_query = "PNSU?"
+setup_load = "PNSU "
+screenshot = "SCDP"
+screenshot_framing = "bmp"
+
+[ranges]
+scale = { min = 0.0005, max = 10, digits = 4 }
+
+[state.visible]
+query = "C{ch}:TRA?"
+parse = "bool"
+
+[state.scale]
+query = "C{ch}:VDIV?"
+parse = "float"
+
+[state.offset]
+query = "C{ch}:OFST?"
+parse = "float"
+
+[state.coupling]
+query = "C{ch}:CPL?"
+parse = "map"
+map = { D1M = "dc", D50 = "dc", A1M = "ac", A50 = "ac", GND = "gnd" }
+
+[state.probe]
+query = "C{ch}:ATTN?"
+parse = "float"
+
+[state.timebase]
+query = "TDIV?"
+parse = "float"
+
+[state.delay]
+query = "TRDL?"
+parse = "float"
+
+[state.sample_rate]
+query = "SARA?"
+parse = "float"
+
+[state.memory_depth]
+query = "MSIZ?"
+parse = "float"
+
+[state.points]
+query = "SANU?"
+parse = "float"
+
+[state.trigger_status]
+query = "SAST?"
+parse = "map"
+map = { "Trig'd" = "triggered", Auto = "auto", Ready = "ready", Stop = "stopped" }
+
+[state.trigger_mode]
+query = "TRMD?"
+parse = "map"
+map = { AUTO = "auto", NORM = "normal", SINGLE = "single" }
+
+[state.trigger_type]
+query = "TRSE?"
+parse = "map"
+index = 0
+map = { EDGE = "edge", GLIT = "pulse", SLEW = "other", INTV = "other", RUNT = "other", DROP = "other", TV = "other" }
+
+[state.trigger_source]
+query = "TRSE?"
+parse = "map"
+index = 2
+map = { C1 = "ch1", C2 = "ch2", C3 = "ch3", C4 = "ch4", LINE = "line", EX = "external", EX5 = "external" }
+
+[state.pulse_condition]
+query = "TRSE?"
+parse = "map"
+index = 4
+map = { PS = "less", PL = "greater", P2 = "other", P1 = "other", TI = "other", OFF = "other", IS = "other", IL = "other", I2 = "other", I1 = "other" }
+
+[state.pulse_width]
+query = "TRSE?"
+parse = "float"
+index = 6
+
+[state.acquisition_mode]
+query = "ACQW?"
+parse = "map"
+index = 0
+map = { SAMPLING = "normal", PEAK_DETECT = "peak", AVERAGE = "average", HIGH_RES = "hires" }
+
+[state.averages]
+query = "AVGA?"
+parse = "int"
+
+[setters.visible]
+command = "C{ch}:TRA {on}"
+
+[setters.scale]
+command = "C{ch}:VDIV {value}"
+
+[setters.offset]
+command = "C{ch}:OFST {value}"
+
+[setters.bandwidth_limit]
+command = "BWL C{ch},{value}"
+map = { full = "OFF", "20mhz" = "ON" }
+
+[setters.probe]
+command = "C{ch}:ATTN {value}"
+
+[setters.timebase]
+command = "TDIV {value}S"
+channel = false
+
+[setters.delay]
+command = "TRDL {value}S"
+channel = false
+
+[setters.trigger_level]
+command = "C{src}:TRLV {value}"
+verify = "C{src}:TRLV?"
+channel = false
+
+[setters.trigger_source]
+command = "TRSE EDGE,SR,{value}"
+channel = false
+map = { ch1 = "C1", ch2 = "C2", ch3 = "C3", ch4 = "C4", line = "LINE", external = "EX" }
+
+[setters.trigger_slope]
+command = "C{src}:TRSL {value}"
+verify = "C{src}:TRSL?"
+channel = false
+map = { rising = "POS", falling = "NEG", either = "WINDOW" }
+
+[setters.trigger_mode]
+command = "TRMD {value}"
+channel = false
+map = { auto = "AUTO", normal = "NORM", single = "SINGLE" }
+
+[setters.trigger_type]
+command = "TRSE {value}"
+channel = false
+map = { edge = "EDGE,HT,OFF", pulse = "GLIT,HT,PS" }
+
+[setters.pulse_width]
+command = "TRSE GLIT,HV,{value}S"
+channel = false
+
+[setters.pulse_condition]
+command = "TRSE GLIT,SR,C{src},HT,{value}"
+channel = false
+map = { less = "PS", greater = "PL" }
+
+[setters.acquisition_mode]
+command = "ACQW {value}"
+channel = false
+map = { normal = "SAMPLING", peak = "PEAK_DETECT", average = "AVERAGE", hires = "HIGH_RES" }
+
+[setters.averages]
+command = "AVGA {value}"
+channel = false
+
+[setters.run]
+command = "ARM"
+channel = false
+
+[setters.stop]
+command = "STOP"
+channel = false
+
+[setters.single]
+command = "TRMD SINGLE"
+channel = false
+
+[setters.autoset]
+command = "ASET"
+channel = false
+
+[scope]
+grid = 14
+
+[scope.measure]
+query = "C{ch}:PAVA? {type}"
+index = 1
+
+[scope.measure.words]
+pkpk = "PKPK"
+maximum = "MAX"
+minimum = "MIN"
+amplitude = "AMPL"
+top = "TOP"
+base = "BASE"
+cycle_mean = "CMEAN"
+mean = "MEAN"
+stdev = "STDEV"
+rms = "RMS"
+cycle_rms = "CRMS"
+overshoot = "OVSP"
+preshoot = "RPRE"
+period = "PER"
+frequency = "FREQ"
+positive_width = "PWID"
+negative_width = "NWID"
+rise_time = "RISE"
+fall_time = "FALL"
+duty = "DUTY"
+
+[scope.waveform]
+skip = 5
+format = "linear"
+setup = "WFSU SP,{interval},NP,{points},FP,0"
+data = "C{ch}:WF? DAT2"
+points = "SANU?"
+encoding = "i1"
+x_inc = { query = "SARA?", invert = true, times_interval = true }
+x_zero = [{ query = "TRDL?" }, { query = "TDIV?", multiply = -7 }]
+x_ref = 0
+y_mult = { query = "C{ch}:VDIV?", divide = 25 }
+y_zero = { query = "C{ch}:OFST?", negate = true }
+y_ref = 0

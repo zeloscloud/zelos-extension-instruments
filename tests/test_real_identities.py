@@ -76,6 +76,52 @@ IDENTITIES = [
         "siglent-sdm3000",
         "https://www.iu3jsx.it/wp/2023/01/29/bench-multimeter-remote-programming-using-python/",
     ),
+    (
+        "Siglent Technologies,SDS824X HD,SDS08A0XA08269,4.8.12.1.1.6.5",
+        "siglent-sds",
+        "https://github.com/LHX369963/sds824-cli/blob/HEAD/docs/validation/analog-waveforms.md",
+    ),
+    (
+        "Siglent Technologies,SDS5104X,SDS5XDAD2R0160,4.6.0.8.7R1",
+        "siglent-sds",
+        "Siglent SDS Series Programming Guide EN11G, the *IDN? example",
+    ),
+    (
+        "Siglent Technologies,SDS1202X-E,SDS1ECDX2R3696,7.1.3.17R1",
+        "siglent-sds-legacy",
+        "https://github.com/jbeale1/DataAcq/blob/HEAD/readScope.py",
+    ),
+    (
+        "Siglent Technologies,SDS2352X-E,SDS2EDDQ6R0793,2.1.1.1.20 R3",
+        "siglent-sds-legacy",
+        "https://github.com/JaminMartin/SPECTRE/blob/HEAD/src/SIGLENT_Driver.py",
+    ),
+    (
+        "Siglent Technologies,SDS1204X-E,SDS1EBAC0L0098,7.6.1.15",
+        "siglent-sds-legacy",
+        "Siglent Digital Oscilloscope Series Programming Guide EN02E, the *IDN? example",
+    ),
+    (
+        "Siglent Technologies,SDS2104X,<serial>,<firmware>",
+        "siglent-sds-legacy",
+        "https://github.com/sigrokproject/libsigrok/blob/HEAD/src/hardware/siglent-sds/api.c",
+    ),
+    (
+        "Siglent Technologies,SDS1202X,<serial>,<firmware>",
+        "siglent-sds-legacy",
+        "https://github.com/sigrokproject/libsigrok/blob/HEAD/src/hardware/siglent-sds/api.c",
+    ),
+    (
+        "Siglent Technologies,SDS1202X+,<serial>,<firmware>",
+        "siglent-sds-legacy",
+        "https://github.com/sigrokproject/libsigrok/blob/HEAD/src/hardware/siglent-sds/api.c",
+    ),
+    # Tektronix
+    (
+        "TEKTRONIX,MSO24,C100123,CF:91.1CT FV:1.42.5",
+        "tektronix-2-series",
+        "Tektronix 2 Series MSO Programmer Manual 077-1776-01, the *IDN? example",
+    ),
     # Others
     (
         "Chroma ATE,61604,001060,1.25,1.34,1.20",
@@ -98,6 +144,18 @@ def test_a_real_identity_picks_its_profile(
 ) -> None:
     found = find(profiles, parse_idn(idn))
     assert (found.id if found else None) == expected, source
+
+
+LEGACY_SIGLENT = [i[0] for i in IDENTITIES if i[1] == "siglent-sds-legacy"]
+
+
+@pytest.mark.parametrize("idn", LEGACY_SIGLENT, ids=[i[:40] for i in LEGACY_SIGLENT])
+def test_a_legacy_siglent_scope_never_matches_the_modern_profile(
+    idn: str, profiles: list[Profile]
+) -> None:
+    """The legacy SDS1000X, SDS2000X and X-E speak another command set than the SDS800X HD."""
+    modern = next(p for p in profiles if p.id == "siglent-sds")
+    assert not modern.matches(parse_idn(idn))
 
 
 def _reader(profiles: list[Profile], profile_id: str, name: str) -> object:

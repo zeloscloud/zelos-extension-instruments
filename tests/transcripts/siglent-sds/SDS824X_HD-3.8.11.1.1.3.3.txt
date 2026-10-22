@@ -13,7 +13,7 @@
 > :CHANnel3:SWITch?
 < ON
 > :CHANnel4:SWITch?
-< OFF
+< ON
 > :CHANnel1:SCALe?
 < 5.00E-01
 > :CHANnel2:SCALe?
@@ -73,11 +73,19 @@
 > :TRIGger:EDGE:SOURce?
 < C1
 > :TRIGger:EDGE:LEVel?
-< 2.83E-01
+< 4.00E-01
 > :TRIGger:EDGE:SLOPe?
 < RISing
 > :TRIGger:FREQuency?
 < 1.00E+03
+> :ACQuire:TYPE?
+< NORMal
+> :TRIGger:TYPE?
+< EDGE
+> :TRIGger:PULSe:TUPPer?
+< 2.00E-09
+> :TRIGger:PULSe:LIMit?
+< LESSthan
 # measurement slots
 > :MEASure:MODE?
 < ADVanced
@@ -88,7 +96,7 @@
 > :MEASure:ADVanced:P1:SOURce1?
 < C1
 > :MEASure:ADVanced:P1:VALue?
-< 2.438542E+00
+< 2.431250E+00
 > :MEASure:ADVanced:P2?
 < ON
 > :MEASure:ADVanced:P2:TYPE?
@@ -104,9 +112,15 @@
 > :MEASure:ADVanced:P3:SOURce1?
 < C1
 > :MEASure:ADVanced:P3:VALue?
-< 9.99905926E+02
+< 9.99905809E+02
 > :MEASure:ADVanced:P4?
-< OFF
+< ON
+> :MEASure:ADVanced:P4:TYPE?
+< RMS
+> :MEASure:ADVanced:P4:SOURce1?
+< C1
+> :MEASure:ADVanced:P4:VALue?
+< 1.50658040E+00
 > :MEASure:ADVanced:P5?
 < OFF
 > :MEASure:ADVanced:P6?

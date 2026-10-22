@@ -1,0 +1,276 @@
+schema = 1
+id = "keysight-1200x"
+name = "Keysight InfiniiVision 1200 X-Series oscilloscopes"
+category = "scope"
+notes = """The DSOX1202A/G, DSOX1204A/G and EDUX1052A/G the 1200 X-Series Programmer's Guide \
+covers. The scope has no measurement slots to read, so the extension asks for each measurement \
+directly and records the ones the Measure action added; RMS and the per-cycle mean and RMS are \
+not offered. Delay is the time from the trigger to the display reference. Trigger status reads \
+the operation status register: stopped, armed while it waits for a trigger, triggered while it \
+runs between triggers. Pulse width sets the glitch trigger's less-than limit, which the \
+less-than condition uses; the greater-than condition uses its own limit, set on the scope. \
+Bandwidth limit is a 25 MHz filter. Averages takes 2 to 65536 and applies in average mode. A \
+waveform comes from the record with the most points (:WAVeform:POINts:MODE MAXimum), which \
+transfers 100, 250, 500 or 1000 points, or 2000 to 2000000 in the steps the guide lists. \
+Save and recall use the ten internal registers 0 to 9. Written from the manual; not yet run \
+on a unit."""
+
+[evidence]
+badge = "manual"
+source = "Keysight InfiniiVision 1200 X-Series and EDUX1052A/G Oscilloscopes Programmer's Guide, version 02.10.0001, April 2020"
+url = "https://www.keysight.com/us/en/assets/9018-07747/programming-guides/9018-07747.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^keysight'
+model = '(?i)^(DSOX120[24][AG]|EDUX1052[AG])$'
+channels = 2
+
+[[match.models]]
+model = '(?i)^DSOX1204'
+channels = 4
+
+[link]
+lan_port = 5025
+
+[errors]
+query = ":SYSTem:ERRor?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+lock = ":SYSTem:LOCK ON"
+unlock = ":SYSTem:LOCK OFF"
+screenshot = ":DISPlay:DATA? PNG,COLor"
+setup_query = ":SYSTem:SETup?"
+setup_load = ":SYSTem:SETup "
+
+[ranges]
+scale = { min = 0.001, max = 5, digits = 4 }
+
+[state.visible]
+query = ":CHANnel{ch}:DISPlay?"
+parse = "bool"
+
+[state.scale]
+query = ":CHANnel{ch}:SCALe?"
+parse = "float"
+
+[state.offset]
+query = ":CHANnel{ch}:OFFSet?"
+parse = "float"
+
+[state.coupling]
+query = ":CHANnel{ch}:COUPling?"
+parse = "map"
+map = { DC = "dc", AC = "ac" }
+
+[state.bandwidth_limit]
+query = ":CHANnel{ch}:BWLimit?"
+parse = "map"
+map = { "0" = "full", "1" = "25mhz" }
+
+[state.probe]
+query = ":CHANnel{ch}:PROBe?"
+parse = "float"
+
+[state.timebase]
+query = ":TIMebase:SCALe?"
+parse = "float"
+
+[state.delay]
+query = ":TIMebase:POSition?"
+parse = "float"
+
+[state.sample_rate]
+query = ":ACQuire:SRATe?"
+parse = "float"
+
+[state.points]
+query = ":ACQuire:POINts?"
+parse = "float"
+
+[state.trigger_status]
+query = ":OPERegister:CONDition?"
+parse = "bits"
+mask = 40
+map = { "0" = "stopped", "8" = "triggered", "32" = "armed", "40" = "armed" }
+
+[state.trigger_mode]
+query = ":TRIGger:SWEep?"
+parse = "map"
+map = { AUTO = "auto", NORM = "normal", NORMal = "normal" }
+
+[state.trigger_source]
+query = ":TRIGger:EDGE:SOURce?"
+parse = "map"
+map = { CHAN1 = "ch1", CHAN2 = "ch2", CHAN3 = "ch3", CHAN4 = "ch4", EXT = "external", LINE = "line" }
+
+[state.trigger_level]
+query = ":TRIGger:EDGE:LEVel?"
+parse = "float"
+
+[state.trigger_slope]
+query = ":TRIGger:EDGE:SLOPe?"
+parse = "map"
+map = { POS = "rising", NEG = "falling", EITH = "either" }
+
+[state.acquisition_mode]
+query = ":ACQuire:TYPE?"
+parse = "map"
+map = { NORM = "normal", AVER = "average", HRES = "hires", PEAK = "peak" }
+
+[state.averages]
+query = ":ACQuire:COUNt?"
+parse = "int"
+
+[state.trigger_type]
+query = ":TRIGger:MODE?"
+parse = "map"
+map = { EDGE = "edge", GLIT = "pulse", PATT = "other", SHOL = "other", TRAN = "other", TV = "other", SBUS1 = "other", NONE = "other" }
+
+[state.pulse_width]
+query = ":TRIGger:GLITch:LESSthan?"
+parse = "float"
+
+[state.pulse_condition]
+query = ":TRIGger:GLITch:QUALifier?"
+parse = "map"
+map = { LESS = "less", GRE = "greater", RANG = "other" }
+
+[setters.visible]
+command = ":CHANnel{ch}:DISPlay {on}"
+
+[setters.scale]
+command = ":CHANnel{ch}:SCALe {value}"
+
+[setters.offset]
+command = ":CHANnel{ch}:OFFSet {value}"
+
+[setters.coupling]
+command = ":CHANnel{ch}:COUPling {value}"
+map = { dc = "DC", ac = "AC" }
+
+[setters.bandwidth_limit]
+command = ":CHANnel{ch}:BWLimit {value}"
+map = { full = "0", "25mhz" = "1" }
+
+[setters.probe]
+command = ":CHANnel{ch}:PROBe {value}"
+
+[setters.timebase]
+command = ":TIMebase:SCALe {value}"
+channel = false
+
+[setters.delay]
+command = ":TIMebase:POSition {value}"
+channel = false
+
+[setters.trigger_level]
+command = ":TRIGger:EDGE:LEVel {value}"
+channel = false
+
+[setters.trigger_source]
+command = ":TRIGger:EDGE:SOURce {value}"
+channel = false
+map = { ch1 = "CHANnel1", ch2 = "CHANnel2", ch3 = "CHANnel3", ch4 = "CHANnel4", external = "EXTernal", line = "LINE" }
+
+[setters.trigger_slope]
+command = ":TRIGger:EDGE:SLOPe {value}"
+channel = false
+map = { rising = "POSitive", falling = "NEGative", either = "EITHer" }
+
+[setters.trigger_mode]
+command = ":TRIGger:SWEep {value}"
+channel = false
+map = { auto = "AUTO", normal = "NORMal" }
+
+[setters.acquisition_mode]
+command = ":ACQuire:TYPE {value}"
+channel = false
+map = { normal = "NORMal", average = "AVERage", hires = "HRESolution", peak = "PEAK" }
+
+[setters.averages]
+command = ":ACQuire:COUNt {value}"
+channel = false
+
+[setters.trigger_type]
+command = ":TRIGger:MODE {value}"
+channel = false
+map = { edge = "EDGE", pulse = "GLITch" }
+
+[setters.pulse_width]
+command = ":TRIGger:GLITch:LESSthan {value}"
+channel = false
+
+[setters.pulse_condition]
+command = ":TRIGger:GLITch:QUALifier {value}"
+channel = false
+map = { less = "LESSthan", greater = "GREaterthan" }
+
+[setters.run]
+command = ":RUN"
+channel = false
+
+[setters.stop]
+command = ":STOP"
+channel = false
+
+[setters.single]
+command = ":SINGle"
+channel = false
+
+[setters.autoset]
+command = ":AUToscale"
+channel = false
+
+[setters.force]
+command = ":TRIGger:FORCe"
+channel = false
+
+[scope]
+grid = 10
+
+[scope.measure]
+query = ":MEASure:{type}? CHANnel{ch}"
+
+[scope.measure.words]
+pkpk = "VPP"
+maximum = "VMAX"
+minimum = "VMIN"
+amplitude = "VAMPlitude"
+top = "VTOP"
+base = "VBASe"
+mean = "VAVerage"
+stdev = "SDEViation"
+overshoot = "OVERshoot"
+preshoot = "PREShoot"
+period = "PERiod"
+frequency = "FREQuency"
+positive_width = "PWIDth"
+negative_width = "NWIDth"
+duty = "DUTYcycle"
+rise_time = "RISetime"
+fall_time = "FALLtime"
+
+[scope.waveform]
+format = "linear"
+setup = [
+  ":WAVeform:SOURce CHANnel{ch}",
+  ":WAVeform:FORMat WORD",
+  ":WAVeform:BYTeorder LSBFirst",
+  ":WAVeform:UNSigned ON",
+  ":WAVeform:POINts:MODE MAXimum",
+  ":WAVeform:POINts {points}",
+]
+preamble = ":WAVeform:PREamble?"
+data = ":WAVeform:DATA?"
+encoding = "u2"
+byte_order = "little"
+x_inc = { field = 4 }
+x_zero = { field = 5 }
+x_ref = { field = 6 }
+y_mult = { field = 7 }
+y_zero = { field = 8 }
+y_ref = { field = 9 }
