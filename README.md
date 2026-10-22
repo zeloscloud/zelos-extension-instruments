@@ -19,7 +19,7 @@ Record your bench instruments in Zelos, on the same timeline as the device you a
 | **Multimeters** | Keysight 34401A, 34460A, 34461A, 34465A, 34470A · Keithley 2000, 2110, DMM6500, DMM7510 · Fluke 8845A, 8846A · Siglent SDM3045X, SDM3055, SDM3065X · GW Instek GDM-9060, GDM-9061 · B&K Precision 5491B, 2831E · OWON XDM2041 |
 | **AC sources** | Keysight AC6800B · Chroma 61600 · ITECH IT7800 |
 | **Oscilloscopes** | Siglent SDS |
-| **Anything else that speaks SCPI** | A generic profile for each category except oscilloscopes reads the standard commands, and your own instrument is one TOML file away: see [profiles](docs/profiles.md). |
+| **Anything else that speaks SCPI** | A generic profile for each category except oscilloscopes reads the standard commands, and your own instrument is one TOML file away: see [profiles](https://github.com/zeloscloud/zelos-extension-instruments/blob/main/docs/profiles.md). |
 
 Instruments connect over LAN, USB-TMC, a serial port, or any VISA resource (VXI-11, HiSLIP, GPIB through a vendor VISA), on Linux, macOS and Windows, with Zelos 26.0.10 or later.
 
@@ -81,12 +81,12 @@ zelos actions execute Instruments/capture_waveform --params '{"instrument": "SDS
 
 ## Reference
 
-Every event and signal, the timing model, every config field, every action and every health message are in [docs/reference.md](docs/reference.md). The profile format is in [docs/profiles.md](docs/profiles.md).
+Every event and signal, the timing model, every config field, every action and every health message are in [docs/reference.md](https://github.com/zeloscloud/zelos-extension-instruments/blob/main/docs/reference.md). The profile format is in [docs/profiles.md](https://github.com/zeloscloud/zelos-extension-instruments/blob/main/docs/profiles.md).
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the prerequisites, every `just` command, a local run, the fake instrument and the transcript recorder.
+See [CONTRIBUTING.md](https://github.com/zeloscloud/zelos-extension-instruments/blob/main/CONTRIBUTING.md) for the prerequisites, every `just` command, a local run, the fake instrument and the transcript recorder.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/zeloscloud/zelos-extension-instruments/blob/main/LICENSE).
