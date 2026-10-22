@@ -31,7 +31,10 @@ jobs:
         with:
           node-version-file: web/.nvmrc
 
-      - uses: extractions/setup-just@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+          fallback: none
 
       - name: Get version from tag
         id: version

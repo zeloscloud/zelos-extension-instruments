@@ -21,7 +21,10 @@ jobs:
         with:
           enable-cache: true
 
-      - uses: extractions/setup-just@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+          fallback: none
 
       - name: Install dependencies
         run: just ci-install
