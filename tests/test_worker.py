@@ -591,6 +591,45 @@ def test_generic_profile_probes_and_drops_what_the_instrument_refuses() -> None:
         worker.join(2)
 
 
+def test_one_silent_reply_while_probing_does_not_cost_the_field() -> None:
+    """A field dropped at connect is never registered, so its values were lost for good."""
+    silent_once = ["MEAS:VOLT?"]
+
+    def unit(command: str) -> str | None:
+        if command in silent_once:
+            silent_once.remove(command)
+            raise LinkTimeout("no reply")
+        if command == "*IDN?":
+            return "ACME,PSU-1,1,1"
+        if command == "SYST:ERR?":
+            return '0,"No error"'
+        if command in ("MEAS:VOLT?", "VOLT?"):
+            return "3.300"
+        if command == "MEAS:POW?":
+            return "1.0"
+        if command == "VOLT? MAX":
+            return "20.000"
+        return None
+
+    emitter = RecordingEmitter()
+    cfg = instrument_config(profile="probe", rate_hz=50)
+    worker = InstrumentWorker(
+        cfg,
+        [from_dict(GENERIC, "probe.toml")],
+        emitter,
+        settings_for(cfg),
+        open=opener_for(ScriptedLink(unit)),
+    )
+    worker.start()
+    try:
+        assert wait_until(lambda: worker.state == "open")
+        assert not silent_once
+        assert "voltage" in emitter.channel_fields["psu"][1]
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
 def test_poll_table_rows_are_read_and_recorded(dp800: Profile, dp832: Dp832) -> None:
     emitter = RecordingEmitter()
     original = dp832.__call__

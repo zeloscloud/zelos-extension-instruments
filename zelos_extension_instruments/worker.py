@@ -536,18 +536,23 @@ class InstrumentWorker(threading.Thread):
         for step in self._plan:
             if not step.reader.optional:
                 continue
-            try:
-                self._select(step.channel)
-                reply = self._query(step.query)
-                if step.flag is not None:
-                    engine.flag_is_set(step.flag, reply, step.channel)
-                else:
-                    engine.parse_reply(step.reader, reply, step.channel)
-                if self._drain_errors(quiet=True):
-                    dropped.add(step.key)
-            except (LinkTimeout, ParseError) as e:
-                self._recover(f"{step.query}: {e}")
-                dropped.add(step.key)
+            # A field dropped here is never registered, and an event cannot gain one later, so
+            # one silent or garbled reply gets a second try before it costs the field.
+            for attempt in (1, 2):
+                try:
+                    self._select(step.channel)
+                    reply = self._query(step.query)
+                    if step.flag is not None:
+                        engine.flag_is_set(step.flag, reply, step.channel)
+                    else:
+                        engine.parse_reply(step.reader, reply, step.channel)
+                    if self._drain_errors(quiet=True):
+                        dropped.add(step.key)
+                    break
+                except (LinkTimeout, ParseError) as e:
+                    self._recover(f"{step.query}: {e}")
+                    if attempt == 2:
+                        dropped.add(step.key)
         if dropped:
             names = sorted({key.split("@")[0] for key in dropped})
             self._note(
