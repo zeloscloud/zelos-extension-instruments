@@ -14,6 +14,7 @@ import pyvisa
 import serialx
 import usb.core
 import zeroconf
+from pyvisa_py.tcpip import TCPIPInstrVxi11
 
 from zelos_extension_instruments import discovery, profile
 from zelos_extension_instruments.discovery import Found
@@ -27,7 +28,7 @@ from zelos_extension_instruments.link import (
 )
 from zelos_extension_instruments.profile import Idn
 
-real_identify = discovery.identify
+real_identify = discovery._identify
 PROFILE_PATH = Path(__file__).parent.parent / "profiles" / "psu" / "rigol-dp800.toml"
 DP832_REPLY = "RIGOL TECHNOLOGIES,DP832,DP8A123456,00.01.16"
 
@@ -99,6 +100,20 @@ class FakeManager:
         self.closed = True
 
 
+def _fake_vxi11(monkeypatch: pytest.MonkeyPatch, resources: list[str] | Exception) -> list[int]:
+    """The VXI-11 broadcast's answers; the returned list counts the broadcasts."""
+    calls: list[int] = []
+
+    def listing() -> list[str]:
+        calls.append(1)
+        if isinstance(resources, Exception):
+            raise resources
+        return resources
+
+    monkeypatch.setattr(TCPIPInstrVxi11, "list_resources", staticmethod(listing))
+    return calls
+
+
 def _fake_visa(monkeypatch: pytest.MonkeyPatch, **managers: FakeManager | Exception) -> None:
     def resource_manager(backend: str = "") -> FakeManager:
         manager = managers[backend.lstrip("@")]
@@ -112,7 +127,7 @@ def _fake_visa(monkeypatch: pytest.MonkeyPatch, **managers: FakeManager | Except
 @pytest.fixture(autouse=True)
 def _no_scan(monkeypatch: pytest.MonkeyPatch) -> None:
     """The listing tests never probe the real network."""
-    monkeypatch.setattr(discovery, "_scan_open", lambda subnets: set())
+    monkeypatch.setattr(discovery, "_scan_open", lambda subnets, deadline: set())
     monkeypatch.setattr(discovery, "local_subnets", list)
 
 
@@ -137,14 +152,14 @@ def test_list_lan_picks_the_best_address_per_host_and_dedupes_by_ip(
         (t_raw, _service("Unresolved", t_raw)): FakeInfo([], 5025),
     }
     _fake_zeroconf(monkeypatch, services)
-    vxi = FakeManager(
+    broadcasts = _fake_vxi11(
+        monkeypatch,
         [
             "TCPIP0::10.0.0.7::inst0::INSTR",
             "TCPIP0::10.0.0.9::inst0::INSTR",
             "TCPIP0::10.0.0.5::inst0::INSTR",
-        ]
+        ],
     )
-    _fake_visa(monkeypatch, py=vxi)
 
     found = {f.address.where: f for f in discovery.list_lan(budget_s=0.05)}
 
@@ -163,8 +178,7 @@ def test_list_lan_picks_the_best_address_per_host_and_dedupes_by_ip(
     # hide the instrument.
     assert found["TCPIP0::10.0.0.5::inst0::INSTR"].source == "vxi11"
     assert len(found) == 7
-    assert vxi.queries == ["TCPIP?*INSTR"]
-    assert not vxi.closed
+    assert broadcasts == [1]
 
 
 def test_list_lan_returns_vxi11_when_zeroconf_cannot_open_and_logs_once(
@@ -174,7 +188,7 @@ def test_list_lan_returns_vxi11_when_zeroconf_cannot_open_and_logs_once(
         raise OSError("no socket")
 
     monkeypatch.setattr(zeroconf, "Zeroconf", refuse)
-    _fake_visa(monkeypatch, py=FakeManager(["TCPIP0::10.0.0.9::inst0::INSTR"]))
+    _fake_vxi11(monkeypatch, ["TCPIP0::10.0.0.9::inst0::INSTR"])
 
     with caplog.at_level(logging.WARNING, logger=discovery.log.name):
         first = discovery.list_lan(budget_s=0.05)
@@ -190,7 +204,7 @@ def test_list_lan_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         raise OSError("no socket")
 
     monkeypatch.setattr(zeroconf, "Zeroconf", refuse)
-    _fake_visa(monkeypatch, py=RuntimeError("no visa"))
+    _fake_vxi11(monkeypatch, RuntimeError("no visa"))
 
     assert discovery.list_lan(budget_s=0.01) == []
 
@@ -416,7 +430,7 @@ def test_identify_rejects_a_reply_that_is_not_an_identity(
     assert result.error == "did not answer *IDN? as an instrument"
 
 
-def test_identify_gives_up_on_a_silent_server_within_twice_the_timeout(
+def test_identify_gives_up_on_a_silent_server_after_asking_twice(
     serve: Callable[[str | None], TcpAddress], profiles: list[profile.Profile]
 ) -> None:
     address = serve(None)
@@ -424,7 +438,8 @@ def test_identify_gives_up_on_a_silent_server_within_twice_the_timeout(
 
     result = discovery.identify(_found(address), profiles, timeout_s=0.4)
 
-    assert time.monotonic() - started < 0.8
+    # Two queries of 0.4 s each, with room for a slow CI runner.
+    assert 0.75 < time.monotonic() - started < 1.5
     assert result.idn is None
     assert result.error
 
@@ -442,7 +457,7 @@ def test_identify_abandons_a_link_that_hangs_while_opening(
             closed.append("late")
 
     def hang(address: Any, settings: Settings) -> Late:
-        release.wait(5)
+        release.wait(10)
         return Late()
 
     monkeypatch.setattr(discovery, "open_link", hang)
@@ -452,9 +467,9 @@ def test_identify_abandons_a_link_that_hangs_while_opening(
 
     elapsed = time.monotonic() - started
     release.set()
-    # Well short of the 5 s hang, with room for a slow CI runner.
-    assert elapsed < 2.0
-    assert result.error == "did not answer *IDN? within 0.3 s"
+    # The attempt's budget, the connect timeout and two queries, well short of the 10 s hang.
+    assert elapsed < 4.0
+    assert (result.error or "").startswith("did not answer *IDN? within")
     deadline = time.monotonic() + 2
     while not closed and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -543,7 +558,7 @@ def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
     monkeypatch.setattr(
         discovery,
         "list_lan",
-        lambda budget_s, tried=None: [
+        lambda budget_s, tried=None, deadline_s=10.0: [
             Found(live, None, None, None, "mdns", "b", None),
             Found(held, None, None, None, "mdns", "a", None),
         ],
@@ -559,12 +574,14 @@ def test_discover_identifies_concurrently_skips_held_addresses_and_sorts(
         lambda: pytest.fail("serial listing was not asked for"),
     )
 
-    def identify(found: Found, profiles: list[profile.Profile], timeout_s: float = 2.0) -> Found:
+    def identify(
+        found: Found, profiles: list[profile.Profile], timeout_s: float, deadline: float
+    ) -> Found:
         if found.source == "usb":
             return dataclasses.replace(found, error="no usb")
-        return real_identify(found, profiles, timeout_s)
+        return real_identify(found, profiles, timeout_s, deadline)
 
-    monkeypatch.setattr(discovery, "identify", identify)
+    monkeypatch.setattr(discovery, "_identify", identify)
 
     results = discovery.discover(
         profiles, serial=False, budget_s=0.01, identify_timeout_s=1.0, skip={held.where}
@@ -589,10 +606,12 @@ def test_discover_never_raises_when_identify_does(
         discovery, "list_usb", lambda: [_found(VisaAddress("USB0::1::2::S::INSTR"), "m")]
     )
 
-    def boom(found: Found, profiles: list[profile.Profile], timeout_s: float = 2.0) -> Found:
+    def boom(
+        found: Found, profiles: list[profile.Profile], timeout_s: float, deadline: float
+    ) -> Found:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(discovery, "identify", boom)
+    monkeypatch.setattr(discovery, "_identify", boom)
 
     results = discovery.discover(profiles, lan=False, usb=True)
 
@@ -625,15 +644,19 @@ def test_discover_keeps_one_address_per_instrument(
     sock = Found(TcpAddress("10.0.0.5", 5025), None, None, None, "scan", "5025", None)
     vxi = Found(VisaAddress("TCPIP::10.0.0.5::INSTR"), None, None, None, "vxi11", "v", None)
     other = Found(TcpAddress("10.0.0.5", 5555), None, None, None, "scan", "5555", None)
-    monkeypatch.setattr(discovery, "list_lan", lambda budget_s, tried=None: [sock, vxi, other])
+    monkeypatch.setattr(
+        discovery, "list_lan", lambda budget_s, tried=None, deadline_s=10.0: [sock, vxi, other]
+    )
     answers: dict[str, bool] = {}
 
-    def identify(found: Found, profiles: list[profile.Profile], timeout_s: float = 2.0) -> Found:
+    def identify(
+        found: Found, profiles: list[profile.Profile], timeout_s: float, deadline: float
+    ) -> Found:
         if answers.get(found.address.where, True):
             return dataclasses.replace(found, idn=profile.parse_idn(DP832_REPLY))
         return dataclasses.replace(found, error="no reply")
 
-    monkeypatch.setattr(discovery, "identify", identify)
+    monkeypatch.setattr(discovery, "_identify", identify)
 
     def run(prefer: str = "socket") -> list[str]:
         found = discovery.discover(profiles, usb=False, budget_s=0.01, prefer=prefer)  # type: ignore[arg-type]
@@ -646,14 +669,13 @@ def test_discover_keeps_one_address_per_instrument(
     assert run() == ["TCPIP::10.0.0.5::INSTR"]
 
 
-def test_vxi11_broadcast_leaves_the_shared_manager_open(monkeypatch: pytest.MonkeyPatch) -> None:
-    """pyvisa shares one manager per library with every open link: closing it here closed the
-    worker's live session."""
-    vxi = FakeManager(["TCPIP0::10.0.0.9::inst0::INSTR"])
-    _fake_visa(monkeypatch, py=vxi)
+def test_the_vxi11_broadcast_opens_no_resource_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A manager's listing walked USB twice and browsed mDNS again; pyvisa also shares that
+    manager with every open link, so closing it closed a worker's session."""
+    _fake_vxi11(monkeypatch, ["TCPIP0::10.0.0.9::inst0::INSTR"])
+    _fake_visa(monkeypatch, py=RuntimeError("no manager may be opened"))
     found = discovery.list_lan(budget_s=0.01)
     assert [f.address.where for f in found] == ["TCPIP0::10.0.0.9::inst0::INSTR"]
-    assert not vxi.closed
 
 
 def _held_search(
@@ -664,7 +686,9 @@ def _held_search(
     started = threading.Event()
     release = threading.Event()
 
-    def list_lan(budget_s: float, tried: list[str] | None = None) -> list[Found]:
+    def list_lan(
+        budget_s: float, tried: list[str] | None = None, deadline_s: float = 10.0
+    ) -> list[Found]:
         calls.append(budget_s)
         started.set()
         release.wait(5)
@@ -754,9 +778,9 @@ def _held_scope_lan(
     """mDNS names 10.0.0.5 by its raw socket on 5025; the scan saw `open_ports` open."""
     raw = discovery.SERVICE_RAW
     _fake_zeroconf(monkeypatch, {(raw, _service("Scope", raw)): FakeInfo(["10.0.0.5"], 5025)})
-    _fake_visa(monkeypatch, py=FakeManager(vxi))
+    _fake_vxi11(monkeypatch, vxi)
     monkeypatch.setattr(discovery, "local_subnets", lambda: [ipaddress.ip_network("10.0.0.0/24")])
-    monkeypatch.setattr(discovery, "_scan_open", lambda subnets: open_ports)
+    monkeypatch.setattr(discovery, "_scan_open", lambda subnets, deadline: open_ports)
     return {f.address.where: f for f in discovery.list_lan(budget_s=0.05)}
 
 
@@ -802,3 +826,121 @@ def test_identify_asks_again_on_the_same_connection(profiles: list[profile.Profi
     finally:
         server.shutdown()
         server.server_close()
+
+
+# --- the deadline ----------------------------------------------------------------------------
+
+
+def test_a_listing_that_hangs_ends_at_the_deadline_and_keeps_no_thread_alive(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    """Nothing shared one deadline, so a stalled listing ran Auto-configure past the app's 30 s,
+    and threads the interpreter joins at exit kept a finished run alive."""
+    release = threading.Event()
+
+    def stalled(budget_s: float, tried: list[str] | None = None, deadline_s: float = 10.0):
+        release.wait(30)
+        return []
+
+    monkeypatch.setattr(discovery, "list_lan", stalled)
+    monkeypatch.setattr(
+        discovery, "list_usb", lambda: [_found(VisaAddress("USB0::1::2::S::INSTR"), "m")]
+    )
+    monkeypatch.setattr(
+        discovery,
+        "_identify",
+        lambda found, profiles, timeout_s, deadline: dataclasses.replace(found, error="no usb"),
+    )
+    tried: list[str] = []
+    started = time.monotonic()
+    try:
+        results = discovery.discover(profiles, deadline_s=0.5, tried=tried)
+        elapsed = time.monotonic() - started
+        stuck = [
+            t for t in threading.enumerate() if not t.daemon and t is not threading.main_thread()
+        ]
+    finally:
+        release.set()
+    assert elapsed < 1.0
+    assert [f.detail for f in results] == ["m"]
+    assert "the LAN search (cut short)" in tried
+    assert stuck == []
+
+
+def test_an_instrument_still_answering_at_the_deadline_is_reported_as_out_of_time(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    monkeypatch.setattr(
+        discovery,
+        "list_lan",
+        lambda budget_s, tried=None, deadline_s=10.0: [_found(TcpAddress("10.0.0.5", 5025), "a")],
+    )
+    release = threading.Event()
+
+    def slow(found: Found, profiles: list[profile.Profile], timeout_s: float, deadline: float):
+        release.wait(30)
+        return found
+
+    monkeypatch.setattr(discovery, "_identify", slow)
+    started = time.monotonic()
+    try:
+        results = discovery.discover(profiles, usb=False, deadline_s=0.5)
+    finally:
+        release.set()
+    assert time.monotonic() - started < 1.0
+    assert [f.error for f in results] == [discovery.OUT_OF_TIME]
+
+
+def test_one_instruments_addresses_are_asked_one_after_another(
+    monkeypatch: pytest.MonkeyPatch, profiles: list[profile.Profile]
+) -> None:
+    """Two clients at once on one instrument's parser garbled the identity of both; different
+    hosts are still asked at the same time."""
+    addresses = [
+        _found(TcpAddress("10.0.0.5", 5025), "a"),
+        _found(VisaAddress("TCPIP::10.0.0.5::INSTR"), "a vxi"),
+        _found(TcpAddress("10.0.0.6", 5025), "b"),
+    ]
+    monkeypatch.setattr(
+        discovery, "list_lan", lambda budget_s, tried=None, deadline_s=10.0: addresses
+    )
+    spans: dict[str, tuple[float, float]] = {}
+
+    def timed(found: Found, profiles: list[profile.Profile], timeout_s: float, deadline: float):
+        began = time.monotonic()
+        time.sleep(0.2)
+        spans[found.address.where] = (began, time.monotonic())
+        return dataclasses.replace(found, error="silent")
+
+    monkeypatch.setattr(discovery, "_identify", timed)
+    discovery.discover(profiles, usb=False, deadline_s=5.0)
+
+    def overlap(a: str, b: str) -> bool:
+        return spans[a][0] < spans[b][1] and spans[b][0] < spans[a][1]
+
+    assert not overlap("10.0.0.5:5025", "TCPIP::10.0.0.5::INSTR")
+    assert overlap("10.0.0.5:5025", "10.0.0.6:5025")
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        ("RIGOL TECHNOLOGIES,DP832,DP8A1,00.01.16", True),
+        ("LAMBDA,GEN60-12.5", True),
+        ("EA Elektro-Automatik GmbH & Co. KG, PS 9040-20 T", True),
+        ("12.0,0.5,6.0", False),
+        ("0.00E+00", False),
+        ("", False),
+    ],
+)
+def test_an_identity_names_a_maker(reply: str, expected: bool) -> None:
+    assert profile.is_identity(reply) is expected
+
+
+def test_the_port_scan_starts_no_batch_past_its_deadline() -> None:
+    import asyncio
+
+    started = time.monotonic()
+    hits = asyncio.run(discovery._open_ports([("10.255.255.1", 5025)] * 5000, started - 1))
+    assert hits == []
+    assert time.monotonic() - started < 0.2

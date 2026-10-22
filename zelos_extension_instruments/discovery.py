@@ -14,7 +14,6 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -24,6 +23,7 @@ import pyvisa
 import serialx
 import usb.core
 import zeroconf
+from pyvisa_py.tcpip import TCPIPInstrVxi11
 
 from . import naming
 from .link import (
@@ -38,7 +38,7 @@ from .link import (
     VisaAddress,
     open_link,
 )
-from .profile import Idn, Profile, find, parse_idn
+from .profile import Idn, Profile, find, is_identity, parse_idn
 
 log = logging.getLogger(__name__)
 
@@ -76,8 +76,7 @@ USB_UNREADABLE = (
     "with Zadig; on Linux add a udev rule for it"
 )
 NOT_AN_INSTRUMENT = "did not answer *IDN? as an instrument"
-# An attempt that outlives this multiple of its timeout is abandoned, whatever the link is doing.
-DEADLINE_FACTOR = 1.5
+OUT_OF_TIME = "did not answer before the search ended"
 RESOLVE_TIMEOUT_MS = 1000
 
 _warned: set[str] = set()
@@ -106,17 +105,42 @@ def _warn_once(key: str, message: str, *args: object) -> None:
         log.warning(message, *args)
 
 
+class _Background:
+    """A call on a daemon thread: a caller past its deadline neither waits for it nor keeps the
+    process alive for it."""
+
+    _UNSET: Any = object()
+
+    def __init__(self, call: Callable[[], Any], name: str) -> None:
+        self._done = threading.Event()
+        self._value: Any = self._UNSET
+        threading.Thread(target=self._run, args=(call,), name=name, daemon=True).start()
+
+    def _run(self, call: Callable[[], Any]) -> None:
+        try:
+            self._value = call()
+        except Exception as e:
+            log.warning("%s failed: %s", threading.current_thread().name, e)
+        finally:
+            self._done.set()
+
+    def result(self, deadline: float, default: Any) -> Any:
+        """The call's value, or `default` when it failed or is still running at `deadline`."""
+        self._done.wait(max(0.0, deadline - time.monotonic()))
+        return default if self._value is self._UNSET else self._value
+
+
 class _Browser(zeroconf.ServiceListener):
     """Collects what the mDNS browse resolves, per host, off the browser's thread."""
 
-    def __init__(self, zc: Any, pool: ThreadPoolExecutor) -> None:
+    def __init__(self, zc: Any) -> None:
         self._zc = zc
-        self._pool = pool
         self._lock = threading.Lock()
         self.hosts: dict[str, dict[str, tuple[str, int]]] = {}
 
     def add_service(self, zc: Any, type_: str, name: str) -> None:
-        self._pool.submit(self._resolve, type_, name)
+        # A resolve still running when the browse ends is dropped, never waited for.
+        threading.Thread(target=self._resolve, args=(type_, name), daemon=True).start()
 
     def update_service(self, zc: Any, type_: str, name: str) -> None:
         pass
@@ -169,12 +193,13 @@ def _browse(budget_s: float) -> dict[str, Found]:
         _warn_once("zeroconf", "mDNS is unavailable, listing only VXI-11 instruments: %s", e)
         return {}
     try:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            listener = _Browser(zc, pool)
-            browser = zeroconf.ServiceBrowser(zc, SERVICE_TYPES, listener=listener)
-            threading.Event().wait(budget_s)
-            browser.cancel()
-        found = {ip: _lan_address(ip, services) for ip, services in listener.hosts.items()}
+        listener = _Browser(zc)
+        browser = zeroconf.ServiceBrowser(zc, SERVICE_TYPES, listener=listener)
+        threading.Event().wait(budget_s)
+        browser.cancel()
+        with listener._lock:
+            hosts = dict(listener.hosts)
+        found = {ip: _lan_address(ip, services) for ip, services in hosts.items()}
         return {ip: f for ip, f in found.items() if f is not None}
     except Exception as e:
         log.warning("mDNS browse failed: %s", e)
@@ -189,9 +214,9 @@ def _browse(budget_s: float) -> dict[str, Found]:
 def _vxi11() -> dict[str, Found]:
     found: dict[str, Found] = {}
     try:
-        # pyvisa shares one manager per library with every open link, so it is never closed here.
-        rm = pyvisa.ResourceManager("@py")
-        for resource in rm.list_resources("TCPIP?*INSTR"):
+        # The portmapper broadcast alone: a resource manager's listing also walks USB twice and
+        # browses mDNS for HiSLIP, which the browse here already covers.
+        for resource in TCPIPInstrVxi11.list_resources():
             parts = resource.split("::")
             if len(parts) > 1:
                 found.setdefault(parts[1], _candidate(VisaAddress(resource), "vxi11", resource))
@@ -243,48 +268,52 @@ def _scan_parallel() -> int:
     return max(16, min(_SCAN_PARALLEL, soft - 64))
 
 
-async def _open_ports(targets: list[tuple[str, int]]) -> list[tuple[str, int]]:
-    """The targets that complete a TCP handshake within the scan timeout."""
-    gate = asyncio.Semaphore(_scan_parallel())
-    hits: list[tuple[str, int]] = []
-
+async def _open_ports(targets: list[tuple[str, int]], deadline: float) -> list[tuple[str, int]]:
+    """The targets that complete a TCP handshake within the scan timeout, a batch at a time; the
+    batches stop at the deadline."""
     loop = asyncio.get_running_loop()
-
-    async def probe(ip: str, port: int) -> None:
-        async with gate:
-            # A plain socket and a numeric address: open_connection resolves every host on a
-            # small thread pool, which made a /22 take seconds.
-            sock = None
-            try:
-                sock = socket.socket()
-                sock.setblocking(False)
-                await asyncio.wait_for(loop.sock_connect(sock, (ip, port)), _SCAN_TIMEOUT_S)
-            except (TimeoutError, OSError):
-                return
-            finally:
-                if sock is not None:
-                    sock.close()
-            hits.append((ip, port))
-
-    await asyncio.gather(*(probe(ip, port) for ip, port in targets))
+    hits: list[tuple[str, int]] = []
+    batch = _scan_parallel()
+    for start in range(0, len(targets), batch):
+        if time.monotonic() >= deadline:
+            break
+        # Plain sockets and numeric addresses, and one timer for the batch: a timeout per probe
+        # cost a quarter more CPU, which the recording threads share.
+        probes: dict[asyncio.Future[None], tuple[str, int, socket.socket]] = {}
+        for ip, port in targets[start : start + batch]:
+            sock = socket.socket()
+            sock.setblocking(False)
+            probes[asyncio.ensure_future(loop.sock_connect(sock, (ip, port)))] = (ip, port, sock)
+        wait_s = min(_SCAN_TIMEOUT_S, deadline - time.monotonic())
+        done, pending = await asyncio.wait(probes, timeout=max(0.0, wait_s))
+        for probe in pending:
+            probe.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        for probe, (ip, port, sock) in probes.items():
+            if probe in done and probe.exception() is None:
+                hits.append((ip, port))
+            sock.close()
     return hits
 
 
-def scan_lan(subnets: list[ipaddress.IPv4Network] | None = None) -> list[Found]:
+def scan_lan(
+    subnets: list[ipaddress.IPv4Network] | None = None, deadline_s: float = 10.0
+) -> list[Found]:
     """Hosts on the local subnets that accept a connection on a SCPI port, one per host."""
-    return _scan_hosts(_scan_open(local_subnets() if subnets is None else subnets))
+    deadline = time.monotonic() + deadline_s
+    return _scan_hosts(_scan_open(local_subnets() if subnets is None else subnets, deadline))
 
 
 def _scanned(subnets: list[ipaddress.IPv4Network]) -> list[ipaddress.IPv4Network]:
     return [n for n in subnets if n.num_addresses <= SCAN_MAX_HOSTS]
 
 
-def _scan_open(subnets: list[ipaddress.IPv4Network]) -> set[tuple[str, int]]:
-    """Every (host, port) on the scanned subnets that accepted a connection."""
+def _scan_open(subnets: list[ipaddress.IPv4Network], deadline: float) -> set[tuple[str, int]]:
+    """Every (host, port) on the scanned subnets that accepted a connection by the deadline."""
     targets = [
         (str(host), port) for n in _scanned(subnets) for host in n.hosts() for port in SCAN_PORTS
     ]
-    return set(asyncio.run(_open_ports(targets))) if targets else set()
+    return set(asyncio.run(_open_ports(targets, deadline))) if targets else set()
 
 
 def _scan_hosts(open_ports: set[tuple[str, int]]) -> list[Found]:
@@ -317,44 +346,47 @@ def _drop_closed_sockets(
             del found[key]
 
 
-def list_lan(budget_s: float = 2.0, tried: list[str] | None = None) -> list[Found]:
+def list_lan(
+    budget_s: float = 2.0, tried: list[str] | None = None, deadline_s: float = 10.0
+) -> list[Found]:
     """Instruments on the LAN, one per host: mDNS for `budget_s`, a VXI-11 broadcast, and a
-    connection probe of every local subnet's SCPI ports. `tried` collects what ran."""
+    connection probe of every local subnet's SCPI ports, all ending by `deadline_s`. `tried`
+    collects what ran."""
+    deadline = time.monotonic() + deadline_s
     try:
         subnets = local_subnets()
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            broadcast = pool.submit(_vxi11)
-            scan = pool.submit(_scan_open, subnets)
-            found = _browse(budget_s)
-            for ip, candidate in broadcast.result().items():
-                # A host mDNS named by its raw socket keeps its VXI-11 address beside it too:
-                # `discover` keeps whichever identifies, and a held socket does not.
-                if ip in found and not isinstance(found[ip].address, VisaAddress):
-                    found[f"{ip} vxi11"] = candidate
-                else:
-                    found.setdefault(ip, candidate)
-            try:
-                open_ports: set[tuple[str, int]] | None = scan.result()
-            except Exception as e:
-                log.warning("the port scan failed: %s", e)
-                open_ports = None
-            for candidate in _scan_hosts(open_ports or set()):
-                ip = candidate.address.where.rsplit(":", 1)[0]
-                # A host found by VXI-11 keeps that address beside the raw socket: `discover`
-                # picks the one that identifies.
-                if ip not in found:
-                    found[ip] = candidate
-                elif found[ip].source == "vxi11":
-                    found[f"{ip} socket"] = candidate
-            if open_ports is not None:
-                _drop_closed_sockets(found, subnets, open_ports)
+        broadcast = _Background(_vxi11, "VXI-11 broadcast")
+        scan = _Background(lambda: _scan_open(subnets, deadline), "port scan")
+        found = _browse(max(0.0, min(budget_s, deadline - time.monotonic())))
+        vxi11: dict[str, Found] | None = broadcast.result(deadline, None)
+        for ip, candidate in (vxi11 or {}).items():
+            # A host mDNS named by its raw socket keeps its VXI-11 address beside it too:
+            # `discover` keeps whichever identifies, and a held socket does not.
+            if ip in found and not isinstance(found[ip].address, VisaAddress):
+                found[f"{ip} vxi11"] = candidate
+            else:
+                found.setdefault(ip, candidate)
+        open_ports: set[tuple[str, int]] | None = scan.result(deadline, None)
+        for candidate in _scan_hosts(open_ports or set()):
+            ip = candidate.address.where.rsplit(":", 1)[0]
+            # A host found by VXI-11 keeps that address beside the raw socket: `discover`
+            # picks the one that identifies.
+            if ip not in found:
+                found[ip] = candidate
+            elif found[ip].source == "vxi11":
+                found[f"{ip} socket"] = candidate
+        if open_ports is not None:
+            _drop_closed_sockets(found, subnets, open_ports)
         if tried is not None:
+            late = " (cut short)"
             tried.append(f"mDNS for {budget_s:g} s")
-            tried.append("VXI-11 broadcast")
+            tried.append("VXI-11 broadcast" + ("" if vxi11 is not None else late))
             scanned = [str(n) for n in _scanned(subnets)]
             ports = ", ".join(str(p) for p in SCAN_PORTS)
             tried.append(
-                f"ports {ports} on {', '.join(scanned)}" if scanned else "no local subnet to scan"
+                f"ports {ports} on {', '.join(scanned)}" + ("" if open_ports is not None else late)
+                if scanned
+                else "no local subnet to scan"
             )
         return list(found.values())
     except Exception as e:
@@ -456,7 +488,10 @@ class _Attempt:
 
     def __init__(self, address: Address, timeout_s: float) -> None:
         self._address = address
-        self._settings = Settings(write_terminator="\n", read_terminator="\n", timeout_s=timeout_s)
+        # A device clear resets what another client is asking: a read-buffer flush is enough.
+        self._settings = Settings(
+            write_terminator="\n", read_terminator="\n", timeout_s=timeout_s, device_clear=False
+        )
         self._lock = threading.Lock()
         self._link: Link | None = None
         self._abandoned = False
@@ -477,7 +512,7 @@ class _Attempt:
             reply = link.query("*IDN?")
         except LinkTimeout:
             reply = ""
-        if "," in reply:
+        if is_identity(reply):
             return reply
         link.clear()
         return link.query("*IDN?")
@@ -500,37 +535,45 @@ class _Attempt:
                 self._close(link)
             self._done.set()
 
-    def run(self) -> str:
+    def run(self, deadline: float) -> str:
         threading.Thread(target=self._run, name="identify", daemon=True).start()
-        timeout_s = self._settings.timeout_s
-        # A VISA open does its own connect and handshake before the query can start.
-        budget_s = timeout_s * DEADLINE_FACTOR
-        if isinstance(self._address, VisaAddress):
-            budget_s += CONNECT_TIMEOUT_S
-        if not self._done.wait(budget_s):
+        # The connect, the query and the second query it may need, and never past the deadline.
+        budget_s = min(
+            CONNECT_TIMEOUT_S + 2 * self._settings.timeout_s, deadline - time.monotonic()
+        )
+        started = time.monotonic()
+        if not self._done.wait(max(0.0, budget_s)):
             with self._lock:
                 self._abandoned = True
                 link = self._link
             if link is not None:
-                self._close(link)
-            raise LinkTimeout(f"did not answer *IDN? within {timeout_s:g} s")
+                # Closing a VISA session can take seconds; nobody waits for it.
+                threading.Thread(target=self._close, args=(link,), daemon=True).start()
+            waited = time.monotonic() - started
+            raise LinkTimeout(f"did not answer *IDN? within {waited:.1f} s")
         if self._error is not None:
             raise self._error
         return self._reply
 
 
-def _identify_at(address: Address, timeout_s: float) -> Idn:
-    reply = _Attempt(address, timeout_s).run()
-    if "," not in reply:
+def _identify_at(address: Address, timeout_s: float, deadline: float) -> Idn:
+    reply = _Attempt(address, timeout_s).run(deadline)
+    if not is_identity(reply):
         raise LinkError(NOT_AN_INSTRUMENT)
     return parse_idn(reply)
 
 
-def identify(found: Found, profiles: list[Profile], timeout_s: float = 2.0) -> Found:
-    """Ask the instrument `*IDN?` and fill in its identity and matching profile.
+def identify(
+    found: Found, profiles: list[Profile], timeout_s: float = 2.0, deadline_s: float = 10.0
+) -> Found:
+    """Ask the instrument `*IDN?` and fill in its identity and matching profile, by the deadline.
 
     A serial port is tried at 9600 then 115200 baud; the result carries the baud that answered.
     """
+    return _identify(found, profiles, timeout_s, time.monotonic() + deadline_s)
+
+
+def _identify(found: Found, profiles: list[Profile], timeout_s: float, deadline: float) -> Found:
     address = found.address
     if isinstance(address, SerialAddress):
         candidates: list[Address] = [dataclasses.replace(address, baud=b) for b in SERIAL_BAUDS]
@@ -538,8 +581,10 @@ def identify(found: Found, profiles: list[Profile], timeout_s: float = 2.0) -> F
         candidates = [address]
     error: LinkError | None = None
     for candidate in candidates:
+        if time.monotonic() >= deadline:
+            return dataclasses.replace(found, error=OUT_OF_TIME)
         try:
-            idn = _identify_at(candidate, timeout_s)
+            idn = _identify_at(candidate, timeout_s, deadline)
         except LinkError as e:
             error = e
             if e.kind not in ("timeout", "other"):
@@ -557,11 +602,26 @@ def identify(found: Found, profiles: list[Profile], timeout_s: float = 2.0) -> F
     return dataclasses.replace(found, error=str(error))
 
 
-def _identify_safely(found: Found, profiles: list[Profile], timeout_s: float) -> Found:
+def _identify_safely(
+    found: Found, profiles: list[Profile], timeout_s: float, deadline: float
+) -> Found:
     try:
-        return identify(found, profiles, timeout_s)
+        return _identify(found, profiles, timeout_s, deadline)
     except Exception as e:
         return dataclasses.replace(found, error=str(e) or type(e).__name__)
+
+
+def _identify_host(
+    candidates: list[Found], profiles: list[Profile], timeout_s: float, deadline: float
+) -> list[Found]:
+    """One host's addresses, one after another until one identifies: two clients at once on an
+    instrument's single parser garble each other's replies."""
+    results: list[Found] = []
+    for candidate in candidates:
+        if any(r.idn is not None and _same_instrument(r, candidate) for r in results):
+            continue
+        results.append(_identify_safely(candidate, profiles, timeout_s, deadline))
+    return results
 
 
 @dataclass(frozen=True, slots=True)
@@ -572,6 +632,7 @@ class _Search:
     budget_s: float
     identify_timeout_s: float
     skip: frozenset[str]
+    prefer: Literal["socket", "visa"]
 
     def covers(self, other: "_Search") -> bool:
         return (
@@ -579,6 +640,7 @@ class _Search:
             and self.budget_s >= other.budget_s
             and self.identify_timeout_s >= other.identify_timeout_s
             and self.skip == other.skip
+            and self.prefer == other.prefer
         )
 
 
@@ -597,11 +659,8 @@ class _Searched:
 
 class _OneAtATime:
     """Discovery runs one at a time; a caller that waited through a search covering its own
-    takes that result.
-
-    Two at once scanned every subnet twice, opened a single-client socket from two threads,
-    and walked libusb from two threads, which crashes it on Windows.
-    """
+    takes that result. Two at once would scan every subnet twice and put two clients on a
+    single-client socket."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -611,9 +670,12 @@ class _OneAtATime:
         self,
         asked: _Search,
         search: Callable[[list[tuple[str, str]]], list[tuple[str, Found]]],
+        deadline: float,
     ) -> tuple[list[Found], list[str]]:
         arrived = time.perf_counter()
-        with self._lock:
+        if not self._lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            return [], ["nothing: another search was still running"]
+        try:
             last = self._last
             if last is not None and last.finished > arrived and last.search.covers(asked):
                 return last.answer(asked)
@@ -621,6 +683,8 @@ class _OneAtATime:
             found = search(tried)
             self._last = _Searched(asked, time.perf_counter(), found, tried)
             return self._last.answer(asked)
+        finally:
+            self._lock.release()
 
 
 _searches = _OneAtATime()
@@ -634,12 +698,13 @@ def discover(
     serial: bool = False,
     budget_s: float = 2.0,
     identify_timeout_s: float = 2.0,
+    deadline_s: float = 10.0,
     skip: set[str] | None = None,
     tried: list[str] | None = None,
     prefer: Literal["socket", "visa"] = "socket",
 ) -> list[Found]:
-    """Every instrument the chosen listings find, identified, one per host, sorted by source
-    then detail.
+    """Every instrument the chosen listings find by `deadline_s`, identified, one per host,
+    sorted by source then detail.
 
     A host reached two ways keeps the address that identified, and among those the `prefer`
     kind. Addresses in `skip` are listed but not opened: a running worker holds them. `tried`
@@ -648,57 +713,80 @@ def discover(
     chosen = {name for name, on in (("lan", lan), ("usb", usb), ("serial", serial)) if on}
     if not chosen:
         return []
-    asked = _Search(frozenset(chosen), budget_s, identify_timeout_s, frozenset(skip or ()))
-    found, lines = _searches.run(asked, lambda t: _search(profiles, asked, t))
+    deadline = time.monotonic() + deadline_s
+    asked = _Search(frozenset(chosen), budget_s, identify_timeout_s, frozenset(skip or ()), prefer)
+    found, lines = _searches.run(asked, lambda t: _search(profiles, asked, t, deadline), deadline)
     if tried is not None:
         tried.extend(lines)
     return sorted(_one_per_host(found, prefer), key=lambda f: (f.source, f.detail))
 
 
 def _search(
-    profiles: list[Profile], asked: _Search, tried: list[tuple[str, str]]
+    profiles: list[Profile], asked: _Search, tried: list[tuple[str, str]], deadline: float
 ) -> list[tuple[str, Found]]:
     """Every candidate the asked listings find, with its listing, identified unless held."""
     lan_lines: list[str] = []
-    listings: dict[str, Callable[[], list[Found]]] = {}
+    listings: dict[str, _Background] = {}
     if "lan" in asked.listings:
-        listings["lan"] = lambda: list_lan(asked.budget_s, lan_lines)
-    if "serial" in asked.listings:
-        listings["serial"] = list_serial_candidates
-        tried.append(("serial", "serial ports of known instrument vendors"))
-    candidates: list[tuple[str, Found]] = []
-    if listings:
-        with ThreadPoolExecutor(max_workers=len(listings)) as pool:
-            batches = list(pool.map(lambda listing: listing(), listings.values()))
-        candidates = [
-            (name, f) for name, batch in zip(listings, batches, strict=True) for f in batch
-        ]
-    tried.extend(("lan", line) for line in lan_lines)
+        listings["lan"] = _Background(
+            lambda: list_lan(asked.budget_s, lan_lines, deadline - time.monotonic()), "LAN listing"
+        )
     if "usb" in asked.listings:
-        # After the LAN listing, never beside it: pyvisa-py's broadcast and pyusb both open libusb,
-        # and two device lists freed from two threads crashed libusb on Windows.
-        candidates += [("usb", f) for f in list_usb()]
+        listings["usb"] = _Background(list_usb, "USB listing")
+    if "serial" in asked.listings:
+        listings["serial"] = _Background(list_serial_candidates, "serial listing")
+    candidates: list[tuple[str, Found]] = []
+    for name, listing in listings.items():
+        batch: list[Found] | None = listing.result(deadline, None)
+        if batch is None:
+            tried.append((name, f"the {_LISTING_NAMES[name]} (cut short)"))
+        candidates += [(name, f) for f in batch or ()]
+    tried.extend(("lan", line) for line in list(lan_lines))
+    if "usb" in asked.listings:
         tried.append(("usb", "USB-TMC devices"))
+    if "serial" in asked.listings:
+        tried.append(("serial", "serial ports of known instrument vendors"))
     # A worker holds an instrument, not an address: its other address is held too.
     held_hosts = {host_of_where(where) for where in asked.skip}
 
     def is_held(f: Found) -> bool:
         return f.address.where in asked.skip or host_of(f.address) in held_hosts
 
-    free = [(n, f) for n, f in candidates if not is_held(f) and f.error is None]
     rest = [
         (n, dataclasses.replace(f, error=IN_USE) if is_held(f) else f)
         for n, f in candidates
         if is_held(f) or f.error is not None
     ]
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        identified = list(
-            pool.map(
-                lambda f: _identify_safely(f, profiles, asked.identify_timeout_s),
-                (f for _, f in free),
-            )
+    hosts: dict[str, list[tuple[str, Found]]] = {}
+    for n, f in candidates:
+        if not is_held(f) and f.error is None:
+            hosts.setdefault(host_of(f.address), []).append((n, f))
+    jobs: dict[str, tuple[list[tuple[str, Found]], _Background]] = {}
+    for host, group in hosts.items():
+        # The preferred kind of address first: the first that identifies ends the host's turn.
+        group.sort(
+            key=lambda nf: isinstance(nf[1].address, TcpAddress) != (asked.prefer == "socket")
         )
-    return [(n, f) for (n, _), f in zip(free, identified, strict=True)] + rest
+        addresses = [f for _, f in group]
+        jobs[host] = (
+            group,
+            _Background(
+                lambda a=addresses: _identify_host(a, profiles, asked.identify_timeout_s, deadline),
+                f"identify {host}",
+            ),
+        )
+    identified: list[tuple[str, Found]] = []
+    for group, job in jobs.values():
+        results: list[Found] | None = job.result(deadline, None)
+        if results is None:
+            identified += [(n, dataclasses.replace(f, error=OUT_OF_TIME)) for n, f in group]
+        else:
+            listing = {f.address.where: n for n, f in group}
+            identified += [(listing.get(r.address.where, group[0][0]), r) for r in results]
+    return identified + rest
+
+
+_LISTING_NAMES = {"lan": "LAN search", "usb": "USB search", "serial": "serial port search"}
 
 
 def host_of_where(where: str) -> str:
@@ -721,6 +809,13 @@ def host_of(address: Address) -> str:
     return address.where
 
 
+def _same_instrument(a: Found, b: Found) -> bool:
+    """A host reached by raw socket and by VXI-11 is one instrument; two sockets are two."""
+    return host_of(a.address) == host_of(b.address) and not (
+        isinstance(a.address, TcpAddress) and isinstance(b.address, TcpAddress)
+    )
+
+
 def _one_per_host(found: list[Found], prefer: str) -> list[Found]:
     """A host reached by raw socket and by VXI-11 is one instrument; two sockets are two."""
 
@@ -731,13 +826,8 @@ def _one_per_host(found: list[Found], prefer: str) -> list[Found]:
 
     chosen: list[Found] = []
     for f in sorted(found, key=rank):
-        if any(
-            host_of(f.address) == host_of(c.address)
-            and not (isinstance(f.address, TcpAddress) and isinstance(c.address, TcpAddress))
-            for c in chosen
-        ):
-            continue
-        chosen.append(f)
+        if not any(_same_instrument(f, c) for c in chosen):
+            chosen.append(f)
     return chosen
 
 

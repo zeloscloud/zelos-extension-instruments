@@ -250,6 +250,13 @@ class Idn:
         return ",".join((self.manufacturer, self.model, self.serial, self.firmware))
 
 
+def is_identity(reply: str) -> bool:
+    """Whether a reply reads as an identity: a maker's name, a comma, then the rest. A reading
+    such as `12.0,0.5,6.0` that arrived out of step is not one."""
+    maker, comma, _ = reply.partition(",")
+    return bool(comma) and any(c.isalpha() for c in maker)
+
+
 def parse_idn(reply: str) -> Idn:
     """Split an `*IDN?` reply; a missing field is empty."""
     parts = [p.strip() for p in reply.strip().split(",")]

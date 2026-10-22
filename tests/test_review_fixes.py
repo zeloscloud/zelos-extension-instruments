@@ -321,7 +321,9 @@ def test_a_held_instrument_is_held_under_its_other_address_too(
         VisaAddress("TCPIP::10.0.0.5::INSTR"), None, None, None, "vxi11", "v", None
     )
     sock = discovery.Found(TcpAddress("10.0.0.5", 5025), None, None, None, "scan", "s", None)
-    monkeypatch.setattr(discovery, "list_lan", lambda budget_s, tried=None: [held, sock])
+    monkeypatch.setattr(
+        discovery, "list_lan", lambda budget_s, tried=None, deadline_s=10.0: [held, sock]
+    )
     monkeypatch.setattr(
         discovery, "identify", lambda f, p, t=2.0: pytest.fail("opened a held host")
     )
