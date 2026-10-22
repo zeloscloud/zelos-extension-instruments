@@ -31,7 +31,7 @@ The Zelos guide to [developing extensions](https://docs.zeloscloud.io/sdk/how-to
 | `just check` | Format check, lint and pyright |
 | `just test` | Run the tests (`uv run pytest -m perf` adds the cadence gates) |
 | `just profiles [paths]` | Check every shipped profile, and any paths given |
-| `just sim <profile> [port]` | Serve a fake instrument from a profile on a TCP port |
+| `just sim <profile> [--port N]` | Serve a fake instrument from a profile on a TCP port |
 | `just record <profile> <address>` | Record a transcript from a real instrument |
 | `just run` | Run the extension against `./config.json` |
 | `just package` | Package for the Zelos marketplace |
@@ -58,7 +58,7 @@ zelos extensions logs local.instruments
 ## Try a profile without hardware
 
 ```bash
-just sim rigol-dp800 5555
+just sim rigol-dp800 --port 5555
 ```
 
 Then configure a LAN instrument at `127.0.0.1:5555` with the profile `rigol-dp800`. The fake answers every query the profile makes, keeps setpoints, models a resistive load, and fills an error queue for unknown commands and out-of-range values. It proves that the engine executes the profile; only a transcript from a real unit proves the profile describes the instrument.

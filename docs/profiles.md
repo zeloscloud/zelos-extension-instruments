@@ -206,6 +206,7 @@ command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]
 | `name` | yes | What the app shows. |
 | `category` | yes | `psu`, `load`, `dmm`, `acsource` or `scope`. It fixes which field names are allowed. |
 | `notes` | no | Free text shown in Get State: traps, what is not supported, what was not tested. |
+| `generic` | no | `true` marks a category's fallback: it is chosen by category, never matched by identity, so it takes no `manufacturer` or `model`, and it may read no signal. Default `false`. |
 
 ## `[evidence]`
 
@@ -225,8 +226,8 @@ How an identity reply is matched to the profile. `*IDN?` returns four comma-sepa
 
 | Key | Required | Meaning |
 |---|---|---|
-| `manufacturer` | yes | A regular expression the manufacturer field must match. Use `(?i)` for case-insensitive, and alternation for vendors that spell their name several ways. |
-| `model` | yes | A regular expression the model field must match. |
+| `manufacturer` | yes, unless `generic` | A regular expression the manufacturer field must match. Use `(?i)` for case-insensitive, and alternation for vendors that spell their name several ways. |
+| `model` | yes, unless `generic` | A regular expression the model field must match. |
 | `idn` | no | The identify command. Default `*IDN?`. |
 | `channels` | no | The channel count. Default `1`. |
 | `channels_query` | no | A query whose integer reply is the channel count, for a family whose model string does not say. |
@@ -266,7 +267,7 @@ Connection defaults for this family. The config can override each.
 
 ## `[ranges]`
 
-What a setter may be asked for. Keys are `voltage`, `current`, `power`, `resistance` and `frequency`. Each is a table with `min` (default `0`), `max`, `digits` (decimal places the command is formatted with, default `3`) and optional `step`.
+What a setter may be asked for. Keys are `voltage`, `current`, `power`, `resistance`, `frequency`, `ovp`, `ocp`, `slew` and, for a scope, `scale` and `timebase`. Each is a table with `min` (default `0`), `max`, `digits` (decimal places the command is formatted with, default `3`) and optional `step`.
 
 `[[ranges.models]]` entries override by `model` regex and optional `channel`. The first matching entry wins for each key.
 
@@ -297,7 +298,7 @@ A setter with no range known refuses to set until the config names a limit for i
 | Category | `[signals]` | `[state]` |
 |---|---|---|
 | `psu` | `voltage` V, `current` A, `power` W | `voltage_set` V, `current_set` A, `ovp_set` V, `ocp_set` A, `ovp_on`, `ocp_on`, `output`, `mode`, `protection`, `remote_sense`, `tracking` |
-| `load` | `voltage` V, `current` A, `power` W, `resistance` Ω | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ω, `slew_set` A/s, `current_range`, `output` (input on), `mode`, `protection` |
+| `load` | `voltage` V, `current` A, `power` W, `resistance` Ohm | `current_set` A, `voltage_set` V, `power_set` W, `resistance_set` Ohm, `slew_set` A/s, `current_range`, `output` (input on), `mode`, `protection` |
 | `acsource` | `voltage` V rms, `current` A rms, `power` W, `apparent_power` VA, `power_factor`, `frequency` Hz | `voltage_set` V, `frequency_set` Hz, `current_set` A, `output`, `protection` |
 | `dmm` | `value` (the reading, in the active function's unit) | `function`, `range`, `autorange`, `nplc` |
 | `scope` | the measurements: `pkpk`, `maximum`, `minimum`, `amplitude`, `top`, `base`, `mean`, `cycle_mean`, `rms`, `cycle_rms`, `stdev` V, `overshoot`, `preshoot`, `duty` %, `period`, `positive_width`, `negative_width`, `rise_time`, `fall_time` s, `frequency` Hz | per channel: `visible`, `scale` V, `offset` V, `coupling`, `bandwidth_limit`, `probe`; per instrument: `timebase` s, `delay` s, `sample_rate` Sa/s, `memory_depth` pts, `points` pts, `acquisitions`, `trigger_status`, `trigger_mode`, `trigger_source`, `trigger_level` V, `trigger_slope`, `trigger_frequency` Hz |
