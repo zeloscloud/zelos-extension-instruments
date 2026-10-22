@@ -51,16 +51,25 @@ def parse_address(text: str, profile: Profile, baud: int | None = None):
     return TcpAddress(found.group("host").strip("[]"), port)
 
 
-def load_transcript(path: Path) -> list[tuple[str, str | None]]:
-    """`> command` and `< reply` lines as pairs; a command with no `<` has reply None."""
+def load_transcript(path: Path | str) -> list[tuple[str, str | None]]:
+    """The (command, reply) pairs of a transcript: `> command` and `< reply` lines, `#` comments.
+
+    A command with no `<` line after it has no reply.
+    """
     pairs: list[tuple[str, str | None]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip() or line.startswith("#"):
+    for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+        text = line.strip()
+        if not text or text.startswith("#"):
             continue
-        if line.startswith("> "):
-            pairs.append((line[2:], None))
-        elif line.startswith("< ") and pairs and pairs[-1][1] is None:
-            pairs[-1] = (pairs[-1][0], line[2:])
+        mark, body = text[0], text[1:].strip()
+        if mark == ">":
+            pairs.append((body, None))
+        elif mark == "<" and pairs and pairs[-1][1] is None:
+            pairs[-1] = (pairs[-1][0], body)
+        else:
+            raise ValueError(
+                f"{Path(path).name}:{number}: expected '> command', or one '< reply' after it"
+            )
     return pairs
 
 

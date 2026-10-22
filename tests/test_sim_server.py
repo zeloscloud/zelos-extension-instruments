@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 
 from zelos_extension_instruments.profile import SHIPPED_DIR, Profile, from_dict, load_file
-from zelos_extension_instruments.sim import FakeInstrument, FakeServer, Faults, load_transcript
+from zelos_extension_instruments.record import load_transcript
+from zelos_extension_instruments.sim.fake import FakeInstrument
+from zelos_extension_instruments.sim.faults import Faults
+from zelos_extension_instruments.sim.server import FakeServer
 
 RIGOL = SHIPPED_DIR / "psu" / "rigol-dp800.toml"
 

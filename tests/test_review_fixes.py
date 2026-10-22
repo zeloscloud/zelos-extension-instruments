@@ -363,7 +363,7 @@ def test_a_scope_profile_without_slots_is_refused() -> None:
 
 
 def test_measure_reuses_the_slot_that_already_shows_the_measurement() -> None:
-    from zelos_extension_instruments.sim import FakeInstrument
+    from zelos_extension_instruments.sim.fake import FakeInstrument
 
     profile = by_id(shipped(), "siglent-sds")
     assert profile is not None

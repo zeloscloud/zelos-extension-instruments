@@ -992,7 +992,7 @@ def test_a_scope_profiles_fields_include_every_measurement_its_slots_can_show() 
 def test_every_profiles_own_identity_matches_exactly_one_profile(profiles: list[Profile]) -> None:
     """A loose match in one family must not claim another family's instruments."""
     from zelos_extension_instruments.profile import find
-    from zelos_extension_instruments.sim import FakeInstrument
+    from zelos_extension_instruments.sim.fake import FakeInstrument
 
     for profile in profiles:
         if profile.generic:
