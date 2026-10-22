@@ -14,15 +14,20 @@ from typing import Any
 import pyarrow as pa
 import pytest
 import zelos_sdk
+from hypothesis import settings
 
 from zelos_extension_instruments import ACTION_PREFIX, config
 from zelos_extension_instruments.config import InstrumentConfig
 from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.link import Address, Link, LinkError, LinkSettings, LinkTimeout
-from zelos_extension_instruments.profile import Profile
+from zelos_extension_instruments.profile import BOOL_FIELDS, ENUM_FIELDS, Profile
 from zelos_extension_instruments.profile_load import from_dict, load_file, shipped
 from zelos_extension_instruments.waveform import BlockError, block_payload
 from zelos_extension_instruments.worker import InstrumentWorker
+
+# A slow runner must not fail a property test on its deadline, and a failure must reproduce.
+settings.register_profile("deterministic", deadline=None, derandomize=True)
+settings.load_profile("deterministic")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Not reader.time_range(): it raises on a trace that holds no rows.
@@ -65,6 +70,17 @@ def read_events(path: Path) -> dict[str, list[dict[str, Any]]]:
                     for row in rows
                 ]
     return events
+
+
+@pytest.fixture
+def fast_schedule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shorten the worker's slow round, status and reconnect periods for a test that only waits
+    for them; a test that measures the schedule leaves them alone."""
+    module = "zelos_extension_instruments.worker"
+    monkeypatch.setattr(f"{module}._SLOW_NS", 100_000_000)
+    monkeypatch.setattr(f"{module}._STATUS_NS", 100_000_000)
+    monkeypatch.setattr(f"{module}._BACKOFF_MIN_S", 0.05)
+    monkeypatch.setattr(f"{module}._BACKOFF_MAX_S", 0.4)
 
 
 @pytest.fixture
@@ -174,12 +190,51 @@ def opener_for(link: Link) -> Callable[[Address, LinkSettings], Link]:
     return open
 
 
+def assert_field_type(where: str, name: str, value: Any) -> None:
+    """A parsed field holds what its name promises: an enumerated field a known label, a flag a
+    bool, any other field a number."""
+    if name in ENUM_FIELDS:
+        assert value in ENUM_FIELDS[name], f"{where}: {name} read {value!r}"
+    elif name in BOOL_FIELDS:
+        assert isinstance(value, bool), f"{where}: {name} read {value!r}"
+    else:
+        assert isinstance(value, int | float) and not isinstance(value, bool), (
+            f"{where}: {name} read {value!r}"
+        )
+
+
 def instrument_config(**overrides: Any) -> InstrumentConfig:
     """A LAN instrument config with every default applied."""
     item: dict[str, Any] = {"connection": "lan", "host": "127.0.0.1", "name": "psu"}
     item.update(overrides)
     settings = config.from_dict({"instruments": [item]})
     return settings.instruments[0]
+
+
+def start_blocked_query(
+    link: Any, monkeypatch: pytest.MonkeyPatch
+) -> tuple[threading.Thread, list[LinkError]]:
+    """Query a silent instrument from a thread; returns once that thread is waiting to receive,
+    with the errors it ends on."""
+    waiting = threading.Event()
+    receive = link._receive
+    errors: list[LinkError] = []
+
+    def entering(deadline: float, size: int) -> None:
+        waiting.set()
+        receive(deadline, size)
+
+    def blocked() -> None:
+        try:
+            link.query("NOREPLY?")
+        except LinkError as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(link, "_receive", entering)
+    thread = threading.Thread(target=blocked)
+    thread.start()
+    assert waiting.wait(5)
+    return thread, errors
 
 
 def wait_until(
@@ -489,7 +544,10 @@ class LineServer(socketserver.ThreadingTCPServer):
 @pytest.fixture
 def instrument() -> Iterator[LineServer]:
     server = LineServer()
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    # A short poll interval: shutdown() waits for one, and teardown runs for every test.
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    ).start()
     yield server
     server.shutdown()
     server.server_close()

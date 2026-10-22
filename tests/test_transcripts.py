@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import assert_field_type
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.profile import by_id, parse_idn
 from zelos_extension_instruments.profile_load import shipped
@@ -40,12 +41,17 @@ def test_transcript_replays_against_its_profile(path: Path) -> None:
     assert not missing, f"queries never recorded: {missing}"
     for step in plan:
         reply = replies[step.query]
+        where = f"{profile.id}: {step.query} -> {reply!r}"
         if step.flag is not None:
-            engine.flag_is_set(step.flag, reply, step.channel)
+            assert isinstance(engine.flag_is_set(step.flag, reply, step.channel), bool), where
         else:
-            engine.parse_reply(step.reader, reply, step.channel)
+            values = engine.parse_reply(step.reader, reply, step.channel)
+            assert values, where
+            for name, value in values.items():
+                assert_field_type(where, name, value)
     if profile.errors is not None and profile.errors.query in replies:
-        engine.read_error(profile.errors, replies[profile.errors.query])
+        # The recorder drains the queue, so the last reply recorded reads as no error.
+        assert engine.read_error(profile.errors, replies[profile.errors.query]) is None, profile.id
 
 
 def test_transcript_badges_match_the_files() -> None:

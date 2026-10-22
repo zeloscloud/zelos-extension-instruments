@@ -12,14 +12,13 @@ from tests.conftest import (
     RecordingEmitter,
     ScriptedLink,
     ask,
+    assert_field_type,
     instrument_config,
     opener_for,
     wait_until,
 )
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.profile import (
-    BOOL_FIELDS,
-    ENUM_FIELDS,
     LABEL_SETTERS,
     SWITCH_SETTERS,
     VALUE_SETTERS,
@@ -53,17 +52,15 @@ def test_every_query_parses_and_every_setter_round_trips(profile: Profile) -> No
             fake.handle_text(select)
         reply = fake.handle_text(step.query)
         assert reply is not None, f"{profile.id}: no reply to {step.query}"
+        where = f"{profile.id}: {step.query} -> {reply!r}"
         if step.flag is not None:
-            engine.flag_is_set(step.flag, reply, step.channel)
+            assert engine.flag_is_set(step.flag, reply, step.channel) is False, where
         else:
             values = engine.parse_reply(step.reader, reply, step.channel)
+            assert values, where
             for name, value in values.items():
-                if name in ENUM_FIELDS:
-                    assert value in ENUM_FIELDS[name], f"{profile.id}: {name} read {value!r}"
-                elif name in BOOL_FIELDS:
-                    assert isinstance(value, bool)
-                else:
-                    assert isinstance(value, int | float) and not isinstance(value, bool)
+                assert_field_type(where, name, value)
+
     for name, setter in profile.setters.items():
         for ch in range(1, channels + 1):
             if setter.per_channel:

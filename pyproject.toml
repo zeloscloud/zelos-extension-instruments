@@ -42,6 +42,7 @@ dev = [
     "ruff>=0.16.10",
     "pyright>=1.1.400",
     "pre-commit>=4.6.2",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -56,6 +57,7 @@ packages = ["zelos_extension_instruments"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+timeout = 60
 addopts = "--log-cli-level=INFO -m 'not perf and not hardware'"
 markers = [
     "perf: cadence and soak gates; run with -m perf",

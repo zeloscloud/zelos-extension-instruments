@@ -387,8 +387,14 @@ def test_a_one_character_reply_does_not_wait_for_more(instrument: LineServer) ->
         link.close()
 
 
-def test_real_pyvisa_py_socket_to_a_closed_port_fails(closed_port: int) -> None:
-    resource = f"TCPIP::127.0.0.1::{closed_port}::SOCKET"
-    with pytest.raises(LinkError):
-        link = open_visa(VisaAddress(resource, "py"), FAST)
+def test_real_pyvisa_py_socket_to_a_closed_port_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Windows takes about 2 s to report a refused loopback connect, so the refusal is simulated.
+    def refuse(self: socket.socket, target: object) -> int:
+        raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+
+    # pyvisa-py connects without blocking, through connect_ex.
+    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+    with pytest.raises(LinkError) as caught:
+        link = open_visa(VisaAddress("TCPIP::127.0.0.1::9::SOCKET", "py"), FAST)
         link.query("*IDN?")
+    assert "127.0.0.1" in str(caught.value)

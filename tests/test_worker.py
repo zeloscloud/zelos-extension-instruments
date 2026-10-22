@@ -50,6 +50,7 @@ def test_connects_identifies_and_registers_three_channels(running) -> None:
     assert set(emitter.channel_fields["psu"]) == {1, 2, 3}
 
 
+@pytest.mark.usefixtures("fast_schedule")
 def test_polls_measurements_and_state_for_every_channel(running) -> None:
     worker, link, emitter, dp832 = running
     assert wait_until(lambda: sum(1 for r in emitter.rows if "voltage" in r[2]) >= 6)
@@ -64,6 +65,7 @@ def test_polls_measurements_and_state_for_every_channel(running) -> None:
     assert off["mode"] == "unregulated" and off["output"] is False
 
 
+@pytest.mark.usefixtures("fast_schedule")
 def test_timestamps_increase_and_status_reports_rate(running) -> None:
     worker, link, emitter, dp832 = running
     assert wait_until(lambda: len(emitter.statuses) >= 2, timeout_s=5)
@@ -74,21 +76,49 @@ def test_timestamps_increase_and_status_reports_rate(running) -> None:
     assert math.isfinite(status["rtt_ms"])
 
 
-def test_external_setpoint_change_is_logged_but_our_own_is_not(running) -> None:
-    worker, link, emitter, dp832 = running
-    assert wait_until(lambda: any("voltage_set" in r[2] for r in emitter.rows))
-    dp832.volt[1] = 7.5
-    assert wait_until(
-        lambda: "ch1 voltage_set changed 5 to 7.5 (external)" in emitter.messages(), timeout_s=5
-    )
-    ask(worker, "set", channel=1, voltage=9.0)
-    assert wait_until(
-        lambda: any(r[2].get("voltage_set") == 9.0 and "mode" in r[2] for r in emitter.rows),
-        timeout_s=5,
-    )
-    assert not any("changed 7.5 to 9" in m for m in emitter.messages())
+@pytest.mark.usefixtures("fast_schedule")
+def test_external_setpoint_change_is_logged_but_our_own_is_not(
+    dp800: Profile, dp832: Dp832
+) -> None:
+    """After our own set the instrument reads back one stale setpoint, then the new one: both
+    reads differ from the stored value, yet neither is an outside change."""
+    original = dp832.__call__
+    after_set = {"armed": False, "reads": 0}
+
+    def lagging(command: str) -> str | None:
+        reply = original(command)
+        if command == ":SOUR1:VOLT 9.000":
+            after_set["armed"] = True
+        elif command == ":SOUR1:VOLT?" and after_set["armed"]:
+            after_set["reads"] += 1
+            # The first read is the set's own readback; the next poll sees the old setpoint.
+            if after_set["reads"] == 2:
+                return "7.500"
+        return reply
+
+    worker, emitter = start_open(dp800, ScriptedLink(lagging))
+    try:
+        assert wait_until(lambda: any("voltage_set" in r[2] for r in emitter.rows))
+        dp832.volt[1] = 7.5
+        assert wait_until(
+            lambda: "ch1 voltage_set changed 5 to 7.5 (external)" in emitter.messages(),
+            timeout_s=5,
+        )
+        ask(worker, "set", channel=1, voltage=9.0)
+        assert wait_until(
+            lambda: any(r[2].get("voltage_set") == 9.0 and "mode" in r[2] for r in emitter.rows),
+            timeout_s=5,
+        )
+        assert after_set["reads"] >= 3
+        assert not any(
+            "changed 9 to 7.5" in m or "changed 7.5 to 9" in m for m in emitter.messages()
+        )
+    finally:
+        worker.stop()
+        worker.join(2)
 
 
+@pytest.mark.usefixtures("fast_schedule")
 def test_mode_and_protection_changes_are_logged(running) -> None:
     worker, link, emitter, dp832 = running
     assert wait_until(lambda: any("mode" in r[2] for r in emitter.rows))
@@ -102,6 +132,7 @@ def test_mode_and_protection_changes_are_logged(running) -> None:
     assert dp832.ovp_tripped[1] is False
 
 
+@pytest.mark.usefixtures("fast_schedule")
 def test_instrument_errors_in_the_queue_are_logged_and_counted(running) -> None:
     worker, link, emitter, dp832 = running
     dp832.errors.append('-350,"Queue overflow"')
@@ -115,6 +146,7 @@ def test_instrument_errors_in_the_queue_are_logged_and_counted(running) -> None:
     assert "Last instrument error: -350,Queue overflow." in worker.health
 
 
+@pytest.mark.usefixtures("fast_schedule")
 def test_three_timeouts_in_a_row_reconnect_and_log_the_gap(dp800: Profile, dp832: Dp832) -> None:
     emitter = RecordingEmitter()
     links: list[ScriptedLink] = []
@@ -140,6 +172,7 @@ def test_three_timeouts_in_a_row_reconnect_and_log_the_gap(dp800: Profile, dp832
         worker.join(2)
 
 
+@pytest.mark.usefixtures("fast_schedule")
 def test_a_refused_open_sets_health_with_advice_and_keeps_trying(dp800: Profile) -> None:
     emitter = RecordingEmitter()
     attempts = 0
@@ -601,6 +634,7 @@ def test_a_reply_out_of_step_is_detected_and_the_link_resynchronized(
         worker.join(2)
 
 
+@pytest.mark.usefixtures("fast_schedule")
 @pytest.mark.parametrize("profile", ["rigol-dp800", "auto"])
 def test_a_connection_the_instrument_accepts_but_never_answers_is_a_failed_open(
     dp800: Profile, profile: str
@@ -814,7 +848,8 @@ def test_a_silent_query_in_a_request_fails_the_request_and_keeps_the_link(
     try:
         result = ask(worker, "scpi", command="NOPE?")
         assert "no reply" in result["error"]
-        time.sleep(0.3)
+        recorded = len(emitter.rows)
+        assert wait_until(lambda: len(emitter.rows) > recorded + 6, timeout_s=5)
         assert worker.state == "open"
         assert not any("disconnected" in m for m in emitter.messages())
         assert ask(worker, "scpi", command="*IDN?")["reply"].startswith("RIGOL")
@@ -842,19 +877,26 @@ def test_a_lost_cycle_waits_the_backoff_before_reconnecting(dp800: Profile) -> N
     worker = InstrumentWorker(cfg, [dp800], RecordingEmitter(), open=opener)
     worker.start()
     try:
-        time.sleep(2.0)
-        assert 2 <= len(opened) <= 4, opened
+        assert wait_until(lambda: len(opened) >= 3, timeout_s=15), opened
+        gaps = [b - a for a, b in zip(opened, opened[1:], strict=False)]
+        # Never sooner than the first backoff, and each loss waits longer than the one before.
+        assert gaps[0] >= 0.5 and gaps[1] > gaps[0], gaps
     finally:
         worker.stop()
         worker.join(2)
 
 
 def test_readings_are_stamped_at_their_own_query(dp800: Profile, dp832: Dp832) -> None:
-    """A slow request between two channels' queries must not move either reading in time."""
+    """A slow request that arrives between two channels' queries waits for the end of the pass,
+    so it moves neither reading in time."""
     original = dp832.__call__
+    armed = threading.Event()
+    asked: list[Any] = []
 
     def slow_set(command: str) -> str | None:
         reply = original(command)
+        if command == ":MEAS:ALL? CH1" and armed.is_set() and not asked:
+            asked.append(worker.request("set", channel=2, voltage=1.0))
         if command.startswith(":SOUR2:VOLT ") and "?" not in command:
             time.sleep(0.4)
         return reply
@@ -862,15 +904,21 @@ def test_readings_are_stamped_at_their_own_query(dp800: Profile, dp832: Dp832) -
     link = ScriptedLink(slow_set)
     worker, emitter = start_open(dp800, link)
     try:
-        before = len(emitter.rows)
-        ask(worker, "set", channel=2, voltage=1.0)
-        assert wait_until(lambda: len(emitter.rows) > before + 6, timeout_s=5)
-        rows = [r for r in emitter.rows[before:] if "voltage" in r[2]]
-        stamps = sorted(r[3] for r in rows)
-        gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
-        # Cycles are 20 ms apart at 50 Hz; the 400 ms set shows once as a gap between cycles,
-        # never inside one.
-        assert max(gaps) < 600_000_000
+        fast = lambda: [r for r in emitter.rows if "voltage" in r[2]]  # noqa: E731
+        assert wait_until(lambda: len(fast()) >= 9, timeout_s=5)
+        armed.set()
+        assert wait_until(lambda: bool(asked), timeout_s=5)
+        assert asked[0].result(timeout=5)["voltage"]["readback"] == 1.0
+        recorded = len(fast())
+        assert wait_until(lambda: len(fast()) >= recorded + 9, timeout_s=5)
+        rows = fast()
+        rows = rows[next(i for i, r in enumerate(rows) if r[1] == 1) :]
+        cycles = [rows[i : i + 3] for i in range(0, len(rows) - 2, 3)]
+        assert all([r[1] for r in cycle] == [1, 2, 3] for cycle in cycles)
+        inside = [c[i + 1][3] - c[i][3] for c in cycles for i in range(2)]
+        between = [b[0][3] - a[2][3] for a, b in zip(cycles, cycles[1:], strict=False)]
+        # The 400 ms set shows once as a gap between passes, never inside one.
+        assert max(inside) < max(between)
     finally:
         worker.stop()
         worker.join(2)
@@ -892,12 +940,12 @@ def test_the_panel_is_handed_back_on_the_worker_thread(dp800: Profile, dp832: Dp
     assert writers and all(w == worker.name for w in writers)
 
 
-def test_keep_panel_hands_the_panel_back_once_a_second(dp800: Profile, dp832: Dp832) -> None:
+@pytest.mark.usefixtures("fast_schedule")
+def test_keep_panel_hands_the_panel_back_every_slow_round(dp800: Profile, dp832: Dp832) -> None:
     link = ScriptedLink(dp832)
     worker, _ = start_open(dp800, link)
     try:
-        time.sleep(1.3)
-        assert link.commands.count("SYST:LOCAL") >= 1
+        assert wait_until(lambda: link.commands.count("SYST:LOCAL") >= 1)
     finally:
         worker.stop()
         worker.join(2)
@@ -946,10 +994,11 @@ def test_a_late_reply_is_not_recorded_under_the_next_query(dp800: Profile, dp832
         assert wait_until(
             lambda: any("replies were out of step" in m for m in emitter.messages()), timeout_s=5
         )
-        time.sleep(0.3)
+        ch2 = lambda: [r for r in emitter.rows if r[1] == 2 and "voltage" in r[2]]  # noqa: E731
+        assert wait_until(lambda: len(ch2()) >= 3, timeout_s=5)
         # Channel 2 is off: its voltage is 0, never channel 1's 5 V shifted down by one reply.
-        rows = [r for r in emitter.rows if r[1] == 2 and "voltage" in r[2]]
-        assert rows and all(abs(r[2]["voltage"]) < 1e-6 for r in rows), rows[-3:]
+        rows = ch2()
+        assert all(abs(r[2]["voltage"]) < 1e-6 for r in rows), rows[-3:]
         assert ask(worker, "state")["counters"]["timeouts"] == 1
     finally:
         worker.stop()
@@ -962,6 +1011,9 @@ def test_resync_accepts_only_the_identity(dp800: Profile, dp832: Dp832) -> None:
     decoys = {"armed": False}
 
     def with_decoys(command: str) -> str | None:
+        if command == "NOPE?":
+            decoys["armed"] = True
+            raise LinkTimeout("no reply")
         if command == "*IDN?" and decoys["armed"]:
             decoys["armed"] = False
             link.push("5.000,1.000,5.000")
@@ -969,18 +1021,24 @@ def test_resync_accepts_only_the_identity(dp800: Profile, dp832: Dp832) -> None:
         return original(command)
 
     link = ScriptedLink(with_decoys)
-    worker, _ = start_open(dp800, link)
+    worker, emitter = start_open(dp800, link)
     try:
-        decoys["armed"] = True
-        worker._resync("test")
-        assert worker._recent[-1][2].startswith("RIGOL TECHNOLOGIES,DP832A")
-        assert worker._recent[-1][1] == "*IDN?"
+        # The silent query makes the worker resynchronize on its own thread.
+        assert "no reply" in ask(worker, "scpi", command="NOPE?")["error"]
+        assert wait_until(
+            lambda: any("replies were out of step" in m for m in emitter.messages()), timeout_s=5
+        )
+        accepted = [reply for _, command, reply in list(worker._recent) if command == "*IDN?"]
+        assert accepted[-1].startswith("RIGOL TECHNOLOGIES,DP832A")
     finally:
         worker.stop()
         worker.join(2)
 
 
-def test_keep_panel_is_skipped_for_a_meter_that_needs_remote() -> None:
+@pytest.mark.usefixtures("fast_schedule")
+def test_keep_panel_is_skipped_for_a_meter_that_needs_remote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     profile = load_file(next(p.path for p in shipped() if p.id == "agilent-34401a" and p.path))
     assert profile.link.needs_remote and profile.link.locks_panel and profile.link.local
     commands: list[str] = []
@@ -997,6 +1055,14 @@ def test_keep_panel_is_skipped_for_a_meter_that_needs_remote() -> None:
             return '"VOLT"'
         return "0" if command.endswith("?") else None
 
+    rounds: list[None] = []
+    keep_panel = InstrumentWorker._keep_panel
+
+    def counted(self: InstrumentWorker) -> None:
+        rounds.append(None)
+        keep_panel(self)
+
+    monkeypatch.setattr(InstrumentWorker, "_keep_panel", counted)
     link = ScriptedLink(meter)
     emitter = RecordingEmitter()
     cfg = instrument_config(rate_hz=50, profile="agilent-34401a")
@@ -1004,9 +1070,10 @@ def test_keep_panel_is_skipped_for_a_meter_that_needs_remote() -> None:
     worker.start()
     try:
         assert wait_until(lambda: worker.state == "open", timeout_s=5), worker.health
-        time.sleep(0.3)
+        # Each slow round ends in a keep-panel pass: let several run.
+        assert wait_until(lambda: len(rounds) >= 3, timeout_s=10)
         assert profile.link.remote in commands
-        assert profile.link.local not in commands
+        assert not any(command in commands for command in profile.link.local)
     finally:
         worker.stop()
         worker.join(2)

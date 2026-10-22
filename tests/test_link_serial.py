@@ -1,13 +1,13 @@
 import errno
+import select
 import socket
 import sys
-import threading
 import time
 
 import pytest
 import serialx
 
-from tests.conftest import IDN, LineServer
+from tests.conftest import IDN, LineServer, start_blocked_query
 from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, SerialAddress
 from zelos_extension_instruments.link.serial import open_serial
 
@@ -45,14 +45,16 @@ def test_reply_split_across_two_sends_is_joined(instrument: LineServer) -> None:
 
 
 def test_second_reply_in_one_packet_waits_for_the_next_read(
-    instrument: LineServer,
+    instrument: LineServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    def no_receive(deadline: float, size: int) -> None:
+        raise AssertionError("the buffered reply went back to the port")
+
     link = connect(instrument)
     try:
         assert link.query("TWO?") == "ONE"
-        started = time.monotonic()
+        monkeypatch.setattr(link, "_receive", no_receive)
         assert link.read() == "TWO"
-        assert time.monotonic() - started < 0.1
     finally:
         link.close()
 
@@ -85,7 +87,9 @@ def test_clear_drops_pending_bytes(instrument: LineServer) -> None:
     link = connect(instrument)
     try:
         link.write("TWO?")
-        time.sleep(0.2)
+        sock = link._port._socket  # type: ignore[attr-defined]
+        assert select.select([sock], [], [], 5)[0]
+
         link.clear()
         assert link.query("*IDN?") == IDN
     finally:
@@ -125,31 +129,29 @@ def test_close_is_idempotent_and_ends_the_link(instrument: LineServer) -> None:
 
 
 def test_close_from_another_thread_ends_a_blocked_read(
-    instrument: LineServer,
+    instrument: LineServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    link = connect(instrument, LinkSettings(timeout_s=1))
-    errors: list[LinkError] = []
-
-    def blocked() -> None:
-        try:
-            link.query("NOREPLY?")
-        except LinkError as exc:
-            errors.append(exc)
-
-    worker = threading.Thread(target=blocked)
-    worker.start()
-    time.sleep(0.2)
+    link = connect(instrument, LinkSettings(timeout_s=10))
+    worker, errors = start_blocked_query(link, monkeypatch)
+    started = time.monotonic()
     link.close()
-    worker.join(3)
+    worker.join(8)
     assert not worker.is_alive()
-    assert len(errors) == 1
+    # Well before the 10 s read timeout.
+    assert time.monotonic() - started < 5
+    assert len(errors) == 1 and not isinstance(errors[0], LinkTimeout)
 
 
-def test_refused_connection_is_kind_refused(closed_port: int) -> None:
+def test_refused_connection_is_kind_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Windows takes about 2 s to report a refused loopback connect, so the refusal is simulated.
+    def refuse(self: socket.socket, target: object) -> None:
+        raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
     with pytest.raises(LinkError) as caught:
-        open_serial(SerialAddress(f"socket://127.0.0.1:{closed_port}"), FAST)
+        open_serial(SerialAddress("socket://127.0.0.1:9"), FAST)
     assert caught.value.kind == "refused"
-    assert f"socket://127.0.0.1:{closed_port}" in str(caught.value)
+    assert "socket://127.0.0.1:9" in str(caught.value)
 
 
 def test_unresolvable_host_is_kind_unresolved(monkeypatch: pytest.MonkeyPatch) -> None:
