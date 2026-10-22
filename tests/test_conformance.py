@@ -8,8 +8,14 @@ import math
 
 import pytest
 
-from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
-from tests.test_worker import RecordingEmitter, ask
+from tests.conftest import (
+    RecordingEmitter,
+    ScriptedLink,
+    ask,
+    instrument_config,
+    opener_for,
+    wait_until,
+)
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.profile import (
     BOOL_FIELDS,

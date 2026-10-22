@@ -8,8 +8,7 @@ from typing import Any
 import pytest
 from zelos_sdk.actions import ActionExecutionError, ValidationError
 
-from tests.conftest import ScriptedLink, instrument_config, wait_until
-from tests.test_worker import Dp832, RecordingEmitter
+from tests.conftest import Dp832, RecordingEmitter, ScriptedLink, instrument_config, wait_until
 from zelos_extension_instruments import actions, discovery
 from zelos_extension_instruments.link import TcpAddress, VisaAddress
 from zelos_extension_instruments.profile import Profile, parse_idn

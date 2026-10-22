@@ -6,19 +6,19 @@ import time
 
 import pytest
 import serialx
-from test_link_tcp import IDN, FakeInstrument, closed_port, instrument  # noqa: F401
 
+from tests.conftest import IDN, LineServer
 from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, SerialAddress
 from zelos_extension_instruments.link.serial import open_serial
 
 FAST = LinkSettings(timeout_s=0.3)
 
 
-def connect(server: FakeInstrument, settings: LinkSettings = FAST):
+def connect(server: LineServer, settings: LinkSettings = FAST):
     return open_serial(SerialAddress(f"socket://127.0.0.1:{server.port}"), settings)
 
 
-def test_query_over_a_serialx_url(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_query_over_a_serialx_url(instrument: LineServer) -> None:
     link = connect(instrument)
     try:
         assert link.query("*IDN?") == IDN
@@ -27,7 +27,7 @@ def test_query_over_a_serialx_url(instrument: FakeInstrument) -> None:  # noqa: 
         link.close()
 
 
-def test_write_appends_the_write_terminator_and_echoes(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_write_appends_the_write_terminator_and_echoes(instrument: LineServer) -> None:
     link = connect(instrument, LinkSettings(write_terminator="\r\n", timeout_s=0.3))
     try:
         assert link.query("ECHO hi") == "hi"
@@ -36,7 +36,7 @@ def test_write_appends_the_write_terminator_and_echoes(instrument: FakeInstrumen
         link.close()
 
 
-def test_reply_split_across_two_sends_is_joined(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_reply_split_across_two_sends_is_joined(instrument: LineServer) -> None:
     link = connect(instrument, LinkSettings(timeout_s=2))
     try:
         assert link.query("SPLIT?") == "HELLO"
@@ -45,7 +45,7 @@ def test_reply_split_across_two_sends_is_joined(instrument: FakeInstrument) -> N
 
 
 def test_second_reply_in_one_packet_waits_for_the_next_read(
-    instrument: FakeInstrument,  # noqa: F811
+    instrument: LineServer,
 ) -> None:
     link = connect(instrument)
     try:
@@ -57,7 +57,7 @@ def test_second_reply_in_one_packet_waits_for_the_next_read(
         link.close()
 
 
-def test_invalid_utf8_is_replaced(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_invalid_utf8_is_replaced(instrument: LineServer) -> None:
     link = connect(instrument)
     try:
         assert link.query("BAD?") == "��A"
@@ -66,7 +66,7 @@ def test_invalid_utf8_is_replaced(instrument: FakeInstrument) -> None:  # noqa: 
 
 
 def test_silent_instrument_times_out_within_the_timeout(
-    instrument: FakeInstrument,  # noqa: F811
+    instrument: LineServer,
 ) -> None:
     link = connect(instrument)
     try:
@@ -81,7 +81,7 @@ def test_silent_instrument_times_out_within_the_timeout(
         link.close()
 
 
-def test_clear_drops_pending_bytes(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_clear_drops_pending_bytes(instrument: LineServer) -> None:
     link = connect(instrument)
     try:
         link.write("TWO?")
@@ -93,7 +93,7 @@ def test_clear_drops_pending_bytes(instrument: FakeInstrument) -> None:  # noqa:
 
 
 def test_connection_closed_mid_reply_is_a_link_error(
-    instrument: FakeInstrument,  # noqa: F811
+    instrument: LineServer,
 ) -> None:
     link = connect(instrument, LinkSettings(timeout_s=2))
     try:
@@ -105,7 +105,7 @@ def test_connection_closed_mid_reply_is_a_link_error(
         link.close()
 
 
-def test_delay_spaces_consecutive_writes(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_delay_spaces_consecutive_writes(instrument: LineServer) -> None:
     link = connect(instrument, LinkSettings(timeout_s=1, delay_ms=200))
     try:
         link.write("*IDN?")
@@ -116,7 +116,7 @@ def test_delay_spaces_consecutive_writes(instrument: FakeInstrument) -> None:  #
         link.close()
 
 
-def test_close_is_idempotent_and_ends_the_link(instrument: FakeInstrument) -> None:  # noqa: F811
+def test_close_is_idempotent_and_ends_the_link(instrument: LineServer) -> None:
     link = connect(instrument)
     link.close()
     link.close()
@@ -125,7 +125,7 @@ def test_close_is_idempotent_and_ends_the_link(instrument: FakeInstrument) -> No
 
 
 def test_close_from_another_thread_ends_a_blocked_read(
-    instrument: FakeInstrument,  # noqa: F811
+    instrument: LineServer,
 ) -> None:
     link = connect(instrument, LinkSettings(timeout_s=1))
     errors: list[LinkError] = []
@@ -145,7 +145,7 @@ def test_close_from_another_thread_ends_a_blocked_read(
     assert len(errors) == 1
 
 
-def test_refused_connection_is_kind_refused(closed_port: int) -> None:  # noqa: F811
+def test_refused_connection_is_kind_refused(closed_port: int) -> None:
     with pytest.raises(LinkError) as caught:
         open_serial(SerialAddress(f"socket://127.0.0.1:{closed_port}"), FAST)
     assert caught.value.kind == "refused"

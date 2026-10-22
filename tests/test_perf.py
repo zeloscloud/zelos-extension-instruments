@@ -10,8 +10,13 @@ import time
 import psutil
 import pytest
 
-from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
-from tests.test_worker import RecordingEmitter
+from tests.conftest import (
+    RecordingEmitter,
+    ScriptedLink,
+    instrument_config,
+    opener_for,
+    wait_until,
+)
 from zelos_extension_instruments.profile import Profile, by_id
 from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.sim.fake import FakeInstrument

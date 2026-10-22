@@ -1,3 +1,5 @@
+"""The engine: reply parsing, value checks and formatting, plans and setter commands."""
+
 import dataclasses
 import math
 import re
@@ -13,6 +15,7 @@ from zelos_extension_instruments.engine import (
     Selector,
     Step,
     check_range,
+    check_resolution,
     compile_plan,
     flag_is_set,
     format_value,
@@ -753,3 +756,42 @@ def test_selector_without_a_select_command_never_sends() -> None:
     assert selector.command_for(2) is None
     selector.forget()
     assert selector.command_for(1) is None
+
+
+def test_an_unranged_value_keeps_its_digits_and_verifies_relatively() -> None:
+    assert format_value(1e-6, None) == "1e-06"
+    assert format_value(0.2834, None) == "0.2834"
+    assert format_value(12.3456, Range(0, 30, 3, None, None, None)) == "12.346"
+    assert verified(1e-6, 1e-6, None)
+    assert verified(0.2834, 0.28341, None)
+    assert not verified(1e-6, 0.0, None), "a tiny value must not pass as zero"
+    assert not verified(0.2834, 0.28, None), "a snapped value is a refusal"
+
+
+def test_a_value_finer_than_the_instruments_digits_is_refused() -> None:
+    three = Range(min=0.0, max=30.0, digits=3, step=None, min_query=None, max_query=None)
+    check_resolution(5.001, three, "voltage")
+    with pytest.raises(RangeError, match="finer than the instrument's 3 decimals"):
+        check_resolution(0.00012, three, "current")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("10M", 10e6),
+        ("10k", 10e3),
+        ("1.00GSa/s", 1e9),
+        ("5mV", 0.005),
+        ("2.5e6 pts", 2.5e6),
+        ("-0.25 V", -0.25),
+        ("3.58E+00V", 3.58),
+    ],
+)
+def test_parse_float_reads_metric_prefixes_and_units(text: str, expected: float) -> None:
+    assert parse_float(text) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("text", ["C1:VDIV 5.00E-01V", "C1:PAVA PKPK,3.58E+00V", "INR 8193"])
+def test_parse_float_refuses_a_header(text: str) -> None:
+    with pytest.raises(ParseError):
+        parse_float(text)

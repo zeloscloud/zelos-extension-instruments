@@ -4,8 +4,7 @@ import threading
 import time
 from typing import Any
 
-from tests.conftest import Recording, ScriptedLink, wait_until
-from tests.test_worker import Dp832
+from tests.conftest import Dp832, Recording, ScriptedLink, wait_until
 from zelos_extension_instruments import actions, app, config
 from zelos_extension_instruments.profile import Profile
 
