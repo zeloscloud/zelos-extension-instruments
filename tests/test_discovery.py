@@ -1,9 +1,12 @@
 """Finding instruments on the LAN, USB and serial ports and identifying what answers."""
 
+import asyncio
 import dataclasses
 import ipaddress
 import logging
+import socket
 import socketserver
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -17,6 +20,7 @@ import usb.core
 import zeroconf
 from pyvisa_py.tcpip import TCPIPInstrVxi11
 
+from tests.conftest import LineServer, wait_until
 from zelos_extension_instruments import discovery, profile
 from zelos_extension_instruments.discovery import Found
 from zelos_extension_instruments.link import (
@@ -30,6 +34,8 @@ from zelos_extension_instruments.link import (
 from zelos_extension_instruments.profile import Idn
 
 real_identify = discovery._identify
+real_local_subnets = discovery.local_subnets
+real_scan_open = discovery._scan_open
 DP832_REPLY = "RIGOL TECHNOLOGIES,DP832,DP8A123456,00.01.16"
 
 
@@ -1000,3 +1006,542 @@ def test_a_held_instrument_is_held_under_its_other_address_too(
     assert [(f.address.where, f.error) for f in found] == [
         ("10.0.0.5:5025", discovery.IN_USE),
     ]
+
+
+# --- the port scan and the interfaces it covers ----------------------------------------------
+
+
+def test_the_port_scan_reports_the_listening_port_and_not_the_closed_one(
+    instrument: LineServer, closed_port: int
+) -> None:
+    targets = [("127.0.0.1", instrument.port), ("127.0.0.1", closed_port)]
+    hits = asyncio.run(discovery._open_ports(targets, time.monotonic() + 5))
+    assert hits == [("127.0.0.1", instrument.port)]
+
+
+def test_the_port_scan_does_not_count_a_connection_that_failed(
+    instrument: LineServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refused connection finishes at once, with an error, as it does on most systems."""
+    refused = 9
+    loop = asyncio.new_event_loop()
+
+    class Refusing:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(loop, name)
+
+        async def sock_connect(self, sock: socket.socket, address: tuple[str, int]) -> None:
+            if address[1] == refused:
+                raise ConnectionRefusedError
+            await loop.sock_connect(sock, address)
+
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: Refusing())
+    targets = [("127.0.0.1", refused), ("127.0.0.1", instrument.port)]
+    try:
+        hits = loop.run_until_complete(discovery._open_ports(targets, time.monotonic() + 5))
+    finally:
+        loop.close()
+    assert hits == [("127.0.0.1", instrument.port)]
+
+
+def test_scan_lan_lists_each_host_that_accepts_a_connection_on_a_scpi_port(
+    instrument: LineServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery, "SCAN_PORTS", (instrument.port,))
+    monkeypatch.setattr(discovery, "_scan_open", real_scan_open)
+
+    found = discovery.scan_lan([ipaddress.IPv4Network("127.0.0.1/32")], deadline_s=5)
+
+    assert found == [
+        Found(
+            TcpAddress("127.0.0.1", instrument.port),
+            None,
+            None,
+            None,
+            "scan",
+            f"127.0.0.1:{instrument.port}",
+            None,
+        )
+    ]
+
+
+def test_scan_lan_skips_a_subnet_too_big_to_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(discovery, "_scan_open", real_scan_open)
+    monkeypatch.setattr(
+        discovery,
+        "_open_ports",
+        lambda targets, deadline: pytest.fail("a /16 was scanned"),
+    )
+    assert discovery.scan_lan([ipaddress.IPv4Network("10.1.0.0/16")], deadline_s=5) == []
+
+
+def test_a_host_open_on_two_ports_is_one_candidate_on_the_first_port_in_scan_order() -> None:
+    found = discovery._scan_hosts({("10.0.0.5", 5555), ("10.0.0.5", 5025), ("10.0.0.6", 5555)})
+    assert [f.address for f in found] == [
+        TcpAddress("10.0.0.5", 5025),
+        TcpAddress("10.0.0.6", 5555),
+    ]
+
+
+def _interface(family: int, address: str, netmask: str | None) -> SimpleNamespace:
+    return SimpleNamespace(family=family, address=address, netmask=netmask)
+
+
+def test_local_subnets_keeps_the_ipv4_networks_the_machine_is_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inet = socket.AF_INET
+    interfaces = {
+        "eth0": [
+            _interface(inet, "192.168.1.20", "255.255.255.0"),
+            _interface(socket.AF_INET6, "2001:db8::5", "ffff:ffff:ffff:ffff::"),
+        ],
+        "eth1": [
+            _interface(inet, "192.168.1.30", "255.255.255.0"),
+            _interface(inet, "10.0.4.9", "255.255.252.0"),
+        ],
+        "lo": [_interface(inet, "127.0.0.1", "255.0.0.0")],
+        "autoconf": [_interface(inet, "169.254.3.4", "255.255.0.0")],
+        "tunnel": [_interface(inet, "10.9.9.9", "255.255.255.255")],
+        "down": [_interface(inet, "172.16.0.5", None)],
+    }
+    monkeypatch.setattr(discovery.psutil, "net_if_addrs", lambda: interfaces)
+
+    assert real_local_subnets() == [
+        ipaddress.ip_network("192.168.1.0/24"),
+        ipaddress.ip_network("10.0.4.0/22"),
+    ]
+
+
+def test_local_subnets_is_empty_when_the_interfaces_cannot_be_listed(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail() -> dict[str, list[Any]]:
+        raise RuntimeError("no permission")
+
+    monkeypatch.setattr(discovery.psutil, "net_if_addrs", fail)
+
+    with caplog.at_level(logging.WARNING, logger=discovery.log.name):
+        assert real_local_subnets() == []
+
+    assert "cannot list the network interfaces: no permission" in caplog.text
+
+
+class _Limits:
+    """Stands in for the `resource` module with a fixed open-file limit."""
+
+    RLIMIT_NOFILE = 7
+
+    def __init__(self, soft: int | Exception) -> None:
+        self._soft = soft
+
+    def getrlimit(self, which: int) -> tuple[int, int]:
+        if isinstance(self._soft, Exception):
+            raise self._soft
+        return self._soft, 1 << 20
+
+
+@pytest.mark.parametrize(
+    ("platform", "limit", "expected"),
+    [
+        ("linux", _Limits(256), 192),
+        ("linux", _Limits(50), 16),
+        ("linux", _Limits(1 << 20), 2048),
+        ("linux", _Limits(OSError("no limit")), 2048),
+        ("linux", None, 2048),
+        ("win32", _Limits(256), 2048),
+    ],
+    ids=["limited", "floor", "unlimited", "unreadable", "no resource module", "windows"],
+)
+def test_the_scan_runs_as_many_handshakes_as_the_open_file_limit_allows(
+    monkeypatch: pytest.MonkeyPatch, platform: str, limit: _Limits | None, expected: int
+) -> None:
+    monkeypatch.setattr(discovery, "sys", SimpleNamespace(platform=platform))
+    # A None entry makes `import resource` fail, as on a platform without the module.
+    monkeypatch.setitem(sys.modules, "resource", limit)
+
+    assert discovery._scan_parallel() == expected
+
+
+# --- what list_lan survives and reports -------------------------------------------------------
+
+
+def test_list_lan_skips_a_service_that_cannot_be_resolved(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Failing(FakeInfo):
+        def parsed_addresses(self) -> list[str]:
+            raise RuntimeError("the resolver hung up")
+
+    raw = discovery.SERVICE_RAW
+    _fake_zeroconf(
+        monkeypatch,
+        {
+            (raw, _service("Broken", raw)): Failing([], 5025),
+            (raw, _service("Fine", raw)): FakeInfo(["10.0.0.6"], 5025),
+        },
+    )
+    _fake_vxi11(monkeypatch, [])
+
+    with caplog.at_level(logging.DEBUG, logger=discovery.log.name):
+        found = discovery.list_lan(budget_s=0.05)
+
+    assert [f.address.where for f in found] == ["10.0.0.6:5025"]
+    assert "Could not resolve Broken._scpi-raw._tcp.local.: the resolver hung up" in caplog.text
+
+
+def test_list_lan_keeps_the_broadcast_results_when_the_mdns_browse_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Zeroconf:
+        def close(self) -> None:
+            raise OSError("close failed")
+
+    def browse(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("browse failed")
+
+    monkeypatch.setattr(zeroconf, "Zeroconf", Zeroconf)
+    monkeypatch.setattr(zeroconf, "ServiceBrowser", browse)
+    _fake_vxi11(monkeypatch, ["TCPIP0::10.0.0.9::inst0::INSTR"])
+
+    with caplog.at_level(logging.DEBUG, logger=discovery.log.name):
+        found = discovery.list_lan(budget_s=0.01)
+
+    assert [f.source for f in found] == ["vxi11"]
+    assert "mDNS browse failed: browse failed" in caplog.text
+    assert "Closing mDNS failed: close failed" in caplog.text
+
+
+def test_list_lan_is_empty_when_the_interfaces_cannot_be_listed(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail() -> list[ipaddress.IPv4Network]:
+        raise RuntimeError("no interfaces")
+
+    _fake_zeroconf(monkeypatch, {})
+    monkeypatch.setattr(discovery, "local_subnets", fail)
+
+    with caplog.at_level(logging.WARNING, logger=discovery.log.name):
+        assert discovery.list_lan(budget_s=0.01) == []
+
+    assert "LAN listing failed: no interfaces" in caplog.text
+
+
+def test_list_lan_says_what_it_searched(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_zeroconf(monkeypatch, {})
+    _fake_vxi11(monkeypatch, [])
+    monkeypatch.setattr(
+        discovery,
+        "local_subnets",
+        lambda: [ipaddress.ip_network("10.0.0.0/24"), ipaddress.ip_network("10.1.0.0/16")],
+    )
+    tried: list[str] = []
+
+    discovery.list_lan(budget_s=0.05, tried=tried)
+
+    assert tried == [
+        "mDNS for 0.05 s",
+        "VXI-11 broadcast",
+        "ports 5025, 5555, 2268, 3490 on 10.0.0.0/24",
+    ]
+
+
+def test_list_lan_says_when_there_is_no_subnet_to_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_zeroconf(monkeypatch, {})
+    _fake_vxi11(monkeypatch, [])
+    tried: list[str] = []
+
+    discovery.list_lan(budget_s=0.05, tried=tried)
+
+    assert tried[-1] == "no local subnet to scan"
+
+
+def test_list_lan_marks_the_searches_it_cut_short(monkeypatch: pytest.MonkeyPatch) -> None:
+    release = threading.Event()
+
+    def stalled(*args: Any) -> Any:
+        release.wait(30)
+        return {}
+
+    _fake_zeroconf(monkeypatch, {})
+    monkeypatch.setattr(discovery, "_vxi11", stalled)
+    monkeypatch.setattr(discovery, "_scan_open", stalled)
+    monkeypatch.setattr(discovery, "local_subnets", lambda: [ipaddress.ip_network("10.0.0.0/24")])
+    tried: list[str] = []
+    try:
+        found = discovery.list_lan(budget_s=0.01, tried=tried, deadline_s=0.3)
+    finally:
+        release.set()
+
+    assert found == []
+    assert tried == [
+        "mDNS for 0.01 s",
+        "VXI-11 broadcast (cut short)",
+        "ports 5025, 5555, 2268, 3490 on 10.0.0.0/24 (cut short)",
+    ]
+
+
+def test_a_host_the_broadcast_lists_keeps_its_raw_socket_when_the_scan_finds_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_zeroconf(monkeypatch, {})
+    _fake_vxi11(monkeypatch, ["TCPIP0::10.0.0.5::inst0::INSTR"])
+    monkeypatch.setattr(discovery, "local_subnets", lambda: [ipaddress.ip_network("10.0.0.0/24")])
+    monkeypatch.setattr(discovery, "_scan_open", lambda subnets, deadline: {("10.0.0.5", 5025)})
+
+    found = discovery.list_lan(budget_s=0.05)
+
+    assert sorted(f.address.where for f in found) == [
+        "10.0.0.5:5025",
+        "TCPIP0::10.0.0.5::inst0::INSTR",
+    ]
+
+
+class _UnnamedUsbDevice(FakeUsbDevice):
+    @property
+    def product(self) -> str:
+        raise ValueError("no product string")
+
+    @product.setter
+    def product(self, value: str) -> None:
+        pass
+
+
+def test_list_usb_names_a_device_without_a_product_string_by_its_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_libusb(monkeypatch, lambda **kwargs: [_UnnamedUsbDevice(0x1AB1, 0x0E11, "DP8A123456")])
+
+    [found] = discovery.list_usb()
+
+    assert found.detail == "1AB1:0E11"
+    assert found.error is None
+
+
+# --- serial ports ----------------------------------------------------------------------------
+
+
+def test_list_all_serial_ports_lists_every_port_by_device_with_what_identifies_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = dataclasses.replace(
+        _port("COM4", 0x0403, "FT232R USB UART"), manufacturer="FTDI", serial_number="A1"
+    )
+    ports = [bridge, _port("COM3", None, None)]
+    monkeypatch.setattr(serialx, "list_serial_ports", lambda: ports)
+
+    assert discovery.list_all_serial_ports() == [
+        discovery.SerialPortChoice("COM3", "COM3", None),
+        discovery.SerialPortChoice("COM4", "FT232R USB UART (COM4)", "FTDI 0403:0001 A1"),
+    ]
+
+
+def test_list_all_serial_ports_is_empty_when_the_ports_cannot_be_listed(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail() -> list[serialx.SerialPortInfo]:
+        raise RuntimeError("enumeration failed")
+
+    monkeypatch.setattr(serialx, "list_serial_ports", fail)
+
+    with caplog.at_level(logging.WARNING, logger=discovery.log.name):
+        assert discovery.list_all_serial_ports() == []
+
+    assert "cannot list serial ports: enumeration failed" in caplog.text
+
+
+def test_a_serial_port_becomes_a_config_entry_with_its_baud() -> None:
+    found = Found(
+        SerialAddress("COM3", baud=115200), None, "rigol-dp800", None, "serial", "COM3", None
+    )
+    assert discovery.config_entry(found) == {
+        "connection": "serial",
+        "port": "COM3",
+        "baud": 115200,
+        "profile": "rigol-dp800",
+    }
+
+
+def test_discover_searches_the_serial_ports_when_asked(
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
+) -> None:
+    monkeypatch.setattr(
+        discovery, "list_serial_candidates", lambda: [_found(SerialAddress("COM3"), "COM3")]
+    )
+    monkeypatch.setattr(
+        discovery,
+        "_identify",
+        lambda found, profiles, timeout_s, deadline: dataclasses.replace(found, error="silent"),
+    )
+    tried: list[str] = []
+
+    results = discovery.discover(dp800_only, lan=False, usb=False, serial=True, tried=tried)
+
+    assert [(f.address, f.error) for f in results] == [(SerialAddress("COM3"), "silent")]
+    assert tried == ["serial ports of known instrument vendors"]
+
+
+def test_a_search_that_cannot_start_before_its_deadline_says_another_is_running(
+    dp800_only: list[profile.Profile],
+) -> None:
+    lock = discovery._searches._lock
+    assert lock.acquire(timeout=5)
+    tried: list[str] = []
+    try:
+        results = discovery.discover(dp800_only, lan=False, usb=True, deadline_s=0.1, tried=tried)
+    finally:
+        lock.release()
+
+    assert results == []
+    assert tried == ["nothing: another search was still running"]
+
+
+# --- an identify attempt that fails oddly ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("error", "sentence"),
+    [(RuntimeError("driver crashed"), "driver crashed"), (RuntimeError(), "RuntimeError")],
+    ids=["with a message", "without one"],
+)
+def test_identify_turns_any_failure_of_the_attempt_into_its_sentence(
+    monkeypatch: pytest.MonkeyPatch,
+    dp800_only: list[profile.Profile],
+    error: Exception,
+    sentence: str,
+) -> None:
+    def crash(address: Any, settings: LinkSettings) -> None:
+        raise error
+
+    monkeypatch.setattr(discovery, "open_link", crash)
+
+    result = discovery.identify(_found(TcpAddress("10.0.0.5", 5025)), dp800_only)
+
+    assert result.error == sentence
+
+
+def test_identify_ignores_a_link_that_fails_to_close(
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
+) -> None:
+    class Quirky:
+        where = "quirky"
+
+        def clear(self) -> None:
+            pass
+
+        def query(self, command: str) -> str:
+            return DP832_REPLY
+
+        def close(self) -> None:
+            raise OSError("close failed")
+
+    monkeypatch.setattr(discovery, "open_link", lambda address, settings: Quirky())
+
+    result = discovery.identify(_found(TcpAddress("10.0.0.5", 5025)), dp800_only)
+
+    assert result.profile_id == "rigol-dp800" and result.error is None
+
+
+def test_identify_closes_a_link_whose_query_outlives_the_deadline(
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
+) -> None:
+    release = threading.Event()
+    closed: list[str] = []
+
+    class Stuck:
+        where = "stuck"
+
+        def clear(self) -> None:
+            pass
+
+        def query(self, command: str) -> str:
+            release.wait(10)
+            return ""
+
+        def close(self) -> None:
+            closed.append("stuck")
+
+    monkeypatch.setattr(discovery, "open_link", lambda address, settings: Stuck())
+    try:
+        result = discovery.identify(
+            _found(TcpAddress("10.0.0.5", 5025)), dp800_only, timeout_s=2.0, deadline_s=0.3
+        )
+        assert (result.error or "").startswith("did not answer *IDN? within")
+        assert wait_until(lambda: closed == ["stuck"], timeout_s=2)
+    finally:
+        release.set()
+
+
+def test_identify_does_not_try_the_next_baud_rate_once_the_deadline_has_passed(
+    monkeypatch: pytest.MonkeyPatch, dp800_only: list[profile.Profile]
+) -> None:
+    clock = {"now": 0.0}
+    bauds: list[int] = []
+
+    def open_late(address: SerialAddress, settings: LinkSettings) -> None:
+        bauds.append(address.baud)
+        # The first attempt fails after the deadline.
+        clock["now"] = 10.0
+        raise LinkError("closed", "other")
+
+    monkeypatch.setattr(discovery, "time", SimpleNamespace(monotonic=lambda: clock["now"]))
+    monkeypatch.setattr(discovery, "open_link", open_late)
+
+    result = discovery.identify(_found(SerialAddress("COM3")), dp800_only, deadline_s=5.0)
+
+    assert bauds == [9600]
+    assert result.error == discovery.OUT_OF_TIME
+
+
+def test_list_lan_lists_a_host_only_the_port_scan_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_zeroconf(monkeypatch, {})
+    _fake_vxi11(monkeypatch, [])
+    monkeypatch.setattr(discovery, "local_subnets", lambda: [ipaddress.ip_network("10.0.0.0/24")])
+    monkeypatch.setattr(discovery, "_scan_open", lambda subnets, deadline: {("10.0.0.7", 5555)})
+
+    found = discovery.list_lan(budget_s=0.05)
+
+    assert [(f.source, f.address) for f in found] == [("scan", TcpAddress("10.0.0.7", 5555))]
+
+
+def test_a_closed_socket_on_a_host_name_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A name is not an address the scan could have covered, so its socket is not known closed."""
+    socket_candidate = _found(TcpAddress("psu.local", 5025))
+    vxi_candidate = _found(VisaAddress("TCPIP::psu.local::inst0::INSTR"))
+    found = {"psu.local": socket_candidate, "psu.local vxi11": vxi_candidate}
+
+    discovery._drop_closed_sockets(found, [ipaddress.IPv4Network("10.0.0.0/24")], set())
+
+    assert list(found.values()) == [socket_candidate, vxi_candidate]
+
+
+def test_a_listing_that_raises_yields_its_default_and_logs_why(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    job = discovery._Background(lambda: 1 // 0, "broken listing")
+
+    with caplog.at_level(logging.WARNING, logger=discovery.log.name):
+        assert job.result(time.monotonic() + 5, "default") == "default"
+
+    assert "broken listing failed: integer division or modulo by zero" in caplog.text
+
+
+class _BrokenUsbDevice(FakeUsbDevice):
+    def __iter__(self) -> Iterator[list[SimpleNamespace]]:
+        raise OSError("descriptor read failed")
+
+
+def test_list_usb_skips_a_device_whose_descriptors_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    devices = [
+        _BrokenUsbDevice(0x2A8D, 0x1234, "X1"),
+        FakeUsbDevice(0x1AB1, 0x0E11, "DP8A123456", "DP832"),
+    ]
+    _fake_libusb(monkeypatch, lambda **kwargs: devices)
+
+    with caplog.at_level(logging.INFO, logger=discovery.log.name):
+        found = discovery.list_usb()
+
+    assert [f.detail for f in found] == ["DP832"]
+    assert "Skipping a USB device that cannot be read: descriptor read failed" in caplog.text

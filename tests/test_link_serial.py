@@ -3,6 +3,7 @@ import select
 import socket
 import sys
 import time
+from typing import Any
 
 import pytest
 import serialx
@@ -261,3 +262,92 @@ def test_windows_access_denied_means_the_port_is_busy(monkeypatch: pytest.Monkey
     with pytest.raises(LinkError) as caught:
         open_serial(SerialAddress("COM7"), FAST)
     assert caught.value.kind == "busy"
+
+
+def test_a_block_comes_back_as_its_payload_with_the_terminator_that_came_with_it(
+    instrument: LineServer,
+) -> None:
+    link = connect(instrument)
+    try:
+        link.write("BLOCK?")
+        assert link.read_block() == b"HELLO"
+        # The line ending behind the block is not the next reply.
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()
+
+
+def test_a_block_split_across_two_sends_is_joined(instrument: LineServer) -> None:
+    link = connect(instrument, LinkSettings(timeout_s=2))
+    try:
+        link.write("BLOCKSPLIT?")
+        assert link.read_block() == b"HELLO"
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()
+
+
+def test_a_block_whose_header_is_split_is_read_whole(instrument: LineServer) -> None:
+    link = connect(instrument, LinkSettings(timeout_s=2))
+    try:
+        link.write("HEADERSPLIT?")
+        assert link.read_any() == b"HELLO"
+        link.write("*IDN?")
+        assert link.read_any() == IDN
+    finally:
+        link.close()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="serial read_block never times out: each empty receive restarts its clock",
+)
+@pytest.mark.parametrize("command", ["SHORTBLOCK?", "NOREPLY?"])
+def test_a_block_that_stops_short_times_out_and_the_link_recovers(
+    instrument: LineServer, command: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    link: Any = connect(instrument, LinkSettings(timeout_s=0.1))
+    receives: list[int] = []
+    receive = link._receive
+
+    class Spinning(Exception):
+        """The read went on waiting instead of giving up."""
+
+    def counting(deadline: float, size: int) -> None:
+        receives.append(size)
+        if len(receives) > 4:
+            raise Spinning
+        receive(deadline, size)
+
+    monkeypatch.setattr(link, "_receive", counting)
+    try:
+        link.write(command)
+        with pytest.raises(LinkTimeout):
+            link.read_block()
+        link.clear()
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()
+
+
+@pytest.mark.parametrize(
+    ("command", "complaint"),
+    [
+        ("NOTBLOCK?", "expected a #-block"),
+        ("INDEFINITE?", "expected a definite-length block"),
+        ("BADLENGTH?", "expected a block length"),
+    ],
+)
+def test_a_reply_that_is_not_a_block_is_refused_and_the_link_stays_usable(
+    instrument: LineServer, command: str, complaint: str
+) -> None:
+    link = connect(instrument)
+    try:
+        link.write(command)
+        with pytest.raises(LinkError, match=complaint) as caught:
+            link.read_block()
+        assert caught.value.kind == "reply"
+        # What followed the bad header is dropped, not read as the next reply.
+        assert link.query("*IDN?") == IDN
+    finally:
+        link.close()

@@ -586,6 +586,34 @@ def test_lint_refuses_long_form_and_compound_init_commands(command: str) -> None
     assert any("link.init" in p for p in problems_of(raw))
 
 
+@pytest.mark.parametrize("command", ["*RST", "OUTP ON", "SYST:PRES", "VOLT 5", "SYST:CLE;*RST"])
+def test_lint_refuses_a_first_command_that_changes_an_output(command: str) -> None:
+    raw = minimal()
+    set_(raw, "link.first", command)
+    found = problems_of(raw)
+    assert found == [f"link.first: '{command}' could change an output."]
+
+
+def test_lint_allows_a_first_command_that_leaves_outputs_alone() -> None:
+    raw = minimal()
+    set_(raw, "link.first", "SYST:BEEP:STAT OFF")
+    assert profile_from(raw).link.first == "SYST:BEEP:STAT OFF"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"), [("init", ["SYST:BEEP:OVP 33"]), ("first", "SYST:BEEP:OVP 33")]
+)
+def test_lint_refuses_a_setter_command_at_connect(key: str, value: Any) -> None:
+    """A command that is a setter's own sets something, whatever its spelling looks like."""
+    raw = minimal()
+    raw["setters"] = {"ovp": {"command": "SYST:BEEP:OVP {value}"}}
+    raw["ranges"] = {"voltage": {"max": 30}}
+    set_(raw, f"link.{key}", value)
+    assert problems_of(raw) == [
+        f"link.{key}: 'SYST:BEEP:OVP 33' is a setter's command; it may not run at connect."
+    ]
+
+
 @pytest.mark.parametrize("command", ["*CLS", "*IDN?", "SYST:BEEP:STAT OFF"])
 def test_lint_allows_init_commands_that_leave_outputs_alone(command: str) -> None:
     raw = minimal()

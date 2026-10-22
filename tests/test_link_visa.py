@@ -1,6 +1,7 @@
 import errno
 import socket
 import time
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,7 +10,7 @@ from pyvisa import constants, errors
 from pyvisa.resources import MessageBasedResource
 
 from tests.conftest import IDN, LineServer
-from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, VisaAddress
+from zelos_extension_instruments.link import LinkError, LinkSettings, LinkTimeout, VisaAddress, visa
 from zelos_extension_instruments.link.visa import open_visa
 
 FAST = LinkSettings(timeout_s=0.3)
@@ -28,6 +29,9 @@ class FakeResource(MessageBasedResource):
         self.write_error: Exception | None = None
         self.closed = 0
         self.fail_clear = False
+        self.cleared = 0
+        self.flushed: list[Any] = []
+        self.read_timeouts: list[Any] = []
         self.chunk_sizes: list[int | None] = []
 
     @property
@@ -50,6 +54,7 @@ class FakeResource(MessageBasedResource):
     pending: bytes = b""
 
     def _next(self) -> bytes:
+        self.read_timeouts.append(self.timeout)
         outcome = self.replies.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
@@ -72,8 +77,12 @@ class FakeResource(MessageBasedResource):
         return data
 
     def clear(self) -> None:
+        self.cleared += 1
         if self.fail_clear:
             raise errors.VisaIOError(STATUS.error_connection_lost)
+
+    def flush(self, mask: Any) -> None:
+        self.flushed.append(mask)
 
     def close(self) -> None:
         self.closed += 1
@@ -310,6 +319,7 @@ def test_close_is_idempotent_and_ends_the_link(fake_visa: FakeVisa) -> None:
             "5025",
         ),
         ("TCPIP::10.0.0.5::5025::SOCKET", "py", ConnectionRefusedError(), "refused", "5025"),
+        ("TCPIP::10.0.0.5::5025::SOCKET", "py", TimeoutError("timed out"), "timeout", "5025"),
         (
             "TCPIP::psu.local::5025::SOCKET",
             "py",
@@ -398,3 +408,115 @@ def test_real_pyvisa_py_socket_to_a_closed_port_fails(monkeypatch: pytest.Monkey
         link = open_visa(VisaAddress("TCPIP::127.0.0.1::9::SOCKET", "py"), FAST)
         link.query("*IDN?")
     assert "127.0.0.1" in str(caught.value)
+
+
+def test_read_any_returns_a_block_as_its_payload(fake_visa: FakeVisa) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), LinkSettings())
+    fake_visa.resource.replies = [b"#15hello\n", b"1\n"]
+    assert link.read_any() == b"hello"
+    # The line ending behind the block was read with it, not left as the next reply.
+    assert link.read_any() == "1"
+
+
+@pytest.mark.parametrize(
+    ("reply", "complaint"),
+    [(b"OK\nrest\n", "expected a #-block, got b'OK'"), (b"#0abc\n", "expected a #-block")],
+)
+def test_a_reply_that_is_not_a_block_is_refused_and_what_followed_it_is_dropped(
+    fake_visa: FakeVisa, reply: bytes, complaint: str
+) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), LinkSettings())
+    fake_visa.resource.replies = [reply, b"NEXT\n"]
+    with pytest.raises(LinkError, match=complaint) as caught:
+        link.read_block()
+    assert caught.value.kind == "reply"
+    assert link.read() == "NEXT"
+
+
+def test_a_block_length_that_is_not_a_number_is_refused(fake_visa: FakeVisa) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), LinkSettings())
+    fake_visa.resource.replies = [b"#2ab5hello\n"]
+    with pytest.raises(LinkError, match="expected a block length, got b'ab'") as caught:
+        link.read_block()
+    assert caught.value.kind == "reply"
+
+
+def test_a_block_read_waits_its_own_timeout_and_restores_the_link_timeout(
+    fake_visa: FakeVisa,
+) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), FAST)
+    fake_visa.resource.replies = [b"#15hello\n"]
+    assert link.read_block(7) == b"hello"
+    assert fake_visa.resource.read_timeouts == [7000]
+    assert fake_visa.resource.timeout == 300
+
+
+def test_a_block_read_gives_up_after_its_own_timeout_and_restores_the_link_timeout(
+    fake_visa: FakeVisa,
+) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), FAST)
+    fake_visa.resource.replies = [errors.VisaIOError(STATUS.error_timeout)]
+    with pytest.raises(LinkTimeout, match="within 7 s"):
+        link.read_block(7)
+    assert fake_visa.resource.timeout == 300
+
+
+def test_a_failure_while_reading_a_block_is_a_link_error(fake_visa: FakeVisa) -> None:
+    link = open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), FAST)
+    fake_visa.resource.replies = [OSError("pipe broke")]
+    with pytest.raises(LinkError) as caught:
+        link.read_block()
+    assert not isinstance(caught.value, LinkTimeout)
+    assert str(caught.value) == "The connection to TCPIP::10.0.0.5::INSTR failed: pipe broke."
+
+
+def test_a_resource_that_is_not_message_based_is_closed_and_refused(fake_visa: FakeVisa) -> None:
+    class Meter:
+        closed = 0
+
+        def close(self) -> None:
+            self.closed += 1
+
+    meter = Meter()
+    fake_visa.resource = SimpleNamespace(close=meter.close)  # type: ignore[assignment]
+    with pytest.raises(LinkError, match="is not a message-based instrument") as caught:
+        open_visa(VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), FAST)
+    assert caught.value.kind == "config"
+    assert meter.closed == 1
+
+
+@pytest.mark.parametrize(("device_clear", "cleared", "flushed"), [(True, 1, 0), (False, 0, 1)])
+def test_clear_flushes_the_read_buffer_where_a_device_clear_would_hang_the_instrument(
+    fake_visa: FakeVisa, device_clear: bool, cleared: int, flushed: int
+) -> None:
+    link = open_visa(
+        VisaAddress("TCPIP::10.0.0.5::INSTR", "py"), LinkSettings(device_clear=device_clear)
+    )
+    link.clear()
+    assert fake_visa.resource.cleared == cleared
+    assert len(fake_visa.resource.flushed) == flushed
+    if flushed:
+        assert fake_visa.resource.flushed == [constants.BufferOperation.discard_read_buffer]
+
+
+@pytest.mark.parametrize(
+    ("platform", "advice"),
+    [("win32", "Zadig"), ("linux", "udev rule"), ("darwin", None)],
+)
+def test_a_missing_usb_device_comes_with_advice_for_the_platform(
+    fake_visa: FakeVisa, monkeypatch: pytest.MonkeyPatch, platform: str, advice: str | None
+) -> None:
+    monkeypatch.setattr(visa, "sys", SimpleNamespace(platform=platform))
+    fake_visa.open_error = ValueError("No device found.")
+    with pytest.raises(LinkError) as caught:
+        open_visa(VisaAddress("USB0::1::2::SN::INSTR", "py"), FAST)
+    message = str(caught.value)
+    assert message.startswith("No instrument answers at USB0::1::2::SN::INSTR.")
+    assert (advice in message) if advice else message.endswith("INSTR.")
+
+
+def test_a_missing_device_that_is_not_usb_comes_with_no_usb_advice(fake_visa: FakeVisa) -> None:
+    fake_visa.open_error = ValueError("No device found.")
+    with pytest.raises(LinkError) as caught:
+        open_visa(VisaAddress("GPIB0::5::INSTR", "py"), FAST)
+    assert str(caught.value) == "No instrument answers at GPIB0::5::INSTR."

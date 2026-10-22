@@ -11,6 +11,8 @@ from tests.conftest import (
     RecordingEmitter,
     ScriptedLink,
     ask,
+    minimal,
+    profile_from,
     start,
     start_open,
     wait_until,
@@ -329,3 +331,60 @@ def test_switching_off_leaves_the_master_alone(start_nge, nge103: FakeInstrument
     assert ask(worker, "set", channel=1, output=False) == {"output": False}
     assert _writes(link, before) == ["OUTP:SEL 0"]
     assert nge103.handle("OUTP:GEN?") == "1"
+
+
+def test_a_switch_whose_readback_disagrees_is_reported(running) -> None:
+    worker, link, emitter, dp832 = running
+    original = dp832.__call__
+
+    def stuck(command: str) -> str | None:
+        if command.startswith(":OUTP CH"):
+            dp832.calls.append(command)
+            return None
+        return original(command)
+
+    link._handler = stuck
+    assert ask(worker, "set", channel=2, output=True) == {"error": "output reads back off"}
+    assert ask(worker, "set", channel=1, output=False) == {"error": "output reads back on"}
+    assert dp832.out == {1: True, 2: False, 3: False}
+
+
+def unread_profile() -> Profile:
+    """A supply whose profile reads no output state and no setpoint back."""
+    raw = minimal()
+    raw["setters"] = {"output": {"command": "OUTP {bit}"}, "voltage": {"command": "VOLT {value}"}}
+    raw["ranges"] = {"voltage": {"max": 30}}
+    return profile_from(raw)
+
+
+def acme(command: str) -> str | None:
+    return {"*IDN?": "ACME,P1,SN1,1.0", "MEAS:VOLT? 1": "5.0"}.get(command)
+
+
+def test_a_switch_the_profile_cannot_read_back_returns_the_state_asked_for() -> None:
+    worker, link = start(unread_profile(), acme, RecordingEmitter())
+    try:
+        assert wait_until(lambda: worker.state == "open")
+        assert ask(worker, "set", channel=1, output=True) == {"output": True}
+        assert ask(worker, "set", channel=1, output=False) == {"output": False}
+        assert [c for c in link.commands if c.startswith("OUTP")] == ["OUTP 1", "OUTP 0"]
+    finally:
+        worker.stop()
+        worker.join(2)
+
+
+def test_a_value_the_profile_cannot_read_back_is_returned_unverified() -> None:
+    worker, link = start(unread_profile(), acme, RecordingEmitter())
+    try:
+        assert wait_until(lambda: worker.state == "open")
+        assert ask(worker, "set", channel=1, voltage=5.0) == {
+            "voltage": {
+                "set": 5.0,
+                "readback": None,
+                "unverified": "the profile has no readback",
+            }
+        }
+        assert "VOLT 5.000" in link.commands
+    finally:
+        worker.stop()
+        worker.join(2)

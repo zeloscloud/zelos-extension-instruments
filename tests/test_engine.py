@@ -795,3 +795,24 @@ def test_parse_float_reads_metric_prefixes_and_units(text: str, expected: float)
 def test_parse_float_refuses_a_header(text: str) -> None:
     with pytest.raises(ParseError):
         parse_float(text)
+
+
+@pytest.mark.parametrize("text", ["1.5 !!", "3.3,4.4", "5 (V)"])
+def test_parse_float_refuses_a_number_followed_by_something_that_is_not_a_unit(text: str) -> None:
+    with pytest.raises(ParseError, match="expected a number"):
+        parse_float(text)
+
+
+def test_check_range_without_a_range_refuses_a_value_below_the_negative_limit() -> None:
+    check_range(-10.0, None, 10.0, "current")
+    with pytest.raises(RangeError, match="current must be from -10 to 10, the configured limit"):
+        check_range(-10.5, None, 10.0, "current")
+    with pytest.raises(RangeError, match="current must be from -10 to 10, the configured limit"):
+        check_range(-10.5, range_(0, None), 10.0, "current")
+
+
+def test_parse_reply_bits_names_a_channel_the_masks_do_not_reach() -> None:
+    r = reader("bits", fields=("output",), mask=(1, 2), shift=(0, 1))
+    assert parse_reply(r, "2", 2) == {"output": True}
+    with pytest.raises(ParseError, match="no mask or shift for channel 3"):
+        parse_reply(r, "2", 3)
