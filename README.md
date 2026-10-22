@@ -1,12 +1,12 @@
 # Instruments
 
-Record your bench instruments in Zelos, on the same timeline as the device you are testing, and set them from the app, a notebook or Zelos AI.
+Record your bench instruments in Zelos, on the same timeline as the device you are testing, and control them from the app.
 
 - 📈 **Every reading is a signal**: a supply's voltage and current, a load's power, a meter's reading, a scope's measurements, each with its unit.
 - 🔎 **Finds your bench**: Auto-configure searches the network, USB and serial ports, and recognizes each instrument it finds.
 - 🎛️ **Sets it safely**: every value is checked against the instrument's range and your limits, then confirmed by reading it back.
 - 🔬 **Scopes too**: the measurements on screen are recorded live, and Capture Waveform brings a channel's samples into the trace.
-- 🔁 **Same names on every vendor**: `ch1.voltage` means the same on a Rigol, a Keysight or a Siglent, so a notebook works on any bench.
+- 🔁 **Same names on every vendor**: `ch1.voltage` means the same on a Rigol, a Keysight or a Siglent.
 
 [![Auto-configure finds a Siglent SDS824X HD and fills in its entry, its peak-to-peak voltage and frequency plot live, and Capture Waveform brings in the 1 kHz square wave on channel 1.](assets/readme/quickstart.avif)](assets/readme/quickstart.mp4)
 
@@ -29,6 +29,8 @@ Instruments connect over LAN, USB-TMC, a serial port, or any VISA resource (VXI-
 2. Press **Auto-configure**. Each instrument it finds gets an entry named after its model. The name is the folder its signals sit under, so rename it if you like.
 3. Press **Save & Start**. The signals appear under **Instruments** in the signal tree. Double-click one to plot it.
 
+![A Siglent SDS824X HD recorded in Zelos: live plots of channel 1's peak-to-peak voltage near 2.44 V, its frequency near 999.905 Hz and its RMS near 1.5066 V, read from the scope's measurement slots ten times a second.](assets/readme/live.png)
+
 - **An instrument on another subnet** does not answer the searches. Add an entry and type its address.
 - **No hardware?** Press Auto-configure on an empty form with nothing connected to get a demo bench: a supply charging a battery, a load discharging it, a meter and an AC source.
 
@@ -42,7 +44,26 @@ Actions show up under **Instruments** in the Actions list. Double-click one to a
 - **Capture Waveform** brings a scope channel's samples into the trace, up to the whole acquisition.
 - **SCPI** sends any command, for anything the profile does not cover.
 
-The same actions run from a notebook or the command line:
+![Capture Waveform run on the scope's channel 1: the plot shows the captured 1 kHz square wave, about 2.1 V high, with the undershoot after each falling edge.](assets/readme/waveform.png)
+
+## Safe on a live bench
+
+- It never touches an output when it connects, reconnects, stops or crashes.
+- It never sends `*RST`. The SCPI action sends exactly what you type.
+- It refuses a value outside the instrument's range or above a limit you set, before sending anything.
+
+## When something is wrong
+
+| You see | Do this |
+|---|---|
+| Auto-configure finds nothing | Check the instrument is on the same subnet as this computer, or type its address in a new entry. |
+| `<host> is on the network, but port 5025 is not accepting connections` | Many instruments serve one client on their SCPI port and keep it held after a program vanishes. Use the VISA resource the message names, or power-cycle the instrument. |
+| A USB instrument is listed but cannot be read | On Windows, install the vendor's VISA or bind the device to WinUSB with [Zadig](https://zadig.akeo.ie/). On Linux, add a udev rule for your user. |
+| A reading you expected is missing | Run **Get State**. It shows the last commands and replies, and the profile's notes. A profile with the `manual` badge has not run on a real unit yet. |
+
+## From a script
+
+The same actions run from Python or the command line:
 
 ```python
 from zelos_sdk import connect
@@ -57,22 +78,6 @@ with connect() as agent:
 ```bash
 zelos actions execute Instruments/capture_waveform --params '{"instrument": "SDS824X HD", "channel": 1}'
 ```
-
-## Safe on a live bench
-
-- It never touches an output when it connects, reconnects, stops or crashes.
-- It never sends `*RST`. The SCPI action sends exactly what you type.
-- It refuses a value outside the instrument's range or above a limit you set, before sending anything.
-- Zelos AI asks before every action that changes an instrument.
-
-## When something is wrong
-
-| You see | Do this |
-|---|---|
-| Auto-configure finds nothing | Check the instrument is on the same subnet as this computer, or type its address in a new entry. |
-| `<host> is on the network, but port 5025 is not accepting connections` | Many instruments serve one client on their SCPI port and keep it held after a program vanishes. Use the VISA resource the message names, or power-cycle the instrument. |
-| A USB instrument is listed but cannot be read | On Windows, install the vendor's VISA or bind the device to WinUSB with [Zadig](https://zadig.akeo.ie/). On Linux, add a udev rule for your user. |
-| A reading you expected is missing | Run **Get State**. It shows the last commands and replies, and the profile's notes. A profile with the `manual` badge has not run on a real unit yet. |
 
 ## Reference
 
