@@ -26,6 +26,7 @@ from ..profile import (
     Reader,
     Setter,
 )
+from ..profile_scope import ACQUISITION_FIELDS, CHANNEL_STATE_FIELDS, SCOPE_COMMAND_SETTERS
 
 # re._parser is the stdlib's regex parser; it ships without type stubs.
 _regex_parser: Any = importlib.import_module("re._parser")
@@ -328,12 +329,7 @@ class FakeInstrument:
         else:
             targets = list(range(1, self.channels + 1))
         groups = match.groupdict()
-        if self.scope is not None and setter.name in self.scope.names | {
-            "run",
-            "stop",
-            "single",
-            "autoset",
-        }:
+        if self.scope is not None and setter.name in self.scope.names | set(SCOPE_COMMAND_SETTERS):
             key = self.profile.range_key(setter) if setter.name in VALUE_SETTERS else None
             if key is not None:
                 low, high = self.bounds(key, targets[0])
@@ -352,11 +348,11 @@ class FakeInstrument:
             for ch in targets:
                 self._state[ch - 1].setpoints[setter.name] = value
         elif setter.name == "output":
-            on = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
+            on = _on(groups)
             for ch in targets:
                 self._state[ch - 1].output = on
         elif setter.name in ("ovp_on", "ocp_on"):
-            on = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
+            on = _on(groups)
             for ch in targets:
                 self._state[ch - 1].extras[setter.name] = on
         elif setter.name == "function":
@@ -374,7 +370,7 @@ class FakeInstrument:
 
     def _set_master(self, match: re.Match[str]) -> None:
         groups = match.groupdict()
-        self._master = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
+        self._master = _on(groups)
 
     def _armed(self, match: re.Match[str]) -> str | None:
         ch = self._channel(match)
@@ -549,28 +545,7 @@ class FakeScope:
     computed from it, so a transcript and a capture agree.
     """
 
-    names = frozenset(
-        {
-            "visible",
-            "scale",
-            "offset",
-            "coupling",
-            "bandwidth_limit",
-            "probe",
-            "timebase",
-            "delay",
-            "sample_rate",
-            "memory_depth",
-            "points",
-            "acquisitions",
-            "trigger_status",
-            "trigger_mode",
-            "trigger_source",
-            "trigger_level",
-            "trigger_slope",
-            "trigger_frequency",
-        }
-    )
+    names = frozenset(CHANNEL_STATE_FIELDS) | frozenset(ACQUISITION_FIELDS)
 
     def __init__(self, profile: Profile, channels: int) -> None:
         self.profile = profile
@@ -628,14 +603,14 @@ class FakeScope:
 
     def set(self, setter: Setter, groups: dict[str, str | None], targets: list[int]) -> None:
         name = setter.name
-        if name in ("run", "stop", "single", "autoset"):
+        if name in SCOPE_COMMAND_SETTERS:
             self.running = name != "stop"
             self.shared["trigger_status"] = "stopped" if name == "stop" else "auto"
             if name == "single":
                 self.shared["trigger_mode"] = "single"
             return
         if name == "visible":
-            on = (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
+            on = _on(groups)
             for ch in targets:
                 self.per_channel[ch]["visible"] = on
             return
@@ -879,6 +854,11 @@ def _bits(mapping: dict[str, str], mask: int, shift: int, name: str, value: Any)
     label = _label(mapping, name, value)
     key = next((k for k, v in mapping.items() if v == label and k.isdigit()), "0")
     return int(key) << shift
+
+
+def _on(groups: dict[str, Any]) -> bool:
+    """A switch command's state, from its {on} or {bit} placeholder."""
+    return (groups.get("on") or "").upper() == "ON" or groups.get("bit") == "1"
 
 
 def _for_channel(values: tuple[int, ...], ch: int) -> int:

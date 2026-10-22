@@ -9,7 +9,7 @@ import threading
 import time
 
 from .config import InstrumentConfig
-from .link import Address, Link, LinkSettings
+from .link import Address, Link, LinkSettings, LinkTimeout
 from .profile import Profile, by_id
 from .profile_load import shipped
 from .sim.fake import FakeInstrument
@@ -43,13 +43,13 @@ class InProcessLink:
 
     def read(self, timeout_s: float | None = None) -> str:
         if not self._pending:
-            raise _NoReply(f"no reply from {self.where}")
+            raise LinkTimeout(f"no reply from {self.where}")
         reply = self._pending.pop(0)
         return reply.decode("utf-8", errors="replace") if isinstance(reply, bytes) else reply
 
     def read_block(self, timeout_s: float | None = None) -> bytes:
         if not self._pending:
-            raise _NoReply(f"no reply from {self.where}")
+            raise LinkTimeout(f"no reply from {self.where}")
         reply = self._pending.pop(0)
         return block_payload(reply if isinstance(reply, bytes) else reply.encode())
 
@@ -67,10 +67,6 @@ class InProcessLink:
 
     def close(self) -> None:
         self._closed = True
-
-
-class _NoReply(Exception):
-    pass
 
 
 class Bench:
