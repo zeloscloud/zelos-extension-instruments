@@ -1,0 +1,248 @@
+schema = 1
+id = "keysight-33500b"
+name = "Keysight Trueform 33500B and 33600A series"
+category = "fgen"
+notes = "Covers the 33500 Series (33509B to 33522B, 33521A and 33522A) and the 33600 Series (33611A to 33622A). The 33509B, 33511B, 33519B, 33521A, 33521B, 33611A and 33621A have one channel; the other models have two. The frequency limit is the model's sine and square maximum: 20 MHz on the 33509B to 33512B, 30 MHz on the 33519B to 33522B, 33521A and 33522A, 80 MHz on the 33611A and 33612A, 120 MHz on the 33621A and 33622A. The limit depends on the shape as well: ramp and triangle stop at 200 kHz on the 33500 Series and 800 kHz on the 33600 Series, and the 33600 Series reaches its top frequency only at a lower amplitude (for example 80 MHz up to 8 Vpp on the 33611A). The instrument refuses a frequency its present shape cannot reach, and the error shows in the log. Amplitude is sent in Vpp with a VPP suffix, but the instrument reads it back in its selected voltage unit; keep the unit at Vpp, the power-on default, because this profile may not send VOLT:UNIT at connect. Amplitude, offset, high and low follow the output load: 10 Vpp into 50 Ohm is 20 Vpp into high impedance. The limits here are the high impedance ones (20 Vpp, 10 V), so into 50 Ohm the instrument refuses a level above 10 Vpp or 5 V. The output load reads as 50 Ohm or high impedance; any other value reads as other, because the guide gives the reply in exponent form (+5.000000000000000E+02 in its example, 9.9E+37 for INF). Duty cycle is the square wave duty (FUNC:SQU:DCYC), symmetry is the ramp symmetry, and width is the pulse width; the pulse duty cycle is not covered. Modulation works per type, because the instrument has one STAT switch for each type (AM, FM, PM, PWM) and no query for the active one. The type setter turns the chosen type on (SOUR<n>:<type>:STAT ON), so choosing a type switches it on, and the guide allows only one modulation mode at a time and says to enable modulation after the other parameters are set, so set the depth, deviation and rate first, or on the type that is already on. The modulation switch and the rate (AM, FM, PM and PWM:INT:FREQ) name the type last chosen through this profile, so choose the type first; neither is shown as a state field, they are checked after each set only. The rate limit is the model's maximum frequency from 1 Hz, as the guide's parameter table gives it, and the instrument refuses a rate its modulating shape cannot reach. FSK and BPSK are not offered, their rate commands differ. PWM needs the pulse shape selected, and enabling a modulation turns burst and sweep off. The AM depth (0 to 120 %), the FM deviation and the PM deviation are set on their own type and read back as state. The FM deviation limit is 15.05 MHz for the 30 MHz models, from the guide's table; the other models use the guide's rule that carrier plus deviation may not pass the shape's maximum plus 100 kHz, with the deviation no larger than the carrier. The Trigger action sends TRIG<n>, which starts one burst or sweep on the channel whatever its trigger source. Save and recall use locations 1 to 4; location 0 holds the power-down state and is not offered. The self-test takes about 15 seconds. The display message takes 40 characters. The guide documents no front-panel lock; SYST:LOCK is an interface lock and is not used. The Trueform guide covers both series in one edition."
+
+[evidence]
+badge = "manual"
+source = "Keysight Trueform Series Operating and Service Guide, 33500-90901, Edition 8; Agilent 33500 Series Operating and Service Guide for the 33521A and 33522A"
+url = "https://www.keysight.com/us/en/assets/9018-03714/service-manuals/9018-03714.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^(keysight|agilent)'
+model = '^(335(09|1[0-2]|19|2[0-2])B|3352[12]A|3361[12]A|3362[12]A)$'
+channels = 1
+
+[[match.models]]
+model = '^(335(10|12|20|22)B|33522A|33612A|33622A)$'
+channels = 2
+
+[link]
+lan_port = 5025
+
+[errors]
+query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 4 }
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 40
+display_clear = "DISP:TEXT:CLE"
+
+# Operating and Service Guide, "Maximum Waveform Frequencies by Model" and the SCPI reference
+[ranges]
+frequency = { min = 0.000001, max = 30000000, digits = 6 }
+amplitude = { min = 0.001, max = 20, digits = 4 }
+offset = { min = -10, max = 10, digits = 4 }
+high = { min = -10, max = 10, digits = 4 }
+low = { min = -10, max = 10, digits = 4 }
+phase = { min = -360, max = 360, digits = 3 }
+duty = { min = 0.01, max = 99.99, digits = 2 }
+symmetry = { min = 0, max = 100, digits = 2 }
+width = { min = 0.000000016, max = 1000000, digits = 9 }
+modulation_depth = { min = 0, max = 120, digits = 3 }
+modulation_deviation = { min = 1, max = 15050000, digits = 3 }
+phase_deviation = { min = 0, max = 360, digits = 3 }
+modulation_frequency = { min = 1, max = 30000000, digits = 6 }
+burst_cycles = { min = 1, max = 100000000, digits = 0 }
+burst_period = { min = 0.000001, max = 8000, digits = 6 }
+sweep_time = { min = 0.001, max = 250000, digits = 6 }
+
+[[ranges.models]]
+model = '^335(09|1[0-2])B$'
+frequency = { min = 0.000001, max = 20000000, digits = 6 }
+modulation_frequency = { min = 1, max = 20000000, digits = 6 }
+modulation_deviation = { min = 1, max = 10050000, digits = 3 }
+
+[[ranges.models]]
+model = '^3361[12]A$'
+frequency = { min = 0.000001, max = 80000000, digits = 6 }
+modulation_frequency = { min = 1, max = 80000000, digits = 6 }
+width = { min = 0.000000005, max = 1000000, digits = 9 }
+modulation_deviation = { min = 1, max = 40050000, digits = 3 }
+
+[[ranges.models]]
+model = '^3362[12]A$'
+frequency = { min = 0.000001, max = 120000000, digits = 6 }
+modulation_frequency = { min = 1, max = 120000000, digits = 6 }
+width = { min = 0.000000005, max = 1000000, digits = 9 }
+modulation_deviation = { min = 1, max = 60050000, digits = 3 }
+
+[state.output]
+query = "OUTP{ch}?"
+parse = "bool"
+
+[state.shape]
+query = "SOUR{ch}:FUNC?"
+parse = "map"
+map = { SIN = "sine", SQU = "square", RAMP = "ramp", TRI = "triangle", PULS = "pulse", NOIS = "noise", DC = "dc", ARB = "arbitrary", PRBS = "other" }
+
+[state.frequency_set]
+query = "SOUR{ch}:FREQ?"
+parse = "float"
+
+[state.amplitude_set]
+query = "SOUR{ch}:VOLT?"
+parse = "float"
+
+[state.offset_set]
+query = "SOUR{ch}:VOLT:OFFS?"
+parse = "float"
+
+[state.high_set]
+query = "SOUR{ch}:VOLT:HIGH?"
+parse = "float"
+
+[state.low_set]
+query = "SOUR{ch}:VOLT:LOW?"
+parse = "float"
+
+[state.phase_set]
+query = "SOUR{ch}:PHAS?"
+parse = "float"
+
+[state.duty_set]
+query = "SOUR{ch}:FUNC:SQU:DCYC?"
+parse = "float"
+
+[state.symmetry_set]
+query = "SOUR{ch}:FUNC:RAMP:SYMM?"
+parse = "float"
+
+[state.width_set]
+query = "SOUR{ch}:FUNC:PULS:WIDT?"
+parse = "float"
+
+[state.output_load]
+query = "OUTP{ch}:LOAD?"
+parse = "map"
+map = { "+5.000000000000000E+01" = "fifty_ohm", "+9.900000000000000E+37" = "high_z", "9.9E+37" = "high_z", "*" = "other" }
+
+[state.modulation_depth_set]
+query = "SOUR{ch}:AM:DEPT?"
+parse = "float"
+
+[state.modulation_deviation_set]
+query = "SOUR{ch}:FM:DEV?"
+parse = "float"
+
+[state.phase_deviation_set]
+query = "SOUR{ch}:PM:DEV?"
+parse = "float"
+
+[state.burst]
+query = "SOUR{ch}:BURS:STAT?"
+parse = "bool"
+
+[state.burst_cycles_set]
+query = "SOUR{ch}:BURS:NCYC?"
+parse = "float"
+
+[state.burst_period_set]
+query = "SOUR{ch}:BURS:INT:PER?"
+parse = "float"
+
+[state.sweep]
+query = "SOUR{ch}:SWE:STAT?"
+parse = "bool"
+
+[state.sweep_start_set]
+query = "SOUR{ch}:FREQ:STAR?"
+parse = "float"
+
+[state.sweep_stop_set]
+query = "SOUR{ch}:FREQ:STOP?"
+parse = "float"
+
+[state.sweep_time_set]
+query = "SOUR{ch}:SWE:TIME?"
+parse = "float"
+
+[setters.output]
+command = "OUTP{ch} {on}"
+
+[setters.shape]
+command = "SOUR{ch}:FUNC {value}"
+map = { sine = "SIN", square = "SQU", ramp = "RAMP", triangle = "TRI", pulse = "PULS", noise = "NOIS", dc = "DC", arbitrary = "ARB" }
+
+[setters.frequency]
+command = "SOUR{ch}:FREQ {value}"
+
+[setters.amplitude]
+command = "SOUR{ch}:VOLT {value} VPP"
+
+[setters.offset]
+command = "SOUR{ch}:VOLT:OFFS {value}"
+
+[setters.high]
+command = "SOUR{ch}:VOLT:HIGH {value}"
+
+[setters.low]
+command = "SOUR{ch}:VOLT:LOW {value}"
+
+[setters.phase]
+command = "SOUR{ch}:PHAS {value}"
+
+[setters.duty]
+command = "SOUR{ch}:FUNC:SQU:DCYC {value}"
+
+[setters.symmetry]
+command = "SOUR{ch}:FUNC:RAMP:SYMM {value}"
+
+[setters.width]
+command = "SOUR{ch}:FUNC:PULS:WIDT {value}"
+
+[setters.output_load]
+command = "OUTP{ch}:LOAD {value}"
+map = { fifty_ohm = "50", high_z = "INF" }
+
+[setters.modulation]
+command = "SOUR{ch}:{modulation}:STAT {bit}"
+verify = "SOUR{ch}:{modulation}:STAT?"
+
+[setters.modulation_type]
+command = "SOUR{ch}:{value}:STAT ON"
+map = { am = "AM", fm = "FM", pm = "PM", pwm = "PWM" }
+
+[setters.modulation_depth]
+command = "SOUR{ch}:AM:DEPT {value}"
+
+[setters.modulation_deviation]
+command = "SOUR{ch}:FM:DEV {value}"
+
+[setters.phase_deviation]
+command = "SOUR{ch}:PM:DEV {value}"
+
+[setters.modulation_frequency]
+command = "SOUR{ch}:{modulation}:INT:FREQ {value}"
+verify = "SOUR{ch}:{modulation}:INT:FREQ?"
+
+[setters.burst]
+command = "SOUR{ch}:BURS:STAT {on}"
+
+[setters.burst_cycles]
+command = "SOUR{ch}:BURS:NCYC {value}"
+
+[setters.burst_period]
+command = "SOUR{ch}:BURS:INT:PER {value}"
+
+[setters.sweep]
+command = "SOUR{ch}:SWE:STAT {on}"
+
+[setters.sweep_start]
+command = "SOUR{ch}:FREQ:STAR {value}"
+
+[setters.sweep_stop]
+command = "SOUR{ch}:FREQ:STOP {value}"
+
+[setters.sweep_time]
+command = "SOUR{ch}:SWE:TIME {value}"
+
+[setters.trigger]
+command = "TRIG{ch}"

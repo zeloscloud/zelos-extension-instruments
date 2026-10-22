@@ -1,0 +1,296 @@
+schema = 1
+id = "siglent-sdg"
+name = "Siglent SDG1000X, SDG1000X Plus, SDG2000X and SDG6000X series"
+category = "fgen"
+notes = "Covers the SDG1032X and SDG1062X, the SDG1022X Plus, SDG1032X Plus and SDG1062X Plus, the SDG2042X, SDG2082X and SDG2122X, and the SDG6022X, SDG6032X and SDG6052X, all with two channels. The X-E variants are not covered. The frequency limit is the model's sine bandwidth (25, 30 or 60 MHz on the SDG1000X and SDG1000X Plus, 40, 80 or 120 MHz on the SDG2000X, 200, 350 or 500 MHz on the SDG6000X) and starts at 1 microhertz, as the data sheets give it; the other shapes stop lower, for example the ramp at 500 kHz on the SDG1000X and 1 MHz on the SDG2000X. The guides give the other limits only as 'see the data sheet', so the amplitude, burst, sweep, modulation and pulse limits here come from the Siglent data sheets, whose text loses the micro prefix of some minimums: the 1 microsecond minimum burst period and the 5 microsecond minimum sweep time of the SDG6000X are read that way. The amplitude limit is 20 Vpp into high impedance (10 Vpp into 50 Ohm), and 20 Vpp holds only up to 10 MHz on the SDG1000X, 20 MHz on the SDG2000X and 40 MHz on the SDG6000X. The offset and level limits are the data sheets' 10 V into high impedance. The duty range is the pulse range, 0.001 to 99.999 percent; the square wave of the SDG6000X takes 10 to 90 percent. Replies are keyed lists after a header, such as C1:BSWV WVTP,SINE,FRQ,100HZ,AMP,2V,OFST,0V, and a setting the shape does not have is left out of the reply and reads as unknown. The instrument has no error queue, no *TST?, and no *SAV or *RCL, so a refused value shows only in the readback check. Output state and load are read by position from C<n>:OUTP?, which answers C1:OUTP ON,LOAD,HZ,PLRT,NOR; a load other than 50 Ohm or high impedance reads as other. The amplitude is Vpp. Modulation: the guide says the modulation state must be ON before the other modulation parameters are set or read, and Set Modulation sends the type first and the switch last, so switch modulation on in an earlier action, then set the type and the rest. The type setter sends the type word (C<n>:MDWV AM) and is not checked, because the modulation reply starts with the type and carries none while the modulation is off; the profile remembers the type it sent, and the modulation rate (C<n>:MDWV <type>,FRQ) names that type, so choose the type first. The type setter offers AM, FM, PM and PWM, because the rate key of FSK, ASK and PSK is KFRQ. The depth is sent for AM, the deviation for FM and the phase deviation for PM, each as its own command, and the readback of the deviation reads the DEVI key, which holds degrees when the type is PM; the phase deviation is not checked. The rate is read from the FRQ key, the modulating one, and its limit is 1 mHz to 1 MHz, or to 20 kHz on the SDG1000X. The burst count is not read because an infinite burst answers INF; the Trigger action sets the trigger source of the burst to manual (C<n>:BTWV TRSR,MAN) and then sends a manual trigger (C<n>:BTWV MTRIG), so it needs the burst to be on, and the sweep's manual trigger is C<n>:SWWV MTRIG, which the SCPI action can send. BUZZ is a buzzer state, not a beep, so there is no beep. The SDG1000X Plus guide also has an amplitude sweep, which is not covered. The pulse width limit is the data sheet's minimum (32.6 ns SDG1000X, 19.4 ns SDG1000X Plus, 16.3 ns SDG2000X, 3.4 ns SDG6000X) up to the period. The FM deviation limit is half the model's bandwidth, as the data sheets give it."
+
+[evidence]
+badge = "manual"
+source = "Siglent SDG Series Arbitrary Waveform Generator Programming Guide PG02-E05C; SDG1000X Plus Programming Guide EN01B and SDG6000X Programming Guide EN06A; SDG1000X Data Sheet EN01I, SDG2000X, SDG6000X and SDG1000X Plus data sheets"
+url = "https://siglentna.com/wp-content/uploads/dlm_uploads/2024/06/SDG_Programming-Guide_PG02-E05C.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^siglent'
+model = '(?i)^SDG(1(032|062)X( ?Plus)?|1022X ?Plus|2(042|082|122)X|6(022|032|052)X)$'
+channels = 2
+
+[link]
+lan_port = 5025
+
+[system]
+self_test = false
+
+# Data sheets: frequency, output, burst and sweep characteristics
+[ranges]
+frequency = { min = 0.000001, max = 60000000, digits = 6 }
+amplitude = { min = 0.002, max = 20, digits = 4 }
+offset = { min = -10, max = 10, digits = 4 }
+high = { min = -10, max = 10, digits = 4 }
+low = { min = -10, max = 10, digits = 4 }
+phase = { min = 0, max = 360, digits = 3 }
+duty = { min = 0.001, max = 99.999, digits = 3 }
+symmetry = { min = 0, max = 100, digits = 3 }
+width = { min = 0.0000000326, max = 1000000, digits = 10 }
+modulation_depth = { min = 0, max = 120, digits = 3 }
+modulation_deviation = { min = 0, max = 30000000, digits = 3 }
+phase_deviation = { min = 0, max = 360, digits = 3 }
+modulation_frequency = { min = 0.001, max = 1000000, digits = 3 }
+burst_cycles = { min = 1, max = 1000000, digits = 0 }
+burst_period = { min = 0.000001, max = 1000, digits = 6 }
+sweep_time = { min = 0.001, max = 500, digits = 6 }
+
+[[ranges.models]]
+model = '(?i)^SDG1(032|062)X$'
+modulation_frequency = { min = 0.001, max = 20000, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^SDG1032X( ?Plus)?$'
+frequency = { min = 0.000001, max = 30000000, digits = 6 }
+modulation_deviation = { min = 0, max = 15000000, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^SDG1022X ?Plus$'
+frequency = { min = 0.000001, max = 25000000, digits = 6 }
+modulation_deviation = { min = 0, max = 12500000, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^SDG1(032|062)X ?Plus$'
+width = { min = 0.0000000194, max = 1000000, digits = 10 }
+
+[[ranges.models]]
+model = '(?i)^SDG2042X$'
+frequency = { min = 0.000001, max = 40000000, digits = 6 }
+width = { min = 0.0000000163, max = 1000000, digits = 10 }
+modulation_deviation = { min = 0, max = 20000000, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^SDG2082X$'
+frequency = { min = 0.000001, max = 80000000, digits = 6 }
+width = { min = 0.0000000163, max = 1000000, digits = 10 }
+modulation_deviation = { min = 0, max = 40000000, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^SDG2122X$'
+frequency = { min = 0.000001, max = 120000000, digits = 6 }
+width = { min = 0.0000000163, max = 1000000, digits = 10 }
+modulation_deviation = { min = 0, max = 60000000, digits = 3 }
+
+[[ranges.models]]
+model = '(?i)^SDG6022X$'
+frequency = { min = 0.000001, max = 200000000, digits = 6 }
+width = { min = 0.0000000034, max = 1000000, digits = 10 }
+modulation_deviation = { min = 0, max = 100000000, digits = 3 }
+sweep_time = { min = 0.000005, max = 500, digits = 6 }
+
+[[ranges.models]]
+model = '(?i)^SDG6032X$'
+frequency = { min = 0.000001, max = 350000000, digits = 6 }
+width = { min = 0.0000000034, max = 1000000, digits = 10 }
+modulation_deviation = { min = 0, max = 175000000, digits = 3 }
+sweep_time = { min = 0.000005, max = 500, digits = 6 }
+
+[[ranges.models]]
+model = '(?i)^SDG6052X$'
+frequency = { min = 0.000001, max = 500000000, digits = 6 }
+width = { min = 0.0000000034, max = 1000000, digits = 10 }
+modulation_deviation = { min = 0, max = 250000000, digits = 3 }
+sweep_time = { min = 0.000005, max = 500, digits = 6 }
+
+[state.output]
+query = "C{ch}:OUTP?"
+parse = "bool"
+index = 0
+map = { "C1:OUTP ON" = "on", "C1:OUTP OFF" = "off", "C2:OUTP ON" = "on", "C2:OUTP OFF" = "off" }
+
+[state.output_load]
+query = "C{ch}:OUTP?"
+parse = "map"
+index = 2
+map = { HZ = "high_z", "50" = "fifty_ohm", "*" = "other" }
+
+[state.shape]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "WVTP"
+map = { SINE = "sine", SQUARE = "square", RAMP = "ramp", PULSE = "pulse", NOISE = "noise", ARB = "arbitrary", DC = "dc", PRBS = "other", IQ = "other" }
+
+[state.frequency_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "FRQ"
+
+[state.amplitude_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "AMP"
+
+[state.offset_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "OFST"
+
+[state.high_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "HLEV"
+
+[state.low_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "LLEV"
+
+[state.phase_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "PHSE"
+
+[state.duty_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "DUTY"
+
+[state.symmetry_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "SYM"
+
+[state.width_set]
+query = "C{ch}:BSWV?"
+parse = "keyed"
+key = "WIDTH"
+
+[state.modulation]
+query = "C{ch}:MDWV?"
+parse = "keyed"
+key = "STATE"
+map = { ON = "on", OFF = "off" }
+
+[state.modulation_depth_set]
+query = "C{ch}:MDWV?"
+parse = "keyed"
+key = "DEPTH"
+
+[state.modulation_deviation_set]
+query = "C{ch}:MDWV?"
+parse = "keyed"
+key = "DEVI"
+
+[state.modulation_frequency_set]
+query = "C{ch}:MDWV?"
+parse = "keyed"
+key = "FRQ"
+until = "CARR"
+
+[state.burst]
+query = "C{ch}:BTWV?"
+parse = "keyed"
+key = "STATE"
+map = { ON = "on", OFF = "off" }
+
+[state.burst_period_set]
+query = "C{ch}:BTWV?"
+parse = "keyed"
+key = "PRD"
+
+[state.sweep]
+query = "C{ch}:SWWV?"
+parse = "keyed"
+key = "STATE"
+map = { ON = "on", OFF = "off" }
+
+[state.sweep_start_set]
+query = "C{ch}:SWWV?"
+parse = "keyed"
+key = "START"
+
+[state.sweep_stop_set]
+query = "C{ch}:SWWV?"
+parse = "keyed"
+key = "STOP"
+
+[state.sweep_time_set]
+query = "C{ch}:SWWV?"
+parse = "keyed"
+key = "TIME"
+
+[setters.output]
+command = "C{ch}:OUTP {on}"
+
+[setters.output_load]
+command = "C{ch}:OUTP LOAD,{value}"
+map = { fifty_ohm = "50", high_z = "HZ" }
+
+[setters.shape]
+command = "C{ch}:BSWV WVTP,{value}"
+map = { sine = "SINE", square = "SQUARE", ramp = "RAMP", pulse = "PULSE", noise = "NOISE", arbitrary = "ARB", dc = "DC" }
+
+[setters.frequency]
+command = "C{ch}:BSWV FRQ,{value}"
+
+[setters.amplitude]
+command = "C{ch}:BSWV AMP,{value}"
+
+[setters.offset]
+command = "C{ch}:BSWV OFST,{value}"
+
+[setters.high]
+command = "C{ch}:BSWV HLEV,{value}"
+
+[setters.low]
+command = "C{ch}:BSWV LLEV,{value}"
+
+[setters.phase]
+command = "C{ch}:BSWV PHSE,{value}"
+
+[setters.duty]
+command = "C{ch}:BSWV DUTY,{value}"
+
+[setters.symmetry]
+command = "C{ch}:BSWV SYM,{value}"
+
+[setters.width]
+command = "C{ch}:BSWV WIDTH,{value}"
+
+[setters.modulation]
+command = "C{ch}:MDWV STATE,{on}"
+
+[setters.modulation_type]
+command = "C{ch}:MDWV {value}"
+map = { am = "AM", fm = "FM", pm = "PM", pwm = "PWM" }
+
+[setters.modulation_frequency]
+command = "C{ch}:MDWV {modulation},FRQ,{value}"
+
+[setters.modulation_depth]
+command = "C{ch}:MDWV AM,DEPTH,{value}"
+
+[setters.modulation_deviation]
+command = "C{ch}:MDWV FM,DEVI,{value}"
+
+[setters.phase_deviation]
+command = "C{ch}:MDWV PM,DEVI,{value}"
+
+[setters.burst]
+command = "C{ch}:BTWV STATE,{on}"
+
+[setters.burst_cycles]
+command = "C{ch}:BTWV TIME,{value}"
+
+[setters.burst_period]
+command = "C{ch}:BTWV PRD,{value}"
+
+[setters.sweep]
+command = "C{ch}:SWWV STATE,{on}"
+
+[setters.sweep_start]
+command = "C{ch}:SWWV START,{value}"
+
+[setters.sweep_stop]
+command = "C{ch}:SWWV STOP,{value}"
+
+[setters.sweep_time]
+command = "C{ch}:SWWV TIME,{value}"
+
+[setters.trigger]
+command = ["C{ch}:BTWV TRSR,MAN", "C{ch}:BTWV MTRIG"]

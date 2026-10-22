@@ -1,0 +1,250 @@
+schema = 1
+id = "rigol-dg800-pro"
+name = "Rigol DG800 Pro and DG900 Pro series"
+category = "fgen"
+notes = "Covers the DG821 Pro, DG822 Pro, DG852 Pro, DG902 Pro, DG912 Pro and DG922 Pro. Only the DG821 Pro has one channel, and the guide says it takes a second channel with the two-channel upgrade option, so set channels to 2 in the config for a DG821 Pro that has it. The frequency limit is the model's sine maximum (25 MHz on the DG821 Pro and DG822 Pro, 50 MHz on the DG852 Pro, 70 MHz on the DG902 Pro, 150 MHz on the DG912 Pro, 200 MHz on the DG922 Pro) and starts at 1 Hz, as in the guide's frequency table. The other shapes stop lower, for example the square wave at 20 MHz on the DG821 Pro and DG822 Pro, and the instrument refuses a frequency its present shape cannot reach. Amplitude is sent with a VPP suffix, but the instrument reads it back in the channel's amplitude unit; keep the unit at Vpp, the default, because this profile may not send :VOLT:UNIT at connect. The amplitude, offset, high and low limits are the high impedance ones (20 Vpp, 10 V): into 50 Ohm the guide allows 10 Vpp, and above 50 MHz the amplitude limit falls (10 Vpp into high impedance up to 100 MHz, 4 Vpp up to 200 MHz); the instrument refuses what it cannot output and the error shows in the log. The output load reads as 50 Ohm or high impedance; any other value reads as other, because the guide gives the reply in exponent form (+1.000000000000000E+02 for 100 Ohm, 9.9E+37 for high impedance). Duty cycle is the square wave duty, symmetry is the ramp symmetry, width is the pulse width. The shape harmonic reads as other. Modulation works per type, because the instrument has one STATe switch for each type (AM, FM, PM, PWM) and no query for the active one. The type setter turns the chosen type on (:SOUR<n>:<type>:STAT ON), so choosing a type switches it on. The modulation switch and the rate (2 mHz to 1 MHz, :SOUR<n>:<type>:INT:FREQ) name the type last chosen through this profile, so choose the type first; neither is shown as a state field, they are checked after each set only. FSK and the other keying types are not offered, their rate commands differ. The guide says AM cannot modulate harmonic, noise, DC or pulse, and PWM works only on a pulse; enabling a modulation turns sweep and burst off. The AM depth (0 to 120 %), the FM deviation and the PM deviation are set on their own type and read back as state. The FM deviation limit is half the model's sine maximum, from the guide's rules that the deviation may not pass the carrier and may not pass the carrier limit minus the carrier. The burst period limit reads 4 to 8000 s in the guide's text with the unit of the 4 lost; this profile takes 4 microseconds. The Trigger action sends :TRIG<n>:SOUR BUS and then :TRIG<n>:IMM, so it switches the channel's trigger source to manual; the guide says a trigger is ignored while the channel's output is off. Save and recall use locations 1 to 5; location 0 holds the automatic recall of the last power-on setting and is not offered. Lock keeps the front panel keys locked, all of them, until Unlock. The screen capture (:HCOPy:SDUMp:DATA?) is not in this profile because the guide does not say how the image is framed. The guide's own example for the LAN socket port query is 5000, while other Rigol guides give 5555; this profile uses 5555, so set the port in the config if the unit answers elsewhere."
+
+[evidence]
+badge = "manual"
+source = "RIGOL DG800 Pro/DG900 Pro Series Programming Guide, 2025"
+url = "https://www.rigol.com/dam/global/downloads/brochures/en/program-guide/waveform-generators/DG800ProDG900Pro_ProgrammingGuide_EN.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^rigol'
+model = '^DG(8(21|22|52)|9(02|12|22)) ?Pro$'
+channels = 2
+
+[[match.models]]
+model = '^DG821 ?Pro$'
+channels = 1
+
+[link]
+lan_port = 5555
+
+[errors]
+query = ":SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 5 }
+beep = ":SYST:BEEP"
+display = ":DISP {on}"
+display_text = ':DISP:TEXT "{text}"'
+display_text_max = 40
+display_clear = ":DISP:TEXT:CLE"
+lock = ":SYST:KLOCk ON"
+unlock = ":SYST:KLOCk OFF"
+
+# Programming Guide Table 3.64 (frequency), Table 3.66 (amplitude) and the SOURce commands
+[ranges]
+frequency = { min = 1, max = 25000000, digits = 6 }
+amplitude = { min = 0.001, max = 20, digits = 4 }
+offset = { min = -10, max = 10, digits = 4 }
+high = { min = -10, max = 10, digits = 4 }
+low = { min = -10, max = 10, digits = 4 }
+phase = { min = -360, max = 360, digits = 3 }
+duty = { min = 0.01, max = 99.99, digits = 2 }
+symmetry = { min = 0.1, max = 99.9, digits = 2 }
+width = { min = 0.000000009, max = 999900, digits = 9 }
+modulation_depth = { min = 0, max = 120, digits = 3 }
+modulation_deviation = { min = 0, max = 12500000, digits = 3 }
+phase_deviation = { min = 0, max = 360, digits = 3 }
+modulation_frequency = { min = 0.002, max = 1000000, digits = 3 }
+burst_cycles = { min = 1, max = 1000000, digits = 0 }
+burst_period = { min = 0.000004, max = 8000, digits = 6 }
+sweep_time = { min = 0.001, max = 250000, digits = 6 }
+
+[[ranges.models]]
+model = '^DG852 ?Pro$'
+frequency = { min = 1, max = 50000000, digits = 6 }
+modulation_deviation = { min = 0, max = 25000000, digits = 3 }
+
+[[ranges.models]]
+model = '^DG902 ?Pro$'
+frequency = { min = 1, max = 70000000, digits = 6 }
+modulation_deviation = { min = 0, max = 35000000, digits = 3 }
+
+[[ranges.models]]
+model = '^DG912 ?Pro$'
+frequency = { min = 1, max = 150000000, digits = 6 }
+modulation_deviation = { min = 0, max = 75000000, digits = 3 }
+
+[[ranges.models]]
+model = '^DG922 ?Pro$'
+frequency = { min = 1, max = 200000000, digits = 6 }
+modulation_deviation = { min = 0, max = 100000000, digits = 3 }
+
+[state.output]
+query = ":OUTP{ch}:STAT?"
+parse = "bool"
+
+[state.shape]
+query = ":SOUR{ch}:FUNC?"
+parse = "map"
+map = { SIN = "sine", SQU = "square", RAMP = "ramp", PULS = "pulse", NOIS = "noise", ARB = "arbitrary", HARM = "other" }
+
+[state.frequency_set]
+query = ":SOUR{ch}:FREQ?"
+parse = "float"
+
+[state.amplitude_set]
+query = ":SOUR{ch}:VOLT?"
+parse = "float"
+
+[state.offset_set]
+query = ":SOUR{ch}:VOLT:OFFS?"
+parse = "float"
+
+[state.high_set]
+query = ":SOUR{ch}:VOLT:HIGH?"
+parse = "float"
+
+[state.low_set]
+query = ":SOUR{ch}:VOLT:LOW?"
+parse = "float"
+
+[state.phase_set]
+query = ":SOUR{ch}:PHAS?"
+parse = "float"
+
+[state.duty_set]
+query = ":SOUR{ch}:FUNC:SQU:DCYC?"
+parse = "float"
+
+[state.symmetry_set]
+query = ":SOUR{ch}:FUNC:RAMP:SYMM?"
+parse = "float"
+
+[state.width_set]
+query = ":SOUR{ch}:FUNC:PULS:WIDT?"
+parse = "float"
+
+[state.output_load]
+query = ":OUTP{ch}:LOAD?"
+parse = "map"
+map = { "+5.000000000000000E+01" = "fifty_ohm", "+9.900000000000000E+37" = "high_z", "9.9E+37" = "high_z", "*" = "other" }
+
+[state.modulation_depth_set]
+query = ":SOUR{ch}:AM:DEPT?"
+parse = "float"
+
+[state.modulation_deviation_set]
+query = ":SOUR{ch}:FM:DEV?"
+parse = "float"
+
+[state.phase_deviation_set]
+query = ":SOUR{ch}:PM:DEV?"
+parse = "float"
+
+[state.burst]
+query = ":SOUR{ch}:BURS:STAT?"
+parse = "bool"
+
+[state.burst_cycles_set]
+query = ":SOUR{ch}:BURS:NCYC?"
+parse = "float"
+
+[state.burst_period_set]
+query = ":SOUR{ch}:BURS:INT:PER?"
+parse = "float"
+
+[state.sweep]
+query = ":SOUR{ch}:SWE:STAT?"
+parse = "bool"
+
+[state.sweep_start_set]
+query = ":SOUR{ch}:FREQ:STAR?"
+parse = "float"
+
+[state.sweep_stop_set]
+query = ":SOUR{ch}:FREQ:STOP?"
+parse = "float"
+
+[state.sweep_time_set]
+query = ":SOUR{ch}:SWE:TIME?"
+parse = "float"
+
+[setters.output]
+command = ":OUTP{ch}:STAT {on}"
+
+[setters.shape]
+command = ":SOUR{ch}:FUNC {value}"
+map = { sine = "SIN", square = "SQU", ramp = "RAMP", pulse = "PULS", noise = "NOIS", arbitrary = "ARB" }
+
+[setters.frequency]
+command = ":SOUR{ch}:FREQ {value}"
+
+[setters.amplitude]
+command = ":SOUR{ch}:VOLT {value} VPP"
+
+[setters.offset]
+command = ":SOUR{ch}:VOLT:OFFS {value}"
+
+[setters.high]
+command = ":SOUR{ch}:VOLT:HIGH {value}"
+
+[setters.low]
+command = ":SOUR{ch}:VOLT:LOW {value}"
+
+[setters.phase]
+command = ":SOUR{ch}:PHAS {value}"
+
+[setters.duty]
+command = ":SOUR{ch}:FUNC:SQU:DCYC {value}"
+
+[setters.symmetry]
+command = ":SOUR{ch}:FUNC:RAMP:SYMM {value}"
+
+[setters.width]
+command = ":SOUR{ch}:FUNC:PULS:WIDT {value}"
+
+[setters.output_load]
+command = ":OUTP{ch}:LOAD {value}"
+map = { fifty_ohm = "50", high_z = "INF" }
+
+[setters.modulation]
+command = ":SOUR{ch}:{modulation}:STAT {bit}"
+verify = ":SOUR{ch}:{modulation}:STAT?"
+
+[setters.modulation_type]
+command = ":SOUR{ch}:{value}:STAT ON"
+map = { am = "AM", fm = "FM", pm = "PM", pwm = "PWM" }
+
+[setters.modulation_depth]
+command = ":SOUR{ch}:AM:DEPT {value}"
+
+[setters.modulation_deviation]
+command = ":SOUR{ch}:FM:DEV {value}"
+
+[setters.phase_deviation]
+command = ":SOUR{ch}:PM:DEV {value}"
+
+[setters.modulation_frequency]
+command = ":SOUR{ch}:{modulation}:INT:FREQ {value}"
+verify = ":SOUR{ch}:{modulation}:INT:FREQ?"
+
+[setters.burst]
+command = ":SOUR{ch}:BURS:STAT {on}"
+
+[setters.burst_cycles]
+command = ":SOUR{ch}:BURS:NCYC {value}"
+
+[setters.burst_period]
+command = ":SOUR{ch}:BURS:INT:PER {value}"
+
+[setters.sweep]
+command = ":SOUR{ch}:SWE:STAT {on}"
+
+[setters.sweep_start]
+command = ":SOUR{ch}:FREQ:STAR {value}"
+
+[setters.sweep_stop]
+command = ":SOUR{ch}:FREQ:STOP {value}"
+
+[setters.sweep_time]
+command = ":SOUR{ch}:SWE:TIME {value}"
+
+[setters.trigger]
+command = [":TRIG{ch}:SOUR BUS", ":TRIG{ch}:IMM"]

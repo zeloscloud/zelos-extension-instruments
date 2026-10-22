@@ -1,0 +1,63 @@
+schema = 1
+id = "keithley-daq6510"
+name = "Keithley DAQ6510"
+category = "daq"
+notes = """Transcribed from the DAQ6510 reference manual (Rev. C); never run on a unit. The unit must be in its native SCPI command set. Send *LANG SCPI on the instrument and reboot it, or choose SCPI under System, Settings, Command Set. The unit allows one remote interface at a time. LAN uses the raw socket on port 5025. List the scan channels and the relays in the instrument's settings (Scan and Relays). An address is the slot (1 or 2) and the two-digit channel: 101 is channel 1 in slot 1, 215 is channel 15 in slot 2. At connect the profile sends FORM ASC, then one SENS:FUNC command per function group, then the integration times, then it creates the scan with one scan count, and each poll runs the scan with INIT and reads one reading per channel from defbuffer1. The scan clears its buffer when it starts, so no TRAC:CLE is sent. The scan list is created last, as the manual advises. The profile also selects defbuffer1 for the scan and sets the scan mode to USED. The factory scan mode opens every channel on every slot before each scan, which would open your relays at every poll; USED opens only the channels the scan uses. The profile assumes one reading per channel, which is the default for SENS:COUN; a larger count makes the buffer hold more readings than channels and the poll reads the wrong ones. Integration time runs from 0.0005 to 15 power line cycles on 60 Hz mains and to 12 on 50 Hz or 400 Hz mains, and applies to DC voltage, DC current, resistance, 4-wire resistance and temperature. Thermocouples use the default simulated reference junction, 23 degC, until you select the internal reference on the instrument; the profile does not change it. Modules considered: the 7700, 7701, 7702, 7703, 7706, 7707, 7708 and 7710 for scanning, and the 7705, 7709, 7711 and 7712 for relays. Current functions work only on the two current channels of the 7700 and 7702. A 4-wire measurement uses a pair of channels: on a 20-channel module channel n pairs with n+10, so list only the first of the pair. The manual's module pages decide which functions each card takes; the profile does not check them. Channel pairs and backplane relays move with a close: closing a channel that has a measurement function also opens the channels that could affect it, and only one such channel can be closed at a time. Relay state is read from ROUT:STAT?, where bit 0 set means closed; the digital I/O and totalizer bits are ignored. The display text goes to the USER swipe screen and the profile switches to that screen; the first line takes 20 characters and the screen shows only while text is set. The beep is 1000 Hz for 0.2 s. Save and recall use the five setups 0 to 4. The poll timeout is 30 s; raise it in the config for long integration times or many channels. The manual says *TST? returns 0 without running a test, so Self test is left out. The manual lists no lock or reboot command over SCPI, so those actions are left out."""
+
+[evidence]
+badge = "manual"
+source = "Keithley DAQ6510 Data Acquisition and Multimeter System Reference Manual, DAQ6510-901-01 Rev. C, June 2024"
+url = "https://download.tek.com/manual/DAQ6510-901-01C_June_2024_Ref.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)^keithley'
+model = '(?i)^(model\s*)?DAQ6510$'
+
+[link]
+lan_port = 5025
+timeout_s = 30
+init = "FORM ASC"
+
+[errors]
+query = "SYST:ERR?"
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 4 }
+beep = "SYST:BEEP 1000,0.2"
+display_text = 'DISP:USER1:TEXT "{text}";:DISP:SCR SWIPE_USER'
+display_text_max = 20
+display_clear = "DISP:CLE"
+
+[daq]
+scan = ["ROUT:SCAN:CRE (@{channels})", 'ROUT:SCAN:BUFF "defbuffer1"', "ROUT:SCAN:COUN:SCAN 1", "ROUT:SCAN:MODE USED"]
+read = ["INIT", "*WAI", 'TRAC:DATA? 1,{count},"defbuffer1",READ']
+channel_pattern = '[12](0[1-9]|[1-9]\d)'
+
+[daq.configure]
+dc_voltage = 'SENS:FUNC "VOLT:DC",(@{channels})'
+ac_voltage = 'SENS:FUNC "VOLT:AC",(@{channels})'
+dc_current = 'SENS:FUNC "CURR:DC",(@{channels})'
+ac_current = 'SENS:FUNC "CURR:AC",(@{channels})'
+resistance = 'SENS:FUNC "RES",(@{channels})'
+resistance_4w = 'SENS:FUNC "FRES",(@{channels})'
+frequency = 'SENS:FUNC "FREQ",(@{channels})'
+period = 'SENS:FUNC "PER",(@{channels})'
+temperature = ['SENS:FUNC "TEMP",(@{channels})', "SENS:TEMP:TRAN TC,(@{channels})", "SENS:TEMP:TC:TYPE {tc},(@{channels})"]
+
+[daq.nplc]
+command = "SENS:{function}:NPLC {value},(@{channels})"
+map = { dc_voltage = "VOLT", dc_current = "CURR", resistance = "RES", resistance_4w = "FRES", temperature = "TEMP" }
+
+[state.closed]
+query = "ROUT:STAT? (@{ch})"
+parse = "bits"
+mask = 1
+
+[setters.relay]
+command = "ROUT:CLOSE (@{ch})"
+off = "ROUT:OPEN (@{ch})"
+verify = "ROUT:STAT? (@{ch})"
