@@ -246,8 +246,41 @@ def test_auto_config_adds_found_instruments_and_keeps_the_form(
     ]
     assert result["message"] == (
         "Added 1: SDL1020X (USB0::0xF4EC::0x1430::SDL1::INSTR). "
-        "Not identified: 192.168.1.9:5025: no reply."
+        "Found but not identified: 192.168.1.9:5025: no reply."
     )
+
+
+def test_auto_config_keeps_out_the_demo_bench_when_an_instrument_did_not_identify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scope that missed its *IDN? was replaced by the demo bench."""
+    found = [_found(VisaAddress("TCPIP::10.0.0.5::INSTR"), None, None, "vxi11", "no reply")]
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: found)
+    result = run("auto_config", config={"instruments": []})
+    assert result["config"]["instruments"] == []
+    assert result["message"] == "Found but not identified: TCPIP::10.0.0.5::INSTR: no reply."
+
+
+def test_auto_config_matches_a_typed_host_name_to_the_address_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = [_found(TcpAddress("127.0.0.1", 5025), "ACME,P1,1,1", "rigol-dp800", "scan")]
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: found)
+    form = {"instruments": [{"connection": "lan", "host": "localhost", "name": "psu"}]}
+    result = run("auto_config", config=form)
+    assert result["config"]["instruments"] == form["instruments"]
+    assert result["message"].startswith("Already in the form: 127.0.0.1:5025")
+
+
+def test_a_model_name_with_accents_becomes_a_name_the_config_accepts() -> None:
+    import re
+
+    for model, expected in (("Prüfgerät", "Prufgerat"), ("Ωµ", "instrument")):
+        name = discovery.default_name(
+            _found(TcpAddress("10.0.0.5", 5025), f"ACME,{model},1,1", None, "scan")
+        )
+        assert name == expected
+        assert re.fullmatch(r"[A-Za-z0-9 _-]*", name)
 
 
 def test_auto_config_with_nothing_found_adds_the_demo_bench(
