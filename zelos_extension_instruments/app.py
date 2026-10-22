@@ -20,7 +20,8 @@ from . import ACTION_PREFIX, actions, config
 from .config import ConfigError, InstrumentConfig, Settings
 from .emitter import Emitter
 from .naming import NAME_BYTES, unique_name
-from .profile import Profile, ProfileError, load_dir, shipped
+from .profile import Profile
+from .profile_load import ProfileError, load_dir, shipped
 from .worker import InstrumentWorker, Opener
 
 logger = logging.getLogger(__name__)

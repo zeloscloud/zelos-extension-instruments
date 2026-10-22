@@ -16,7 +16,8 @@ import zelos_sdk
 from zelos_extension_instruments import ACTION_PREFIX, config
 from zelos_extension_instruments.config import InstrumentConfig
 from zelos_extension_instruments.link import Address, Link, LinkError, LinkSettings, LinkTimeout
-from zelos_extension_instruments.profile import Profile, load_file, shipped
+from zelos_extension_instruments.profile import Profile
+from zelos_extension_instruments.profile_load import load_file, shipped
 from zelos_extension_instruments.waveform import BlockError, block_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

@@ -14,7 +14,8 @@ import pytest
 from tests.conftest import instrument_config, wait_until
 from tests.test_worker import RecordingEmitter
 from zelos_extension_instruments.link import SerialAddress, TcpAddress
-from zelos_extension_instruments.profile import by_id, shipped
+from zelos_extension_instruments.profile import by_id
+from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.record import parse_address
 from zelos_extension_instruments.worker import InstrumentWorker
 

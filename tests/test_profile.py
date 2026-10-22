@@ -7,20 +7,15 @@ from typing import Any
 
 import pytest
 
-from zelos_extension_instruments import profile as profile_module
-from zelos_extension_instruments.profile import (
+from zelos_extension_instruments.profile import Idn, Profile, by_id, find, parse_idn
+from zelos_extension_instruments.profile_load import (
     SHIPPED_DIR,
-    Idn,
-    Profile,
     ProfileError,
-    by_id,
     check_paths,
-    find,
     from_dict,
     load_dir,
     load_file,
     main,
-    parse_idn,
     shipped,
 )
 
@@ -975,7 +970,7 @@ def test_main_reads_sys_argv_when_not_given(
 
 
 def test_shipped_directory_is_the_repo_profiles_directory() -> None:
-    assert profile_module.SHIPPED_DIR == REPO_ROOT / "profiles"
+    assert SHIPPED_DIR == REPO_ROOT / "profiles"
     assert [p.id for p in shipped()] == [p.id for p in load_dir(SHIPPED_DIR)]
 
 

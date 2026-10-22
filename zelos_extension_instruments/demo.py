@@ -10,7 +10,8 @@ import time
 
 from .config import InstrumentConfig
 from .link import Address, Link, LinkSettings
-from .profile import Profile, by_id, shipped
+from .profile import Profile, by_id
+from .profile_load import shipped
 from .sim.fake import FakeInstrument
 from .waveform import block_payload
 from .worker import Opener

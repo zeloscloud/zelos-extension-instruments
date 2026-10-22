@@ -6,7 +6,8 @@ import pytest
 
 from tests.conftest import ScriptedLink, instrument_config, opener_for, wait_until
 from tests.test_worker import RecordingEmitter, ask
-from zelos_extension_instruments.profile import by_id, shipped
+from zelos_extension_instruments.profile import by_id
+from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 

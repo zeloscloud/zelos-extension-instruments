@@ -44,7 +44,7 @@ check: _deps
 
 # Check every shipped profile, and any paths given
 profiles *PATHS:
-    uv run python -m zelos_extension_instruments.profile check profiles {{PATHS}}
+    uv run python -m zelos_extension_instruments.profile_load check profiles {{PATHS}}
 
 # Serve a fake instrument from a profile on its LAN port: just sim rigol-dp800 [--port 5025]
 sim PROFILE *FLAGS:

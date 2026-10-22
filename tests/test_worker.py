@@ -17,7 +17,8 @@ from tests.conftest import (
 from zelos_extension_instruments import scope_ops
 from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.link import LinkError, LinkTimeout
-from zelos_extension_instruments.profile import Profile, by_id, from_dict, load_file, shipped
+from zelos_extension_instruments.profile import Profile, by_id
+from zelos_extension_instruments.profile_load import from_dict, load_file, shipped
 from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.worker import InstrumentWorker
 

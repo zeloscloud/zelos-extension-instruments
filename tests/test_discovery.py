@@ -27,6 +27,7 @@ from zelos_extension_instruments.link import (
     VisaAddress,
 )
 from zelos_extension_instruments.profile import Idn
+from zelos_extension_instruments.profile_load import load_file
 
 real_identify = discovery._identify
 PROFILE_PATH = Path(__file__).parent.parent / "profiles" / "psu" / "rigol-dp800.toml"
@@ -40,7 +41,7 @@ def _reset_warnings() -> None:
 
 @pytest.fixture(scope="module")
 def profiles() -> list[profile.Profile]:
-    return [profile.load_file(PROFILE_PATH)]
+    return [load_file(PROFILE_PATH)]
 
 
 # --- mDNS and VXI-11 -------------------------------------------------------------------------

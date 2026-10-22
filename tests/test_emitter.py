@@ -9,7 +9,8 @@ import zelos_sdk
 from tests.conftest import TIME, Recording
 from zelos_extension_instruments.config import PollRow
 from zelos_extension_instruments.emitter import Emitter
-from zelos_extension_instruments.profile import ENUM_FIELDS, Profile, from_dict
+from zelos_extension_instruments.profile import ENUM_FIELDS, Profile
+from zelos_extension_instruments.profile_load import from_dict
 
 SECOND = 1_000_000_000
 LOGGER = "zelos_extension_instruments.emitter"

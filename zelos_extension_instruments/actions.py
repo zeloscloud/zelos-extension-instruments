@@ -5,9 +5,10 @@ from typing import Any
 
 from zelos_sdk.actions import SelectField, action, register_field_type
 
-from . import profile as profiles_module
 from .link import Address, TcpAddress
 from .naming import NAME_BYTES, unique_name
+from .profile import FUNCTION_LABELS
+from .profile_load import shipped
 from .profile_scope import (
     COUPLING_LABELS,
     MEASUREMENT_FIELDS,
@@ -37,7 +38,7 @@ _AUTOCONFIG_TIMEOUT_S = 30
 _LIST_SEARCH_S = 5.0
 _AUTOCONFIG_SEARCH_S = 15.0
 _MIN_SCPI_S, _MAX_SCPI_S = 0.1, 30.0
-_FUNCTIONS = ("cc", "cv", "cp", "cr", *profiles_module.FUNCTION_LABELS[:-1])
+_FUNCTIONS = ("cc", "cv", "cp", "cr", *FUNCTION_LABELS[:-1])
 
 
 def _first_instrument() -> str | None:
@@ -98,7 +99,7 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
     held = {w.where for w in workers.values()}
     tried: list[str] = []
     found = discovery.discover(
-        profiles_module.shipped(),
+        shipped(),
         lan=connection in ("lan", "visa"),
         usb=connection == "usb",
         serial=False,
@@ -150,7 +151,7 @@ def list_profiles() -> dict[str, Any]:
     choices: list[dict[str, Any]] = [
         {"value": "auto", "label": "Automatic", "detail": "From the instrument's identity"}
     ]
-    for p in profiles_module.shipped():
+    for p in shipped():
         choices.append(
             {
                 "value": p.id,
@@ -186,7 +187,7 @@ def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     held = {w.where for w in workers.values()}
     tried: list[str] = []
     found = discovery.discover(
-        profiles_module.shipped(),
+        shipped(),
         lan=True,
         usb=True,
         serial=True,

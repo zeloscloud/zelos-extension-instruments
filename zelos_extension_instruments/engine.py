@@ -9,15 +9,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .profile import (
-    ENUM_FIELDS,
-    Errors,
-    Flag,
-    Profile,
-    Range,
-    Reader,
-    Setter,
-)
+from .profile import ENUM_FIELDS, Errors, Flag, Profile, Range, Reader, Setter
 
 Cadence = Literal["fast", "slow"]
 

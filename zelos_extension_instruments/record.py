@@ -24,7 +24,8 @@ from .link import (
     VisaAddress,
     open_link,
 )
-from .profile import Idn, Profile, by_id, load_file, parse_idn, shipped
+from .profile import Idn, Profile, by_id, parse_idn
+from .profile_load import load_file, shipped
 
 TRANSCRIPTS = Path(__file__).resolve().parent.parent / "tests" / "transcripts"
 _HOST_PORT = re.compile(r"^(?P<host>[^:]+|\[[^\]]+\])(?::(?P<port>\d+))?$")

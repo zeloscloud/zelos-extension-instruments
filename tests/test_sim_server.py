@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from zelos_extension_instruments.profile import SHIPPED_DIR, Profile, from_dict, load_file
+from zelos_extension_instruments.profile import Profile
+from zelos_extension_instruments.profile_load import SHIPPED_DIR, from_dict, load_file
 from zelos_extension_instruments.record import load_transcript
 from zelos_extension_instruments.sim.fake import FakeInstrument
 from zelos_extension_instruments.sim.faults import Faults
