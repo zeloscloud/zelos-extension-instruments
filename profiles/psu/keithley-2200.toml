@@ -11,13 +11,16 @@ Mode reads CV and CC from the operation condition register. \
 The OVP level reaches about 10 % above the rated voltage, but the extension bounds it by the voltage range. \
 VOLT:PROT:STAT switches OVP on and off. \
 The manual lists the 2200-60-2 at 2.5 A. \
-The unlock-code and calibration tables of the manual name a 2200-70-1 where Section 1 lists the 2200-72-1, and the profile matches only the 2200-72-1."""
+The unlock-code and calibration tables of the manual name a 2200-70-1 where Section 1 lists the 2200-72-1, and the profile matches only the 2200-72-1. \
+*SAV takes locations 1 to 40 while the *RCL entry lists 0 to 40, so the profile offers 1 to 40. \
+Lock sends SYST:RWL, which locks out the LOCAL key only in remote mode, and Unlock sends SYST:REM. \
+The manual has no beep, display, remote-sense or OVP delay command."""
 
 [evidence]
 badge = "manual"
 source = "Series 2200 Programmable DC Power Supplies Reference Manual, 2200S-901-01 Rev. C, March 2016"
 url = "https://download.tek.com/manual/2200S-901-01C.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -120,3 +123,10 @@ command = "OUTP {bit}"
 
 [setters.clear]
 command = "OUTP:PROT:CLE"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 40 }
+lock = "SYST:RWL"
+unlock = "SYST:REM"

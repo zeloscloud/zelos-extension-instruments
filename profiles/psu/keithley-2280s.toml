@@ -12,13 +12,19 @@ CURR sets the current limit of the voltage source. \
 The OVP level accepts 0.5 V to 33 V (2280S-32-6) or 61 V (2280S-60-3), and the OCP level 0.1 A to 6.1 A or 3.3 A; the ranges below carry those limits. \
 Mode reads constant current (bit 0) and constant voltage (bit 1) from the Questionable Instrument Summary condition register; it reads off when neither bit is set, which the manual does not say means the output is off. \
 The 2281S battery simulator is not covered. \
-The output query can also return DISable (2), which reads as an error."""
+The output query can also return DISable (2), which reads as an error. \
+*SAV and *RCL take locations 1 to 5. \
+The manual says *TST? returns 0 and runs no self-test. \
+:DISP:USER:TEXT shows up to 24 characters on the output screen, only while the instrument is in remote operation, and :DISP:CLE clears them. \
+Lock sends :SYST:RWL and Unlock sends :SYST:LOC. \
+The manual's beeper command covers errors only, so there is no beep action. \
+The manual has no remote-sense, OVP delay or tracking command."""
 
 [evidence]
 badge = "manual"
 source = "Series 2280 Precision Measurement DC Power Supplies Reference Manual, 077085503, March 2019"
 url = "https://download.tek.com/manual/077085503_2280_Ref_Mar_20191.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -99,3 +105,13 @@ command = ":OUTP {bit}"
 
 [setters.clear]
 command = ":OUTP:PROT:CLE"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 5 }
+display_text = ':DISP:USER:TEXT "{text}"'
+display_text_max = 24
+display_clear = ":DISP:CLE"
+lock = ":SYST:RWL"
+unlock = ":SYST:LOC"

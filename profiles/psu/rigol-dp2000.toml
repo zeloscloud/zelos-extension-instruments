@@ -2,13 +2,13 @@ schema = 1
 id = "rigol-dp2000"
 name = "Rigol DP2000 series"
 category = "psu"
-notes = "The command set matches the DP900 and DP800 profiles. The DP2031 has two 32 V/3 A outputs and a 6 V/5 A output. The optional DP2000-10A mode makes channel 3 a 6 V/10 A output and limits channels 1 and 2 to 2 A, so raise or lower the limits in the config if the option is installed. The limits here are the Range1 values of Table 4.9 of the programming guide. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the Range1 available ranges of Table 4.35: 1 mV to 35.2 V and 1 mA to 3.3 A on CH1 and CH2, 1 mV to 6.6 V and 1 mA to 5.5 A on CH3. Remote sense reads :SYST:SENS? and tracking reads the channel connection mode from :OUTP:PAIR?, which applies to CH1 and CH2. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. The programming guide does not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The guide gives the RS232 defaults as 9600 baud, 8 data bits, no parity and 1 stop bit, and this profile uses them. The baud rate can be 9600, 19200, 38400, 57600 or 115200, the data bits 7 or 8, and the stop bits 1 or 2."
+notes = "The command set matches the DP900 and DP800 profiles. The DP2031 has two 32 V/3 A outputs and a 6 V/5 A output. The optional DP2000-10A mode makes channel 3 a 6 V/10 A output and limits channels 1 and 2 to 2 A, so raise or lower the limits in the config if the option is installed. The limits here are the Range1 values of Table 4.9 of the programming guide. OVP and OCP are off by default, so enable them with the OVP and OCP switches here or on the front panel before relying on the trip flags. The OVP and OCP levels take the Range1 available ranges of Table 4.35: 1 mV to 35.2 V and 1 mA to 3.3 A on CH1 and CH2, 1 mV to 6.6 V and 1 mA to 5.5 A on CH3. Remote sense reads and sets :SYST:SENS, and tracking reads and sets the channel connection mode with :OUTP:PAIR (OFF, PARallel or SERies), which applies to CH1 and CH2. The *TST? query returns the result of the power-on self-test, not a new test. Save and recall use the state files 0 to 9, and a locked state file refuses a save. Beep sends one beep. Lock sends :SYST:RWL ON, which also disables the touch screen and every key except the output keys, and Unlock sends :SYST:RWL OFF. The supply has no display commands. SYST:REMOTE disables the touch screen and front-panel keys except the output keys, and SYST:LOCAL returns control. Clear sends :OUTP:OCP:CLEAR and :OUTP:OVP:CLEAR. The programming guide does not name the LAN socket port, so 5555 follows the DP800 profile and is unverified for this family. The guide gives the RS232 defaults as 9600 baud, 8 data bits, no parity and 1 stop bit, and this profile uses them. The baud rate can be 9600, 19200, 38400, 57600 or 115200, the data bits 7 or 8, and the stop bits 1 or 2."
 
 [evidence]
 badge = "manual"
 source = "RIGOL DP2000 Series Programmable Linear DC Power Supply Programming Guide, PGH09102-1110, software version 00.00.01"
 url = "https://download.rigol.com/en/Manual/DC%20Power&Loads/DP2000/DP2000_ProgrammingGuide_en.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^rigol'
@@ -23,6 +23,14 @@ locks_panel = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = ":SYST:BEEP:IMM"
+lock = ":SYST:RWL ON"
+unlock = ":SYST:RWL OFF"
 
 # Programming Guide Table 4.9, rated channel ranges
 [ranges]
@@ -113,6 +121,14 @@ command = ":OUTP:OCP CH{ch},{on}"
 
 [setters.output]
 command = ":OUTP CH{ch},{on}"
+
+[setters.remote_sense]
+command = ":SYST:SENS CH{ch},{on}"
+
+[setters.tracking]
+command = ":OUTP:PAIR {value}"
+map = { independent = "OFF", series = "SERies", parallel = "PARallel" }
+channel = false
 
 [setters.clear]
 command = [":OUTP:OCP:CLEAR CH{ch}", ":OUTP:OVP:CLEAR CH{ch}"]

@@ -9,13 +9,17 @@ The LAN socket port is 2101 (TCP, on units with the Ethernet option); RS-232 def
 FETC:STAT? returns three fields: a warning bit mask (bit 0 OVP, bit 1 OCP, bit 2 OPP, bit 4 OTP), the output state and CV or CC. Mode and protection are read from it. \
 The OVP level goes up to 1.10 times the output voltage rating and the OCP level up to 1.05 times the output current rating (the manual's OVP and OCP range tables), and the ranges say so. \
 The manual's *IDN? table lists the manufacturer and the model as separate fields, but its example reads "CHROMA 62012P-80-60, 01.00, 12345", with a space after the manufacturer and the model joined to it. The match accepts the model with or without its voltage and current suffix and, for the example form, the version number in the second field. In those two forms the model string carries no rating, so setpoints refuse until the config names a limit. libsigrok, whose 62000P support was written for a 62024P-80-60, reads the full model with its rating from the second field. \
-Clear is not wired: the manual lists no protection clear command in the sections read."""
+Clear is not wired: the manual lists no protection clear command in the sections read. \
+The manual has no *TST?, so the self-test is off. \
+*SAV takes no location and *RCL gives no location range, so save and recall are not offered. \
+CONF:BEEP only switches the beeper on or off, so there is no beep action. \
+Remote sense is wired at a rear connector, and series and parallel operation go through the master and slave setup (CONF:MSTSLV), which is not wired."""
 
 [evidence]
 badge = "manual"
 source = "Chroma 62000P Series Programmable DC Power Supply Operating & Programming Manual, Version 1.8, September 2014"
 url = "https://valuetronics.com/cdn/shop/files/Chroma_62000P_Series_Operating_and_Programming_Manual-2014.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^chroma'
@@ -176,3 +180,6 @@ voltage = { min = 0, max = 100, digits = 3 }
 current = { min = 0, max = 100, digits = 3 }
 ovp = { min = 0, max = 110, digits = 3 }
 ocp = { min = 0, max = 105, digits = 3 }
+
+[system]
+self_test = false

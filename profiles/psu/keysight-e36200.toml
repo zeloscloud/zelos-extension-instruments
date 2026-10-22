@@ -2,13 +2,13 @@ schema = 1
 id = "keysight-e36200"
 name = "Keysight E36200 series"
 category = "psu"
-notes = "The E36231A and E36232A have one output, and the E36233A and E36234A have two. The limits are the maximum programmable values from the guide, about 3 percent above the nominal ratings, per output in single mode. Auto-series and parallel pairing on the dual models raise the limits on channel 1 and are not modeled, though the pairing state is read (OUTP:PAIR?) as tracking. CV and CC come from STAT:QUES:INST:ISUM<n>:COND?: 1 is CC, 2 is CV, 0 is off or unregulated, and the table calls 3 a hardware failure while the register text calls it neither regulated, so this profile reads 3 as unregulated. The register text also says bit 2 (value 4) is constant power, so that reads as cp. The guide documents no power measurement, so power is left out. The overcurrent level (CURR:PROT) works only in persona mode, so there is no OCP setpoint. Overvoltage protection trips only after the supply is in CV mode longer than the OVP delay, and VOLT:PROT:STAT must be on; it is off after *RST, as is CURR:PROT:STAT, and this profile reads and sets both. The OVP level runs from 1 V to a maximum the unit reports for VOLT:PROT? MAX, which the guide words as 110 percent more than the maximum setting voltage. Remote sense is read from VOLT:SENS? (0 for internal, 1 for external). The trip queries take no channel list, so the profile selects the channel with INST:NSEL first. After SYST:PERS:MAN on a single-output model, the identity reads Agilent, which is still matched."
+notes = "The E36231A and E36232A have one output, and the E36233A and E36234A have two. The limits are the maximum programmable values from the guide, about 3 percent above the nominal ratings, per output in single mode. Auto-series and parallel pairing on the dual models raise the limits on channel 1 and are not modeled, though the pairing state is read (OUTP:PAIR?) as tracking. CV and CC come from STAT:QUES:INST:ISUM<n>:COND?: 1 is CC, 2 is CV, 0 is off or unregulated, and the table calls 3 a hardware failure while the register text calls it neither regulated, so this profile reads 3 as unregulated. The register text also says bit 2 (value 4) is constant power, so that reads as cp. The guide documents no power measurement, so power is left out. The overcurrent level (CURR:PROT) works only in persona mode, so there is no OCP setpoint. Overvoltage protection trips only after the supply is in CV mode longer than the OVP delay, and VOLT:PROT:STAT must be on; it is off after *RST, as is CURR:PROT:STAT, and this profile reads and sets both. The OVP level runs from 1 V to a maximum the unit reports for VOLT:PROT? MAX, which the guide words as 110 percent more than the maximum setting voltage. Remote sense is set and read with VOLT:SENS (INT for local sensing, EXT for remote sensing); the guide says the query returns 0 or 1 in its text and INT or EXT in its table, and the profile reads either. Pairing is set and read with OUTP:PAIR (OFF, PAR or SER), which only the dual-output models have. The display message takes 30 characters, and SYST:COMM:RLST RWL, the same as SYST:RWL, locks the front panel until SYST:COMM:RLST LOC. Save and recall use the ten locations 0 to 9. The trip queries take no channel list, so the profile selects the channel with INST:NSEL first. After SYST:PERS:MAN on a single-output model, the identity reads Agilent, which is still matched."
 
 [evidence]
 badge = "manual"
 source = "Keysight E36200 Series Autoranging DC Power Supplies Programming Guide, E36200-90008, Edition 1, September 2021; User's Guide E36200-90001 (sockets, port 5025)"
 url = "https://res.cloudinary.com/iwh/image/upload/q_auto,g_center/assets/1/26/E36200_Series_Programming_Guide.pdf"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(keysight|agilent)'
@@ -25,6 +25,18 @@ select = "INST:NSEL {ch}"
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+beep = "SYST:BEEP"
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 30
+display_clear = "DISP:TEXT:CLE"
+lock = "SYST:COMM:RLST RWL"
+unlock = "SYST:COMM:RLST LOC"
 
 # Programming Guide p. 15, Programming Ranges and Output Identifiers
 [ranges]
@@ -68,6 +80,7 @@ parse = "bool"
 [state.remote_sense]
 query = "VOLT:SENS? (@{ch})"
 parse = "bool"
+map = { EXT = "on", INT = "off" }
 
 [state.tracking]
 query = "OUTP:PAIR?"
@@ -109,6 +122,15 @@ command = "CURR:PROT:STAT {on},(@{ch})"
 
 [setters.output]
 command = "OUTP {on},(@{ch})"
+
+[setters.remote_sense]
+command = "VOLT:SENS EXT,(@{ch})"
+off = "VOLT:SENS INT,(@{ch})"
+
+[setters.tracking]
+command = "OUTP:PAIR {value}"
+map = { independent = "OFF", series = "SERies", parallel = "PARallel" }
+channel = false
 
 [setters.clear]
 command = "OUTP:PROT:CLE (@{ch})"

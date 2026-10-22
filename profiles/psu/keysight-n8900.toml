@@ -2,13 +2,13 @@ schema = 1
 id = "keysight-n8900"
 name = "Keysight N8900 series"
 category = "psu"
-notes = "These are single-output 5 kW, 10 kW and 15 kW autoranging supplies, so no channel is addressed and the commands carry no channel list. The limits come from the unit: the profile asks for VOLT? MAX and CURR? MAX, which are 102 percent of the rating. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 2 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 3 power limit, bit 4 OT, bit 5 master/slave protection). The guide gives overcurrent protection only as an on/off state with a delay, so there is no OCP setpoint; CURR:PROT:STAT is off after *RST, so the OCP flag stays quiet until it is switched on, and this profile reads and sets it. The OVP level runs from 0 to the maximum the unit reports for VOLT:PROT? MAX, which is 120 percent of the voltage rating, and it resets there at *RST. SYST:COMM:RLST REM and LOC both leave the front panel usable, and only RWL locks it. After a protection trip, remove the fault before Clear, which sends OUTP:PROT:CLE. Models above 60 V can produce lethal voltage, up to 1500 V on the 15 kW units."
+notes = "These are single-output 5 kW, 10 kW and 15 kW autoranging supplies, so no channel is addressed and the commands carry no channel list. The limits come from the unit: the profile asks for VOLT? MAX and CURR? MAX, which are 102 percent of the rating. Mode comes from STAT:OPER:COND? (bit 0 CV, bit 1 CC, bit 2 off), and protection from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 3 power limit, bit 4 OT, bit 5 master/slave protection). The guide gives overcurrent protection only as an on/off state with a delay, so there is no OCP setpoint; CURR:PROT:STAT is off after *RST, so the OCP flag stays quiet until it is switched on, and this profile reads and sets it. The OVP level runs from 0 to the maximum the unit reports for VOLT:PROT? MAX, which is 120 percent of the voltage rating, and it resets there at *RST. SYST:COMM:RLST REM and LOC both leave the front panel usable, and only RWL locks it, which Lock sends. The *TST? self-test always returns 0 and also forces a *RST, so the Self-Test action resets the settings. The supply has no beep or display text command, and the display switch turns the whole display on or off. Save and recall use the ten locations 0 to 9. After a protection trip, remove the fault before Clear, which sends OUTP:PROT:CLE. Models above 60 V can produce lethal voltage, up to 1500 V on the 15 kW units."
 
 [evidence]
 badge = "manual"
 source = "Keysight N8900 Series Autoranging System DC Power Supply Operating and Service Guide, N8900-90901, Version 3, August 2014"
 url = "https://xdevs.com/doc/HP_Agilent_Keysight/N8900%20Series%20Autoranging%20System%20DC%20Power%20Supply%20-%20Operating%20and%20Service%20Guide%20%28PDF%20format%29%20N8900-90901%20c20140813%20%5B21%5D.pdf"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(keysight|agilent)'
@@ -21,6 +21,14 @@ local = "SYST:COMM:RLST LOC"
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+display = "DISP {on}"
+lock = "SYST:COMM:RLST RWL"
+unlock = "SYSTem:COMMunicate:RLSTate LOCal"
 
 [ranges]
 voltage = { max_query = "VOLT? MAX", digits = 3 }

@@ -3,9 +3,8 @@ id = "gw-instek-gpd"
 name = "GW Instek GPD-X303S series"
 category = "psu"
 notes = """Covers the GPD-2303S, GPD-3303S and GPD-4303S, and the GPD-3303D, which use the vendor grammar (VSET1:5.00, ISET1:1.000, VOUT1?, IOUT1?, OUT1), not SCPI. \
-Commands end with a line feed. The manual shows no reply example for the setting and readback queries; the float parser accepts a trailing unit letter. \
+Commands end with a carriage return and line feed; the manual accepts a line feed alone or CR LF, and a real GPD-3303D rejects a line feed alone with Invalid Character. The manual shows no reply example for the setting and readback queries; the float parser accepts a trailing unit letter. \
 A real GPD-3303D ends each reply with a carriage return alone, so the profile reads to CR. \
-One GPD-3303D driver reports that the unit rejects an LF-only command with Invalid Character, and another sends LF; set the write terminator to CR LF in the config if commands fail. \
 The first command after the port opens can fail with Invalid Character while stale bytes sit in the unit's buffer; reconnect if identification fails. \
 A real GPD-3303D reads setpoints back to 0.1 V and 0.01 A, so its settings are sent with one and two decimals. \
 Every command lists a response time of at least 10 ms, with longer times expected at 9600 or 57600 baud, so the profile waits 10 ms between commands. \
@@ -19,13 +18,18 @@ The 4303S channel 3 is 0 to 5 V at 3 A or 5.001 to 10 V at 1 A, and channel 4 is
 Setpoints in the manual are 0 to 32 V and 0 to 3.2 A on channels 1 and 2. \
 ERR? answers No Error. when clear and returns the last complaint once, such as Data out of range., on a real GPD-3303D, so the profile reads it. \
 Power is not measured by any command. \
-The manual shows the IDN reply as GW INSTEK, GPD-x303S, SN: xxxxxxxx, Vx.xx, with a placeholder model name."""
+The manual shows the IDN reply as GW INSTEK, GPD-x303S, SN: xxxxxxxx, Vx.xx, with a placeholder model name. \
+The manual has no *RST, *TST? or *OPC?, so reset, self-test and operation-complete are off. \
+SAV<n> and RCL<n> take locations 1 to 4. \
+BEEP<n> only switches the beeper, so there is no beep action, and the manual has no display or key-lock command. \
+Tracking sends TRACK0, TRACK1 or TRACK2. \
+STATUS? holds the mode in bits 2 and 3, but its text encoding is not documented, so the mode is not read."""
 
 [evidence]
 badge = "manual"
 source = "GPD-X303S Series User Manual, GW Instek part no. 82PD-433S0MC1 (Remote Control chapter); the text prints no version or date"
 url = "https://www.gwinstek.com/en-global/products/downloadSeriesDownNew/7837/1474"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^gw[- ]?instek'
@@ -37,6 +41,7 @@ model = '(?i)^GPD-?4303S$'
 channels = 4
 
 [link]
+write_terminator = "\r\n"
 baud = 9600
 read_terminator = "\r"
 delay_ms = 10
@@ -93,3 +98,16 @@ command = "ISET{ch}:{value}"
 [setters.output]
 command = "OUT{bit}"
 channel = false
+
+[setters.tracking]
+command = "TRACK{value}"
+map = { independent = "0", series = "1", parallel = "2" }
+channel = false
+
+[system]
+reset = false
+self_test = false
+opc = false
+save = "SAV{slot}"
+recall = "RCL{slot}"
+slots = { min = 1, max = 4 }

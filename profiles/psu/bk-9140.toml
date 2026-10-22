@@ -9,15 +9,22 @@ Constant-voltage and constant-current mode are not read: the manual says STAT:QU
 Protection reads OVP from VOLT:PROT:TRIP? and OCP from CURR:PROT:TRIP?. The over-temperature flag reads bit 4 of STAT:QUES:ISUM:COND?, a query the manual documents as a mode query without a channel number, so treat it as unconfirmed. \
 The OCP level only acts while the OCP state (CURR:PROT:STAT) is on, which the OCP on switch sets; the manual documents no OVP state command. \
 The OUTP:PAIR? reply gives the series or parallel mode; the manual's tracking mode has no label here and reads as unknown. \
-The manual's VOLT:SENS query reply (0 when sense is enabled) contradicts its command (1 enables), so remote sense is not read. \
+The manual's VOLT:SENS query reply (0 when sense is enabled) contradicts its command (1 enables), so remote sense can be switched but is not read. \
 Clear resets all triggered protections. \
-The manual gives no LAN socket port; the profile keeps 5025. USB defaults to the virtual COM port."""
+The manual gives no LAN socket port; the profile keeps 5025. USB defaults to the virtual COM port. \
+A real unit sometimes sends an empty line before a reply, so the profile skips blank lines and waits 50 ms between commands. \
+*SAV and *RCL take locations 0 to 9, and location 0 holds the power-on state. \
+SYST:BEEP sounds one beep. \
+DISP:WIND:STAT freezes the display and leaves the keys active. \
+Lock sends SYST:RWL, which locks every key including Lock/Unlock, and Unlock sends SYST:LOC. \
+Tracking sends OUTP:PAIR with SERI2 or PARA2, which join channels 1 and 2; the three-channel and tracking settings of the manual are not wired. \
+The manual has no OVP delay command."""
 
 [evidence]
 badge = "manual"
 source = "9140 Series Programming Manual (no revision printed); 9140 Series Data Sheet 2025 (ratings); 9140 Series User Manual (interfaces)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9140_Series_programming_manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
@@ -26,6 +33,8 @@ channels = 3
 
 [link]
 select = "INST {ch0}"
+delay_ms = 50
+skip_blank = true
 
 [errors]
 query = "SYST:ERR?"
@@ -101,3 +110,20 @@ command = "OUTP {bit}"
 
 [setters.clear]
 command = "OUTP:PROT:CLE"
+
+[setters.remote_sense]
+command = "VOLT:SENS {on}"
+
+[setters.tracking]
+command = "OUTP:PAIR {value}"
+map = { independent = "OFF", series = "SERI2", parallel = "PARA2" }
+channel = false
+
+[system]
+beep = "SYST:BEEP"
+display = "DISP:WIND:STAT {on}"
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+lock = "SYST:RWL"
+unlock = "SYST:LOC"

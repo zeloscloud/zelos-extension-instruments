@@ -1,0 +1,127 @@
+schema = 1
+id = "matrix-wps300s"
+name = "Matrix WPS300S series"
+category = "psu"
+notes = """Covers the WPS300S-80-6, WPS300S-30-20, WPS300S-80-10 and WPS300S-150-5 single-output supplies over RS-232 with the SCPI protocol. \
+The supply speaks SCPI or Modbus, chosen with the PLC item of the Config menu, so set it to SCPI. \
+The manual's serial settings are 9600 baud, 8 data bits, no parity and 1 stop bit, with commands ending in CR LF. The Baud item takes 4800 to 115200, and the CEND item takes CR, LF, CRLF or LFCR, so set the end character to CRLF and change the baud rate in the config if a unit differs. \
+The programming manual does not give the pause the supply needs between commands. The profile waits 200 ms before every command and after every command that has no reply; that pace comes from a report on a WPS300S-150-5, not from the manual, and no other model was tested. \
+The ranges are the rated output of each model from the user manual: 80 V at 6 A, 30 V at 20 A, 80 V at 10 A and 150 V at 5 A. The setting resolution is 1 mV and 0.1 mA. \
+The manual gives no range for the OVP and OCP levels, so the profile bounds them by the rated output. \
+OVP and OCP each have a switch (VOLT:PROT:STAT and CURR:PROT:STAT), and the manual does not say which state they start in, so read the switches before relying on a trip. \
+The manual has no query for constant-voltage or constant-current mode and none for a protection trip, so mode and protection are not read. \
+The manual lists SYST:ERR? but does not give its no-error reply, so the profile has no error query and checks sets by readback only. \
+The manual gives *IDN? as four fields (manufacturer, model, hardware version, software version) without an example, so the profile matches the maker name Matrix and the four model names; if a unit answers with another spelling, pick this profile by hand. \
+The manual has no *TST? or *OPC?, so the self-test and the operation-complete wait are off. *SAV and *RCL take the locations 1 to 9. \
+SYST:BEEP only enables or disables the tone, so there is no beep action. \
+The manual has no display, lock, remote sense or tracking command, and MEAS:POW? is not read to keep each poll short."""
+
+[evidence]
+badge = "manual"
+source = "Matrix Technology MPS-200 & WPS300S Series SCPI Programming Protocol (the PDF is titled MPS300S series SCPI protocol Programming manual); MPS-200/WPS300S Series DC Power Supply User Manual V1.1 (models, ratings, interface settings)"
+url = "https://www.szmatrix.com/wp-content/uploads/2025/09/MPS-200WPS300S-Series-SCPI-Programming-Protocol-1.pdf"
+date = "2026-10-22"
+
+[match]
+manufacturer = '(?i)matrix'
+model = '(?i)^WPS-?300S-(80-6|30-20|80-10|150-5)$'
+channels = 1
+
+[link]
+write_terminator = "\r\n"
+read_terminator = "\r\n"
+baud = 9600
+delay_ms = 200
+command_delay_ms = 200
+
+[system]
+self_test = false
+opc = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 9 }
+
+# User Manual V1.1, technical specification table of the WPS300S series, rated output
+[ranges]
+voltage = { min = 0, max = 150, digits = 3 }
+current = { min = 0, max = 5, digits = 4 }
+ovp = { min = 0, max = 150, digits = 3 }
+ocp = { min = 0, max = 5, digits = 4 }
+
+[[ranges.models]]
+model = '(?i)^WPS-?300S-80-6$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 6, digits = 4 }
+ovp = { min = 0, max = 80, digits = 3 }
+ocp = { min = 0, max = 6, digits = 4 }
+
+[[ranges.models]]
+model = '(?i)^WPS-?300S-30-20$'
+voltage = { min = 0, max = 30, digits = 3 }
+current = { min = 0, max = 20, digits = 4 }
+ovp = { min = 0, max = 30, digits = 3 }
+ocp = { min = 0, max = 20, digits = 4 }
+
+[[ranges.models]]
+model = '(?i)^WPS-?300S-80-10$'
+voltage = { min = 0, max = 80, digits = 3 }
+current = { min = 0, max = 10, digits = 4 }
+ovp = { min = 0, max = 80, digits = 3 }
+ocp = { min = 0, max = 10, digits = 4 }
+
+[signals.voltage]
+query = "MEAS:VOLT?"
+parse = "float"
+
+[signals.current]
+query = "MEAS:CURR?"
+parse = "float"
+
+[state.voltage_set]
+query = "VOLT?"
+parse = "float"
+
+[state.current_set]
+query = "CURR?"
+parse = "float"
+
+[state.ovp_set]
+query = "VOLT:PROT?"
+parse = "float"
+
+[state.ocp_set]
+query = "CURR:PROT?"
+parse = "float"
+
+[state.ovp_on]
+query = "VOLT:PROT:STAT?"
+parse = "bool"
+
+[state.ocp_on]
+query = "CURR:PROT:STAT?"
+parse = "bool"
+
+[state.output]
+query = "OUTP?"
+parse = "bool"
+
+[setters.voltage]
+command = "VOLT {value}"
+
+[setters.current]
+command = "CURR {value}"
+
+[setters.ovp]
+command = "VOLT:PROT {value}"
+
+[setters.ocp]
+command = "CURR:PROT {value}"
+
+[setters.ovp_on]
+command = "VOLT:PROT:STAT {on}"
+
+[setters.ocp_on]
+command = "CURR:PROT:STAT {on}"
+
+[setters.output]
+command = "OUTP {on}"

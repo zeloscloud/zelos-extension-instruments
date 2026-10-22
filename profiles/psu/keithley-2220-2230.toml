@@ -12,13 +12,18 @@ SYST:REM sets remote mode. The manual says RWLock locks the front panel and does
 INST:COMB? reads whether channels 1 and 2 are combined in series or parallel; a combined channel is CH1, and the manual allows up to 60 V in series mode and 3 A in parallel mode, above the ranges here. A unit in track mode reads as unknown. \
 Protection is not read: the status register tables list no OVP or OCP bit, although one manual example calls bit 0 of the questionable instrument summary an over voltage condition. \
 The manual gives the voltage limit (VOLT:LIM), not an OVP level, so the OVP setter is omitted. \
-The 2220/2230 IDN example in the manual prints spaces around each comma and a typographic dash in the model."""
+The 2220/2230 IDN example in the manual prints spaces around each comma and a typographic dash in the model. \
+*SAV and *RCL take locations 1 to 30. \
+DISP switches the display and DISP:TEXT shows up to 48 characters; DISP:TEXT:CLE clears them. \
+Lock sends SYST:RWL and Unlock sends SYST:REM. \
+Tracking sends INST:COMB:OFF, INST:COMB:SER or INST:COMB:PARA for channels 1 and 2; the manual's track mode (INST:COMB:TRAC) has no label here and is not wired. \
+The manual has no beep, remote-sense or OVP delay command."""
 
 [evidence]
 badge = "manual"
 source = "Series 2200 Programmable Multichannel DC Power Supplies Programmer Manual, 2220S-907-01 Rev. B, December 2013; User's Manual 2220S-900-01 Rev. C, December 2013 (channel ratings)"
 url = "https://download.tek.com/manual/Series-2200-Programmable-Multichannel-DC-Power-Supply-ProgrammerManual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^keithley'
@@ -92,3 +97,19 @@ command = "CURR {value}"
 
 [setters.output]
 command = "CHAN:OUTP {bit}"
+
+[setters.tracking]
+command = "INST:COMB:{value}"
+map = { independent = "OFF", series = "SER", parallel = "PARA" }
+channel = false
+
+[system]
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 30 }
+display = "DISP {on}"
+display_text = 'DISP:TEXT "{text}"'
+display_text_max = 48
+display_clear = "DISP:TEXT:CLE"
+lock = "SYST:RWL"
+unlock = "SYST:REM"

@@ -2,13 +2,13 @@ schema = 1
 id = "siglent-spd1000x"
 name = "Siglent SPD1000X series"
 category = "psu"
-notes = "The SPD1168X is 16 V/8 A and the SPD1305X is 30 V/5 A, each with one output. Mode and output state come from SYST:STAT? (a hex word: bit 0 is 0 for CV and 1 for CC, bit 4 is 0 for output off and 1 for on, bit 5 is 2W or 4W mode, bit 6 timer, bit 8 waveform display). The profile shows off whenever bit 4 is clear and reads bit 5 as remote sense (4W). The manual's example reply 0x0224 also sets bits 2 and 9, which its table does not list, so the profile ignores them. OVP and OCP are single instrument-wide setpoints (OVP, OCP) with no trip query, and Clear sends OUTPut:RESEt:PROTect, which clears the protection pop-up. The SPD1168X shuts the output at about 22 V and the SPD1305X at about 36 V regardless of the OVP setting. Siglent says to leave 10 to 100 ms between commands, so the profile waits 100 ms, and commands end with a newline only, because extra characters cause a failure. The manual gives socket port 5025, and Siglent's application note says the SPD uses VXI-11 for LAN. An SPD1305X owner reports that the LAN server takes one client and can wedge after an abrupt disconnect until the supply is power cycled. One owner on firmware 2.01.01.07R1 reports that OUTP fails when it ends in a newline, while an owner on firmware 2.1.1.9 sends it with a newline."
+notes = "The SPD1168X is 16 V/8 A and the SPD1305X is 30 V/5 A, each with one output. Mode and output state come from SYST:STAT? (a hex word: bit 0 is 0 for CV and 1 for CC, bit 4 is 0 for output off and 1 for on, bit 5 is 2W or 4W mode, bit 6 timer, bit 8 waveform display). The profile shows off whenever bit 4 is clear and reads bit 5 as remote sense (4W). The manual's example reply 0x0224 also sets bits 2 and 9, which its table does not list, so the profile ignores them. OVP and OCP are single instrument-wide setpoints (OVP, OCP) with no trip query, and Clear sends OUTPut:RESEt:PROTect, which clears the protection pop-up. The SPD1168X shuts the output at about 22 V and the SPD1305X at about 36 V regardless of the OVP setting. Siglent says to leave 10 to 100 ms between commands, so the profile waits 100 ms, and commands end with a newline only, because extra characters cause a failure. The manual gives socket port 5025, and Siglent's application note says the SPD uses VXI-11 for LAN. An SPD1305X owner reports that the LAN server takes one client and can wedge after an abrupt disconnect until the supply is power cycled. The manual has no *RST, *TST? or *OPC?, so this profile has no reset, self-test or operation-complete wait. *SAV and *RCL take a name, and the manual's example is 1; this profile uses the five files 1 to 5 of the front-panel store page. Lock sends *LOCK, which disables the keys, and Unlock sends *UNLOCK. Remote sense is set with MODE:SET 4W (remote sense) or 2W and read from bit 5 of SYST:STAT?. One owner on firmware 2.01.01.07R1 reports that OUTP fails when it ends in a newline, while an owner on firmware 2.1.1.9 sends it with a newline."
 
 [evidence]
 badge = "manual"
 source = "Siglent SPD1000X Programmable Linear DC Power Supply User Manual, EN_03B, June 2025 (SCPI command list); SPD Programming Tips"
 url = "https://siglentna.com/download/6311/"
-date = "2026-10-20"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^siglent'
@@ -22,6 +22,16 @@ single_client = true
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+reset = false
+self_test = false
+opc = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 1, max = 5 }
+lock = "*LOCK"
+unlock = "*UNLOCK"
 
 [ranges]
 voltage = { min = 0, max = 16, digits = 3 }
@@ -100,6 +110,11 @@ channel = false
 
 [setters.output]
 command = "OUTP CH{ch},{on}"
+
+[setters.remote_sense]
+command = "MODE:SET 4W"
+off = "MODE:SET 2W"
+channel = false
 
 [setters.clear]
 command = "OUTP:RESE:PROT"

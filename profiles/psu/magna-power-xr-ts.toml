@@ -7,7 +7,7 @@ The manual starts and stops the output with two commands, OUTP:START and OUTP:ST
 The supply takes its setpoints from the interface chosen with CONF:SETPT (0 ROTARY, 1 KEYPAD, 2 EXT PGM, 3 REMOTE). The XR documentation says full SCPI programming needs the REMOTE source, and that only a reduced set of commands and queries stays available in ROTARY or EXT PGM so that computer communication keeps working. The manual does not say which stored setpoint applies when the source changes, so the profile sends no CONF:SETPT at connect: send CONF:SETPT 3 with the raw command action before setting voltage or current. The Local action sends CONF:SETPT 0 (ROTARY). \
 The manual lists no power measurement, so power is not read. \
 Ranges are read from the instrument after connecting (VOLT? MIN and MAX, CURR? MIN and MAX); the OVP and OCP levels are bounded by VOLT:PROT? and CURR:PROT? with MIN and MAX. \
-CONF:REM:SENS? reads whether remote voltage sensing is on. \
+CONF:REM:SENS reads and sets remote voltage sensing. The manual has no *TST? self-test, and it documents *OPC? only for the GPIB option, so this profile has neither. *SAV stores the setpoints and the protection levels in one of the locations 0 to 99, and the manual has no *RCL, so recalling a stored state is a front-panel job. \
 Mode reads constant voltage and constant current from the operation condition register; zero shows as off. \
 Protection reads OV, OC and OT from the questionable condition register, and the phase balance, program line, fuse, alarm and interlock bits as other. \
 Clear resets the alarm latches once the cause is gone. \
@@ -18,7 +18,7 @@ The IDN reply is four fields: Magna-Power Electronics Inc., <model>, <serial>, <
 badge = "manual"
 source = "MagnaDC TS Series Documentation, Release 1, January 2022 (SCPI Command Set); MagnaDC XR Series Documentation, online edition (SCPI Programming)"
 url = "https://magna-power.com/assets/files/manuals/ts_49297.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^magna-?power'
@@ -32,6 +32,12 @@ local = "CONF:SETPT 0"
 
 [errors]
 query = "SYST:ERR?"
+
+[system]
+self_test = false
+opc = false
+save = "*SAV {slot}"
+slots = { min = 0, max = 99 }
 
 [ranges]
 voltage = { min_query = "VOLT? MIN", max_query = "VOLT? MAX", digits = 3 }
@@ -97,6 +103,9 @@ command = "VOLT:PROT {value}"
 
 [setters.ocp]
 command = "CURR:PROT {value}"
+
+[setters.remote_sense]
+command = "CONF:REM:SENS {on}"
 
 [setters.clear]
 command = "OUTP:PROT:CLE"

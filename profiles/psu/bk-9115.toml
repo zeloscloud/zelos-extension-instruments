@@ -15,13 +15,19 @@ Protection reads OV, OC, OP and OT from the questionable condition register. \
 The overvoltage protection level (VOLT:PROT) only acts while the protection state (VOLT:PROT:STAT) is on; the OVP on switch sets it. \
 The manual documents no OCP level command, so the OCP setter is omitted. \
 Clear resets the OVP trip only; the manual says to raise the OVP level or lower the output voltage first. \
-The automotive test functions of the 9115B-AT are not covered."""
+The automotive test functions of the 9115B-AT are not covered. \
+The manual has no *TST?, so the self-test is off. \
+*SAV and *RCL take locations 0 to 9 and store the OVP timer along with the setpoints. \
+SYST:BEEP only enables or disables the beeper, so there is no beep action. \
+Lock sends SYST:RWL, which also disables the Local key, and Unlock sends SYST:REM. \
+The OVP delay runs from 0.001 s to 0.6 s (VOLT:PROT:DEL). \
+The manual has no remote-sense, tracking or display command."""
 
 [evidence]
 badge = "manual"
 source = "9115 Multi-Range DC Power Supply Programming Manual V082514; 9115/B, 9115/B-AT, 9116/B, 9117 User Manual v020322 (interfaces, ratings); 9115/B Series Data Sheet 2021 (models)"
 url = "https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9115_Series_programming_manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^b&?k\s*precision'
@@ -41,6 +47,7 @@ query = "SYST:ERR?"
 [ranges]
 voltage = { min = 0, max = 80, digits = 3 }
 current = { min = 0, max = 60, digits = 3 }
+ovp_delay = { min = 0.001, max = 0.6, digits = 3 }
 
 [[ranges.models]]
 model = '(?i)^9116'
@@ -75,6 +82,10 @@ parse = "float"
 query = "VOLT:PROT:STAT?"
 parse = "bool"
 
+[state.ovp_delay_set]
+query = "VOLT:PROT:DEL?"
+parse = "float"
+
 [state.output]
 query = "OUTP?"
 parse = "bool"
@@ -106,8 +117,19 @@ command = "VOLT:PROT {value}"
 [setters.ovp_on]
 command = "VOLT:PROT:STAT {on}"
 
+[setters.ovp_delay]
+command = "VOLT:PROT:DEL {value}"
+
 [setters.output]
 command = "OUTP {bit}"
 
 [setters.clear]
 command = "PROT:CLE"
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+lock = "SYST:RWL"
+unlock = "SYST:REM"

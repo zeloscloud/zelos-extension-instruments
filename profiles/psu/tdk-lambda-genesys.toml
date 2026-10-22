@@ -4,13 +4,13 @@ name = "TDK-Lambda Genesys GEN series"
 category = "psu"
 notes = """Covers the Genesys 750 W and 1500 W GEN models through the RS-232 and RS-485 serial protocol: commands end with a carriage return, and every command is answered with OK, or Enn or Cnn when it fails. \
 The serial port is 8 data bits, no parity, 1 stop bit, 9600 baud by default (1200 to 19200 are selectable). \
-Every supply on a daisy chain must be addressed first with ADR n, and the supply accepts no other command until ADR answers OK. The profile sends ADR 6, the factory default address, before the identity query and RMT 1 after it, so a supply set to another address or a chain of several supplies is not supported. With Profile set to auto the identity is asked before ADR 6, and a unit may not answer it, so pick this profile. \
+Every supply on a daisy chain must be addressed first with ADR n, and the supply accepts no other command until ADR answers OK. The profile sends ADR 6, the factory default address, before the identity query and RMT 1 after it, so a supply set to another address or a chain of several supplies is not supported. This profile speaks the serial protocol only. A Genesys with the IEEE (GPIB) or LAN option speaks SCPI, which this profile does not cover, so never pick this profile for one. With Profile set to auto the identity is asked with *IDN? before ADR 6, which a serial unit does not answer, so pick this profile by hand for a serial unit; auto would choose it for a unit that answers *IDN? with a LAMBDA identity, which sends serial commands to an SCPI unit. \
 The identity query is IDN? and the reply has two fields: LAMBDA,GEN60-12.5. \
 RMT 1 puts the supply in remote mode; RMT 0 returns it to local mode, and RMT 2 (local lockout) is not used. In remote mode the front panel is disabled except PREV, OVP/UVL and LOC/REM. \
 The supply has no error queue; a failed command answers with an error code and the extension reads that as an error. \
 Mode comes from MODE?, which answers CV or CC with the output on and OFF otherwise. \
 Protection reads the fault condition register (FLT?, two hex digits): OVP, OTP, and AC fail or foldback as other. \
-Clear is not wired. \
+Clear is not wired. Reset sends RST, which turns the output off and sets the OVP level to its maximum, the foldback off, UVL to zero and auto-restart off. The manual has no self-test or operation-complete query. SAV and RCL take no slot number and restore the last power-down settings, so there is no save or recall action. Lock sends RMT LLO, which latches remote mode so the front panel cannot return to local, and Unlock sends RMT REM. The supply has no beep or display commands, no remote sense setting and no tracking. \
 The manual lists the current ranges per model; the voltage range is the model's rated voltage and the supply accepts values 5 percent above the rating. \
 The OVP range of each model is the manual's OVP table: the maximum is 125 percent of the rating on the 6 V and 8 V models, 120 percent on the 12.5 V, 20 V and 30 V models and 110 percent on the others. The supply refuses an OVP level below about 105 percent of the output voltage, or below the table minimum, with E04. \
 The GENH and Z+ series and the GEN models above 1500 W were not checked against their manuals."""
@@ -19,13 +19,21 @@ The GENH and Z+ series and the GEN models above 1500 W were not checked against 
 badge = "manual"
 source = "TDK-Lambda Genesys 750W/1500W Programmable DC Power Supplies Technical Manual, 83-507-013 Rev. A (RS-232/RS-485 protocol)"
 url = "https://www.eol.ucar.edu/isf/facilities/isff/tram/doc/genesys.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^lambda'
 model = '(?i)^GEN\s?\d'
 idn = "IDN?"
 channels = 1
+connections = ["serial"]
+
+[system]
+reset = "RST"
+self_test = false
+opc = false
+lock = "RMT LLO"
+unlock = "RMT REM"
 
 [link]
 write_terminator = "\r"

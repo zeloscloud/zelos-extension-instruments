@@ -14,13 +14,18 @@ The OVP level is 0.5 V to 35.0 V on channels 1 and 2 (4323 channel 3 up to 6.0 V
 OVP and OCP each have an on/off state (:OUTP<n>:OVP:STAT, :OUTP<n>:OCP:STAT), read and switched here. \
 The OVP and OCP trip flags use :OUTP<n>:OVP:TRIG? and :OUTP<n>:OCP:TRIG?. The manual spells the word TRIGer in the command descriptions and TRIGger in the command list, and shows no reply text, so the flags are probed once at connect and dropped if the unit rejects them. \
 Constant-voltage and constant-current mode are not read: the manual documents them only in the 8-byte STATUS? reply, whose encoding it does not state. The :MODE1? and :MODE2? queries report tracking or load mode and exist for channels 1 and 2 only. \
-The GPP-1000 series (GPP-1323, GPP-1205) uses a different manual and is not covered."""
+The GPP-1000 series (GPP-1323, GPP-1205) uses a different manual and is not covered. \
+The manual has no *TST?, so the self-test is off. \
+*SAV and *RCL take locations 0 to 9 (STATE00 to STATE09). \
+:DISP:ENAB switches the LCD on or off. \
+The beeper command only switches the buzzer, so there is no beep action, and the manual has no key-lock command. \
+Tracking sends TRACK0, TRACK1 or TRACK2; the manual says the GPP-1326 has no tracking, and it does not show the reply text of :MODE1?, so the mode is not read."""
 
 [evidence]
 badge = "manual"
 source = "GPP-1326/GPP-2323/GPP-3323/GPP-4323 User Manual (Remote Control chapter), GW Instek, 208 pages; the text prints no revision or date"
 url = "https://tjr-lab.mit.edu/wp-content/uploads/2023/10/GW-Instek-GPP-4323-User-manual.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^gw[- ]?instek'
@@ -141,3 +146,15 @@ command = ":OUTP{ch}:OCP:STAT {on}"
 
 [setters.output]
 command = ":OUTP{ch}:STAT {bit}"
+
+[setters.tracking]
+command = "TRACK{value}"
+map = { independent = "0", series = "1", parallel = "2" }
+channel = false
+
+[system]
+self_test = false
+save = "*SAV {slot}"
+recall = "*RCL {slot}"
+slots = { min = 0, max = 9 }
+display = ":DISP:ENAB {on}"

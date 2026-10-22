@@ -11,13 +11,18 @@ The OVP level accepts 0 to 110 % of the rated voltage and the OCP level 10 to 11
 Mode reads CV or CC from the Operation Status condition register; it reads off when neither bit is set, which the manual does not say means the output is off. \
 Protection reads the Questionable Status condition register: OV, OC and OT. Clear a trip with the Clear action. \
 On four real 2260B units the Questionable Status condition register read 0 in every state seen, including constant current, and the Operation Status register was not tried, so mode and protection are unverified on a unit. \
-Serial settings are not given in the manuals and are left at the defaults."""
+Serial settings are not given in the manuals and are left at the defaults. \
+The manual has no *SAV or *RCL entry, so save and recall are not offered. \
+:DISP:TEXT:CLE clears a display message; the manual gives no text length, so showing text is not offered. \
+Lock sends :SYST:KLOC ON and Unlock sends :SYST:KLOC OFF; with the keys locked, the Output key can still turn the output off unless :SYST:KEYL:MODE is changed. \
+The beeper command only switches the beeper, so there is no beep action. \
+The manual has no remote-sense, OVP delay or tracking command."""
 
 [evidence]
 badge = "manual"
 source = "Series 2260B Programmable DC Power Supplies Programming, 077104703, October 2024; GW Instek PSW Series Programming Manual, no revision printed (transcat.com copy)"
 url = "https://download.tek.com/manual/077104703_Oct2024_2260B_Programming.pdf"
-date = "2026-10-21"
+date = "2026-10-22"
 
 [match]
 manufacturer = '(?i)^(keithley|gw[- ]?instek|texio)'
@@ -255,3 +260,7 @@ model = 'PSW[- ]?800[- ]?4\.32$'
 voltage = { min = 0, max = 840, digits = 3 }
 current = { min = 0, max = 4.536, digits = 3 }
 
+[system]
+display_clear = ":DISP:TEXT:CLE"
+lock = ":SYST:KLOC ON"
+unlock = ":SYST:KLOC OFF"
