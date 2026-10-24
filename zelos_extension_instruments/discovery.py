@@ -1,6 +1,7 @@
 """Finds the instruments on this machine's network and ports and names the ones it knows.
 
-Listing never opens an instrument and identifying never raises: a failure becomes `Found.error`.
+Discovery opens a session to each candidate no running worker holds and sends `*IDN?`, and
+identifying never raises: a failure becomes `Found.error`.
 Libraries do the protocol work: zeroconf (mDNS), pyvisa-py (VXI-11 portmapper broadcast), pyusb
 with libusb-package (USB-TMC) and serialx (serial ports).
 """

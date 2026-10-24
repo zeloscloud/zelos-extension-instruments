@@ -60,7 +60,7 @@ def test_config_schema_is_valid_and_its_examples_validate() -> None:
         validator.validate(example)
 
 
-def test_inventory_holds_the_three_read_only_standalone_actions(tmp_path: Path) -> None:
+def test_inventory_holds_the_three_hidden_read_only_standalone_actions(tmp_path: Path) -> None:
     """The agent serves this file while the extension is stopped; the config form's pickers and
     Auto-configure need all three actions in it."""
     out = tmp_path / "actions.json"
@@ -76,10 +76,10 @@ def test_inventory_holds_the_three_read_only_standalone_actions(tmp_path: Path) 
 
     inventory = json.loads(out.read_text(encoding="utf-8"))
     assert inventory["action_prefix"] == ACTION_PREFIX == "Instruments"
-    assert {a["path"]: a["read_only"] for a in inventory["actions"]} == {
-        "list_instruments": True,
-        "list_profiles": True,
-        "auto_config": True,
+    assert {a["path"]: (a["read_only"], a["hidden"]) for a in inventory["actions"]} == {
+        "list_instruments": (True, True),
+        "list_profiles": (True, True),
+        "auto_config": (True, True),
     }
 
 

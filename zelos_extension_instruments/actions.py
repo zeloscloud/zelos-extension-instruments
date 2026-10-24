@@ -37,6 +37,7 @@ _FUNCTIONS = ("cc", "cv", "cp", "cr", *FUNCTION_LABELS[:-1])
     timeout=_LIST_TIMEOUT_S,
     standalone=True,
     read_only=True,
+    hidden=True,
 )
 @action.select(
     "connection",
@@ -110,6 +111,7 @@ def list_instruments(connection: str = "lan") -> dict[str, Any]:
     timeout=_LIST_TIMEOUT_S,
     standalone=True,
     read_only=True,
+    hidden=True,
 )
 def list_profiles() -> dict[str, Any]:
     choices: list[dict[str, Any]] = [
@@ -134,6 +136,7 @@ def list_profiles() -> dict[str, Any]:
     timeout=_AUTOCONFIG_TIMEOUT_S,
     standalone=True,
     read_only=True,
+    hidden=True,
 )
 @action.object("config", title="Configuration", properties={}, required=False)
 def auto_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
