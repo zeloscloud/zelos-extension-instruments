@@ -15,7 +15,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "zelos-sdk>=0.0.12,<0.1",
+    "zelos-sdk>=0.0.13a1,<0.1",
     "pyvisa>=1.14",
     # Exact: USB-TMC behaviour changes between releases, and every bump is re-tested on the bench.
     "pyvisa-py==0.8.1",
