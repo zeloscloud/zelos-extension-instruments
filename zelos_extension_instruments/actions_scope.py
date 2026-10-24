@@ -191,6 +191,7 @@ def measure(
     "Capture Waveform",
     "Fetch the samples of a scope channel on screen into the trace as one burst.",
     timeout=_CAPTURE_TIMEOUT_S,
+    read_only=True,
 )
 @with_instrument
 @with_channel
