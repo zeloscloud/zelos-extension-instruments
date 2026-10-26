@@ -37,7 +37,7 @@ format: _deps
     if [[ -f pyproject.toml ]]; then uv run ruff format . && uv run ruff check --fix .; fi
     if [[ -f web/package.json ]]; then (cd web && npm run format); fi
 
-# Check formatting, lint and type-check
+# Check formatting and lint (ruff, Prettier, ESLint), and type-check Python (pyright) and the web project (tsc)
 check: _deps
     if [[ -f pyproject.toml ]]; then uv run ruff format --check . && uv run ruff check . && uv run pyright; fi
     if [[ -f web/package.json ]]; then (cd web && npm run format:check && npm run check); fi
@@ -77,7 +77,6 @@ release VERSION: _deps
     git diff-index --quiet HEAD || (echo "Uncommitted changes! Commit or stash first." && exit 1)
     zelos extensions bump "{{VERSION}}"
     if [[ -f pyproject.toml ]]; then uv lock; fi
-    if [[ -f web/package.json ]]; then (cd web && npm version "{{VERSION}}" --no-git-tag-version --allow-same-version); fi
     just format
     just check
     just test
@@ -90,7 +89,7 @@ release VERSION: _deps
     echo ""
     echo "Push with: git push --follow-tags"
 
-# Delete a GitHub release, its remote and local tag, and force-push
+# Delete a GitHub release and its remote and local tag
 delete-release VERSION:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -98,18 +97,17 @@ delete-release VERSION:
     gh release delete "$tag" --yes 2>/dev/null && echo "✓ release deleted" || echo "- no release found"
     git push origin --delete "$tag" 2>/dev/null && echo "✓ remote tag deleted" || echo "- no remote tag"
     git tag -d "$tag" 2>/dev/null && echo "✓ local tag deleted" || echo "- no local tag"
-    git push --force-with-lease
     echo ""
     echo "✓ Cleaned up $tag — ready to re-release"
 
 # Remove build output, caches and packages
 clean:
-    rm -rf dist build web/node_modules .pytest_cache .ruff_cache *.tar.gz
+    rm -rf dist web/node_modules .pytest_cache .ruff_cache .hypothesis *.tar.gz actions.json
     find . -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
 
-# Run the agent runtime locally against ./config.json
+# Run the agent runtime locally
 run:
-    ZELOS_CONFIG_PATH=./config.json uv run python main.py
+    uv run python main.py
 
 # Update uv.lock after changing dependencies
 lock:

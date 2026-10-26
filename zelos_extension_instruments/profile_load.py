@@ -178,7 +178,7 @@ def from_dict(raw: dict[str, Any], path: Path | str = "profile.toml") -> Profile
             if name_ in seen:
                 c.fail(f"{reader.name}", f"reads {name_}, which {seen[name_]} reads too.")
             seen[name_] = reader.name
-    setters = load_setters(c, c.table(raw.get("setters"), "setters"), category, ranges, overrides)
+    setters = load_setters(c, c.table(raw.get("setters"), "setters"), category)
     system = load_system(c, raw.get("system"))
     heads = {
         _head(cmd) for s in setters.values() for cmd in (*s.commands, s.off) if cmd is not None
