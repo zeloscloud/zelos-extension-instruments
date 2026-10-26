@@ -85,7 +85,6 @@ class FakeScope:
         if slots is not None:
             word = slots.words.get("pkpk") or next(iter(slots.words), "")
             self.slots[1] = (True, word.upper(), self._source(1))
-        self.mode_ready = True
         self.waveform_source = 1
         self.waveform_points = 0
         self.waveform_interval = 1

@@ -160,7 +160,7 @@ class VisaLink:
 
     def read(self, timeout_s: float | None = None) -> str:
         while True:
-            text = self._text(self._read_raw(timeout_s), timeout_s)
+            text = self._text(self._read_raw(timeout_s))
             if not self._blank(text):
                 return text
 
@@ -214,9 +214,9 @@ class VisaLink:
                 return self._finish_block(head, timeout_s)
         terminator = self._settings.read_terminator.encode()
         if terminator and head.endswith(terminator):
-            return self._text(head, timeout_s)
+            return self._text(head)
         rest = self._read_raw(timeout_s)
-        return self._text(head + rest, timeout_s)
+        return self._text(head + rest)
 
     def _finish_block(self, head: bytes, timeout_s: float | None) -> bytes:
         if head[:1] != b"#" or not head[1:2].isdigit() or head[1:2] == b"0":
@@ -251,7 +251,7 @@ class VisaLink:
         finally:
             inst.timeout = timeout
 
-    def _text(self, raw: bytes, timeout_s: float | None) -> str:
+    def _text(self, raw: bytes) -> str:
         text = raw.decode("utf-8", errors="replace")
         terminator = self._settings.read_terminator
         return text.removesuffix(terminator) if terminator else text

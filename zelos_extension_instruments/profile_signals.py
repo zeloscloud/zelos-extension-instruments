@@ -18,8 +18,6 @@ from .profile import (
     VALUE_SETTERS,
     Flag,
     Master,
-    Range,
-    RangeOverride,
     Reader,
     Setter,
     readback_field,
@@ -239,8 +237,6 @@ def load_setters(
     c: Check,
     raw: dict[str, Any],
     category: str,
-    ranges: dict[str, Range],
-    overrides: tuple[RangeOverride, ...],
 ) -> dict[str, Setter]:
     setters: dict[str, Setter] = {}
     allowed = SETTERS[category]
