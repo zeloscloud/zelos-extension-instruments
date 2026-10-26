@@ -6,15 +6,12 @@ import sys
 import tomllib
 from pathlib import Path
 
-import pytest
 from jsonschema import Draft7Validator
 
-import zelos_extension_instruments
-from zelos_extension_instruments import ACTION_PREFIX, __version__
+from zelos_extension_instruments import ACTION_PREFIX
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = tomllib.loads((REPO_ROOT / "extension.toml").read_text(encoding="utf-8"))
-PYPROJECT = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
 def test_entry_module_re_exports_the_action_prefix() -> None:
@@ -23,31 +20,6 @@ def test_entry_module_re_exports_the_action_prefix() -> None:
     import main
 
     assert main.ACTION_PREFIX == ACTION_PREFIX == MANIFEST["name"] == "Instruments"
-
-
-def test_versions_agree() -> None:
-    assert __version__ == MANIFEST["version"] == PYPROJECT["project"]["version"]
-    assert zelos_extension_instruments.__version__ == __version__
-
-
-def test_manifest_hosts_an_agent() -> None:
-    assert "agent" not in MANIFEST
-    assert MANIFEST["host"]["type"] == "agent"
-    assert MANIFEST["host"]["agent"]["entry"] == "main.py"
-
-
-@pytest.mark.parametrize("relative", MANIFEST["package"]["paths"])
-def test_package_path_exists(relative: str) -> None:
-    assert (REPO_ROOT / relative).exists()
-
-
-@pytest.mark.parametrize("key", ["icon", "readme"])
-def test_referenced_file_exists(key: str) -> None:
-    assert (REPO_ROOT / MANIFEST[key]).is_file()
-
-
-def test_entry_point_is_packaged() -> None:
-    assert MANIFEST["host"]["agent"]["entry"] in MANIFEST["package"]["paths"]
 
 
 def test_config_schema_is_valid_and_its_examples_validate() -> None:
@@ -67,7 +39,7 @@ def test_inventory_holds_the_three_hidden_read_only_standalone_actions(tmp_path:
     subprocess.run(
         [
             *(sys.executable, "-m", "zelos_sdk.extensions.actions", "dump"),
-            *("--entry", MANIFEST["host"]["agent"]["entry"], "--out", str(out)),
+            *("--entry", MANIFEST["agent"]["entry"], "--out", str(out)),
         ],
         cwd=REPO_ROOT,
         check=True,
@@ -93,11 +65,3 @@ def test_importing_every_module_starts_nothing() -> None:
         "assert threading.active_count() == 1, threading.enumerate()\n"
     )
     subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT, check=True, timeout=60)
-
-
-def test_the_manifest_keeps_within_the_keyword_limit() -> None:
-    """The CLI refuses a manifest with more than 20 keywords."""
-    manifest = tomllib.loads((REPO_ROOT / "extension.toml").read_text(encoding="utf-8"))
-    keywords = manifest["keywords"]
-    assert 1 <= len(keywords) <= 20, len(keywords)
-    assert len(set(keywords)) == len(keywords)

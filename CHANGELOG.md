@@ -3,6 +3,13 @@
 All notable changes to this extension are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the extension uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Needs Zelos 26.0.10 or later.
+- The marketplace listing says it connects over LAN, USB-TMC, serial or VISA.
+
 ## [0.2.0] - 2026-10-22
 
 ### Added
