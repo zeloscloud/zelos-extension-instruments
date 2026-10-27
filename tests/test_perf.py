@@ -29,6 +29,7 @@ INTERVAL_NS = 1_000_000_000 // RATE_HZ
 
 
 @pytest.mark.perf
+@pytest.mark.timeout(SOAK_S + 120)
 def test_ten_instruments_hold_cadence_and_memory() -> None:
     profile: Profile | None = by_id(shipped(), "rigol-dp800")
     assert profile is not None
