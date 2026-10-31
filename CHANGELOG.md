@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Needs Zelos 26.0.10 or later.
 - The marketplace listing says it connects over LAN, USB-TMC, serial or VISA.
 
+### Fixed
+
+- An action called without an instrument acts on the only instrument. With several instruments it fails and names them, instead of acting on the first one, and the action form no longer preselects the first instrument.
+
 ## [0.2.0] - 2026-10-22
 
 ### Added

@@ -139,7 +139,7 @@ LAN sockets and serial ports need nothing installed. USB-TMC, VXI-11, HiSLIP and
 
 ## Actions
 
-Every action except List Instruments, List Profiles and Auto-configure takes `instrument`, the instrument's **Name**. Leave it out to act on the first configured instrument. Channel actions take `channel`, from 1. Leave it out for channel 1. A data-acquisition unit's channel is its address, such as 101.
+Every action except List Instruments, List Profiles and Auto-configure takes `instrument`, the instrument's **Name**. Leave it out when only one instrument is configured; with several, the action fails and names them. Channel actions take `channel`, from 1. Leave it out for channel 1. A data-acquisition unit's channel is its address, such as 101.
 
 | Action | Path | What it does | Read-only |
 |---|---|---|---|
