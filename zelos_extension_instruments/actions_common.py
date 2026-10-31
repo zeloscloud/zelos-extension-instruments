@@ -3,7 +3,7 @@ and the call that asks a worker."""
 
 from typing import Any
 
-from zelos_sdk.actions import SelectField, action, register_field_type
+from zelos_sdk.actions import action
 
 from .worker import InstrumentWorker, RequestKind
 
@@ -15,23 +15,8 @@ TIMEOUT_S = 10.0
 MARGIN_S = 0.5
 
 
-def first_instrument() -> str | None:
-    return next(iter(workers), None)
-
-
-@register_field_type("instrument")
-class _InstrumentField(SelectField):
-    """An instrument name field whose form default is the first configured instrument."""
-
-    def to_json_schema(self, current_values: dict[str, Any] | None = None) -> dict[str, Any]:
-        schema = super().to_json_schema(current_values)
-        schema["default"] = first_instrument()
-        return schema
-
-
-with_instrument = action.input(
+with_instrument = action.select(
     "instrument",
-    type="instrument",
     title="Instrument",
     choices=lambda *_: sorted(workers),
     required=False,
@@ -44,14 +29,19 @@ with_channel = action.integer(
 def ask(
     instrument: str | None, kind: RequestKind, action_timeout_s: float, **args: Any
 ) -> dict[str, Any]:
-    """The worker's reply; its error is raised as it is."""
+    """The worker's reply; its error is raised as it is. Unset `instrument` is the only one."""
     if instrument is None:
-        instrument = first_instrument()
-        if instrument is None:
+        if not workers:
             raise ValueError(
                 "no instrument is configured: add one in the extension's settings, or press "
                 "Auto-configure there"
             )
+        if len(workers) > 1:
+            names = ", ".join(sorted(workers))
+            raise ValueError(
+                f"several instruments are configured; set instrument to one of: {names}"
+            )
+        instrument = next(iter(workers))
     worker = workers.get(instrument)
     if worker is None:
         raise ValueError(f"no instrument is named {instrument}; configured: {', '.join(workers)}")

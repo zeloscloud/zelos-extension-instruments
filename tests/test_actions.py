@@ -129,10 +129,11 @@ def test_the_registry_holds_every_action_with_its_flags() -> None:
     }
 
 
-def test_instrument_field_defaults_to_the_first_configured(bench) -> None:
-    schema = ACTIONS["read"].to_schema()
-    assert schema["properties"]["instrument"]["default"] == "psu"
-    assert schema["properties"]["instrument"]["enum"] == ["aux", "psu"]
+def test_the_instrument_field_lists_the_instruments_and_picks_none(bench) -> None:
+    for name, action in ACTIONS.items():
+        field = action.to_schema()["properties"].get("instrument")
+        if field is not None:
+            assert (field["enum"], field.get("default")) == (["aux", "psu"], None), name
 
 
 def test_set_and_output_through_the_registry(bench) -> None:
@@ -168,9 +169,14 @@ def test_read_state_scpi_and_clear(bench) -> None:
     assert run("clear", instrument="psu", channel=1) == {"ok": True, "errors_cleared": 0}
 
 
-def test_the_first_instrument_is_the_default_target(bench) -> None:
+def test_an_unset_instrument_is_the_only_one(bench, monkeypatch) -> None:
+    with pytest.raises(
+        ActionExecutionError,
+        match="^several instruments are configured; set instrument to one of: aux, psu$",
+    ):
+        execute("get_state")
+    monkeypatch.setattr(actions_common, "workers", {"psu": actions_common.workers["psu"]})
     assert run("get_state")["identity"] == "RIGOL TECHNOLOGIES,DP832A,DP8C000001,00.01.16"
-    assert actions_common.first_instrument() == "psu"
 
 
 def test_an_unknown_instrument_name_is_an_error(bench) -> None:
