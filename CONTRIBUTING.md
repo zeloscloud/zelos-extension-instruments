@@ -2,14 +2,18 @@
 
 ## Prerequisites
 
-- [Zelos CLI](https://docs.zeloscloud.io/reference/cli/)
-- [uv](https://docs.astral.sh/uv/) 0.9.5 or later
+- [Zelos](https://zeloscloud.io) 26.0.10 or later
+- [Zelos CLI](https://docs.zeloscloud.io/reference/cli/) 0.1.11 or later
 - [just](https://github.com/casey/just)
-- Python 3.11 (uv installs it)
-
-The Zelos guide to [developing extensions](https://docs.zeloscloud.io/sdk/how-to/develop-extensions/) covers the SDK, and [Package and Publish Extensions](https://docs.zeloscloud.io/sdk/how-to/package-extensions/) covers the archive and the marketplace.
+- [uv](https://docs.astral.sh/uv/)
 
 ## Layout
+
+`extension.toml` describes everything the extension contributes:
+
+| Part | Files | Manifest |
+| ---- | ----- | -------- |
+| Agent runtime | `main.py`, the Python package, `pyproject.toml`, `config.schema.json` | `[agent]`, `[config]` |
 
 | Path | Holds |
 | ---- | ----- |
@@ -25,35 +29,52 @@ The Zelos guide to [developing extensions](https://docs.zeloscloud.io/sdk/how-to
 
 ## Commands
 
-| Command | Description |
-| ------- | ----------- |
-| `just install` | Install dependencies and the pre-commit hooks |
-| `just format` | Format and fix lint with ruff |
-| `just check` | Format check, lint and pyright |
-| `just test` | Run the tests (`uv run pytest -m perf` adds the cadence gates) |
-| `just profiles [paths]` | Check every shipped profile, and any paths given |
-| `just sim <profile> [--port N]` | Serve a fake instrument from a profile on a TCP port |
-| `just record <profile> <address>` | Record a transcript from a real instrument (`--set` rewrites each level to its current value, and never sends a switch, label or command) |
-| `just run` | Run the extension against `./config.json` |
-| `just package` | Package for the Zelos marketplace |
-| `just release VERSION` | Bump version, check, test, commit, tag |
-| `just clean` | Remove build output, caches and packages |
+| Command                           | Description                                                      |
+| --------------------------------- | ---------------------------------------------------------------- |
+| `just install`                    | Install dependencies and the pre-commit hooks                    |
+| `just format`                     | Format code with ruff                                            |
+| `just check`                      | Check formatting, lint (ruff), type-check (pyright)              |
+| `just test`                       | Run tests (pytest)                                               |
+| `just profiles [paths]`           | Check every shipped profile, and any paths given                 |
+| `just sim <profile> [--port N]`   | Serve a fake instrument from a profile on a TCP port             |
+| `just record <profile> <address>` | Record a transcript from a real instrument                       |
+| `just run`                        | Run the agent runtime locally against `./config.json`            |
+| `just package`                    | Package for the Zelos marketplace                                |
+| `just release VERSION`            | Bump version, check, test, commit, tag                           |
+| `just clean`                      | Remove build output, caches and packages                         |
 
-CI runs `just check` and `just test` on Linux, macOS and Windows for every push and pull request. The nightly Soak workflow runs the cadence and memory gates for an hour. The nightly Hardware workflow runs on the self-hosted bench runner against the instruments its `BENCH` variable lists.
+`just install` installs the pre-commit hooks in `.pre-commit-config.yaml`. `just record --set`
+rewrites each level to its current value, and never sends a switch, label or command.
+
+## Testing
+
+`just test` skips the cadence gates and the bench tests. `uv run pytest -m perf` runs the cadence
+gates. CI runs `just check` and `just test` on Linux, macOS and Windows for every push and pull
+request. The nightly Soak workflow runs the cadence and memory gates for an hour. The nightly
+Hardware workflow runs on the self-hosted bench runner against the instruments its `BENCH`
+variable lists.
 
 ## Run it in Zelos
-
-```bash
-echo '{"instruments": [{"connection": "demo", "category": "psu"}, {"connection": "demo", "category": "load"}]}' > config.json
-just run
-```
-
-`just run` connects to the agent at `ZELOS_AGENT_URL`, else `http://localhost:2300`. To run it under the agent instead:
 
 ```bash
 zelos extensions install-local .
 zelos extensions start local.instruments --config '{"instruments": [{"connection": "demo", "category": "psu"}]}'
 zelos extensions logs local.instruments
+```
+
+A local install runs from your project directory, so you do not install again after a code
+change:
+
+- Agent runtime: stop and start the extension. After a dependency change, stop it and run
+  `zelos extensions reinstall local.instruments`.
+- `extension.toml`: run `zelos extensions install-local .` again.
+
+To run it outside the agent, write a `config.json` and use `just run`. It connects to the agent
+at `ZELOS_AGENT_URL`, else `http://localhost:2300`:
+
+```bash
+echo '{"instruments": [{"connection": "demo", "category": "psu"}, {"connection": "demo", "category": "load"}]}' > config.json
+just run
 ```
 
 ## Try a profile without hardware
@@ -71,11 +92,24 @@ Then configure a LAN instrument at `127.0.0.1:5555` with the profile `rigol-dp80
 3. `just sim <id>` and configure the fake, or configure the real unit, and watch the signals arrive.
 4. `just record <id> <address>` on the real unit, and commit the transcript with the profile. Set the badge to `transcript`.
 
-## Releasing
+## Packaging
 
 ```bash
-just release VERSION
+just package
+```
+
+The archive lands next to `extension.toml` as `<name>-<version>.tar.gz`, where `<name>` is the
+manifest name in lowercase with every other run of characters turned into one hyphen. It holds
+`extension.toml`, the README, the icon, the config schema and the paths listed in
+`[package] paths`. With an agent runtime it also holds `pyproject.toml`, `uv.lock` and
+`actions.json`, the list of actions that run while the extension is stopped.
+
+## Release
+
+```bash
+just release 1.0.0
 git push --follow-tags
 ```
 
-The tag runs `.github/workflows/release.yml`, which checks, tests, packages and attaches the archive to a GitHub release.
+The release workflow checks, tests and packages the extension, then attaches the archive to a
+GitHub release.

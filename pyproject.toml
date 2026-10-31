@@ -1,8 +1,8 @@
 [project]
 name = "zelos-extension-instruments"
 version = "0.2.0"
-description = "Record and control bench instruments over SCPI: power supplies, electronic loads, multimeters, AC sources, oscilloscopes, function generators and data acquisition units."
-authors = [{ name = "Zeloscloud", email = "info@zeloscloud.io" }]
+description = "Record and control bench instruments over SCPI on LAN, USB-TMC, serial or VISA: power supplies, electronic loads, multimeters, AC sources, oscilloscopes, function generators and data acquisition units."
+authors = [{ name = "Zelos", email = "support@zeloscloud.io" }]
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
@@ -13,11 +13,14 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "zelos-sdk>=0.0.13a1,<0.1",
+    "zelos-sdk>=0.0.13a1",
     "pyvisa>=1.14",
-    # Exact: USB-TMC behaviour changes between releases, and every bump is re-tested on the bench.
+    # Exact: USB-TMC behavior changes between releases, and every bump is re-tested on the bench.
     "pyvisa-py==0.8.1",
     "pyusb>=1.2",
     "libusb-package>=1.0.26",
@@ -33,15 +36,15 @@ dependencies = [
 Homepage = "https://github.com/zeloscloud/zelos-extension-instruments"
 Repository = "https://github.com/zeloscloud/zelos-extension-instruments"
 Issues = "https://github.com/zeloscloud/zelos-extension-instruments/issues"
-Documentation = "https://docs.zeloscloud.io/latest/sdk/how-to/develop-extensions/"
+Documentation = "https://docs.zeloscloud.io/app/extensions/"
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-    "hypothesis>=6",
-    "ruff>=0.16.10",
-    "pyright>=1.1.400",
     "pre-commit>=4.6.2",
+    "ruff>=0.16.10",
+    "hypothesis>=6",
+    "pyright>=1.1.400",
     "pytest-timeout>=2.4.0",
 ]
 
@@ -65,11 +68,20 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py311"
+target-version = 'py311'
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "C4", "PTH"]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "PTH",  # flake8-use-pathlib
+]
 ignore = [
     "B008",   # function call in defaults (common in decorators)
 ]

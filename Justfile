@@ -104,12 +104,12 @@ delete-release VERSION:
 
 # Remove build output, caches and packages
 clean:
-    rm -rf dist build web/node_modules .pytest_cache .ruff_cache *.tar.gz
+    rm -rf dist build web/node_modules .pytest_cache .ruff_cache .hypothesis *.tar.gz actions.json
     find . -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
 
-# Run the agent runtime locally against ./config.json
+# Run the agent runtime locally
 run:
-    ZELOS_CONFIG_PATH=./config.json uv run python main.py
+    uv run python main.py
 
 # Update uv.lock after changing dependencies
 lock:

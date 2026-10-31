@@ -13,7 +13,7 @@ jobs:
   check:
     name: Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       # The links open real sockets and serial URLs; one failing OS must not hide the others.
       fail-fast: false
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v7
 
       # Agent runtime: uv installs the Python version pinned in .python-version.
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.2.0
         if: hashFiles('pyproject.toml') != ''
         with:
           enable-cache: true
@@ -34,10 +34,12 @@ jobs:
         with:
           node-version-file: web/.nvmrc
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
-          fallback: none
+      - uses: extractions/setup-just@v4
+
+      # A stale lock would ship in the package and fail to install on other platforms.
+      - name: Verify uv.lock is in sync with pyproject.toml
+        if: hashFiles('uv.lock') != ''
+        run: uv lock --locked
 
       - name: Install dependencies
         run: just ci-install

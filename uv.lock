@@ -954,7 +954,7 @@ requires-dist = [
     { name = "pyvisa", specifier = ">=1.14" },
     { name = "pyvisa-py", specifier = "==0.8.1" },
     { name = "serialx", specifier = ">=1.11" },
-    { name = "zelos-sdk", specifier = ">=0.0.13a1,<0.1" },
+    { name = "zelos-sdk", specifier = ">=0.0.13a1" },
     { name = "zeroconf", specifier = ">=0.130" },
 ]
 

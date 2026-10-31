@@ -1,37 +1,28 @@
 name = "Instruments"
 version = "0.2.0"
-description = "Record and control bench instruments over SCPI: power supplies, electronic loads, multimeters, AC sources, oscilloscopes, function generators and data acquisition units."
+description = "Record and control bench instruments over SCPI on LAN, USB-TMC, serial or VISA: power supplies, electronic loads, multimeters, AC sources, oscilloscopes, function generators and data acquisition units."
 author = "Zelos"
 repository = "https://github.com/zeloscloud/zelos-extension-instruments"
-homepage = "https://github.com/zeloscloud/zelos-extension-instruments"
-# Search matches substrings of these, the name and the description, so a word the description holds
-# is wasted here. Zelos AI reads the keywords too; the page shows the first three categories.
+# The marketplace search and Zelos AI find an extension by these words, its name and its description.
 keywords = ["power supply", "psu", "dc load", "dmm", "waveform", "test equipment", "pyvisa", "lxi", "usbtmc", "gpib", "awg", "daq", "keysight", "agilent", "rigol", "siglent", "keithley", "rohde & schwarz", "fluke", "tektronix"]
 categories = ["Test & Measurement", "Embedded", "Industrial"]
-
 icon = "assets/icon.png"
 readme = "README.md"
 
 [zelos]
-version = ">=26.0.9"
+version = ">=26.0.10"
 
 [config]
 schema = "config.schema.json"
 
-[host]
-type = "agent"
-
-[host.agent]
+[agent]
+runtime = "python"
 entry = "main.py"
 python_version = "3.11"
 
-# Linux and macOS: SIGTERM, then SIGKILL after this many seconds. Workers stop within one query
-# timeout (2 s) and the app waits for them before it flushes; the rest is headroom for the SDK's
-# atexit drain. Windows: the agent terminates the job after at most 1 s.
-[host.agent.stop]
+# Workers stop within one 2 s query timeout; the rest is headroom for the SDK's atexit drain.
+[agent.stop]
 grace_seconds = 5
 
-# The packager adds extension.toml, the readme, icon and config schema, pyproject.toml, uv.lock and
-# the generated actions.json; everything else is named here.
 [package]
 paths = ["main.py", "zelos_extension_instruments", "profiles", "docs", "LICENSE", "assets/readme"]
