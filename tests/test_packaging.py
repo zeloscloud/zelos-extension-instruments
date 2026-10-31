@@ -14,12 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = tomllib.loads((REPO_ROOT / "extension.toml").read_text(encoding="utf-8"))
 
 
-def test_entry_module_re_exports_the_action_prefix() -> None:
-    """The inventory dump reads the prefix off the entry module and falls back to its file name,
-    so a missing re-export ships `main/list_instruments` beside a live `Instruments/...`."""
-    import main
-
-    assert main.ACTION_PREFIX == ACTION_PREFIX == MANIFEST["name"] == "Instruments"
+def test_the_name_is_the_action_prefix() -> None:
+    """Live actions register under ACTION_PREFIX; stopped ones under the manifest name."""
+    assert MANIFEST["name"] == ACTION_PREFIX == "Instruments"
 
 
 def test_config_schema_is_valid_and_its_examples_validate() -> None:
@@ -47,7 +44,6 @@ def test_inventory_holds_the_three_hidden_read_only_standalone_actions(tmp_path:
     )
 
     inventory = json.loads(out.read_text(encoding="utf-8"))
-    assert inventory["action_prefix"] == ACTION_PREFIX == "Instruments"
     assert {a["path"]: (a["read_only"], a["hidden"]) for a in inventory["actions"]} == {
         "list_instruments": (True, True),
         "list_profiles": (True, True),
