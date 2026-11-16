@@ -473,6 +473,97 @@ def test_every_query_parses_and_every_setter_round_trips(profile: Profile) -> No
     round_trip(profile)
 
 
+@pytest.mark.parametrize("profile", EVERY, ids=EVERY_IDS)
+def test_every_limit_query_answers_a_number(profile: Profile) -> None:
+    bench = Bench(profile)
+    ranges = [profile.ranges, *(o.ranges for o in profile.range_overrides)]
+    queries = {
+        q
+        for r in ranges
+        for range_ in r.values()
+        for q in (range_.min_query, range_.max_query)
+        if q is not None
+    }
+    bad = []
+    for query in sorted(queries):
+        reply = bench.send(engine.render(query, ch=1), 1) or ""
+        try:
+            engine.parse_float(reply)
+        except engine.ParseError:
+            bad.append((query, reply))
+    assert not bad, profile.id
+
+
+MODE_WORDS = [
+    p
+    for p in EVERY
+    if "function" in p.setters and (r := p.reader("mode")) is not None and r.parse == "map"
+]
+
+
+@pytest.mark.parametrize("profile", MODE_WORDS, ids=[p.id for p in MODE_WORDS])
+def test_the_mode_reads_back_the_word_the_function_setter_sent(profile: Profile) -> None:
+    """A mode word can carry more than the function, such as its range."""
+    bench = Bench(profile)
+    setter, reader = profile.setters["function"], profile.reader("mode")
+    assert reader is not None and reader.query is not None
+    for function, word in setter.map.items():
+        if reader.map.get(word.casefold()) != function:
+            continue
+        bench.send(engine.setter_command(setter, ch=1, function=function), 1)
+        assert bench.send(engine.render(reader.query, ch=1), 1) == word, (profile.id, function)
+
+
+def _scpi(cc: str, cv: str, cp: str, cr: str | None = None) -> dict[str, str]:
+    """The SCPI short and long forms a load takes for each function, each read back as the
+    load's reply word for that function."""
+    taken = {"CURR": cc, "CURRENT": cc, "VOLT": cv, "VOLTAGE": cv, "POW": cp, "POWER": cp}
+    if cr is not None:
+        taken |= {"RES": cr, "RESISTANCE": cr}
+    return taken
+
+
+RANGED = {f"{f}{r}": f"{f}{r}" for f in ("CC", "CV", "CP", "CR") for r in "LMH"}
+LETTERS = {"CC": "CC", "CV": "CV", "CP": "CP", "CR": "CR"}
+# Every function word each load takes, and what its mode query then answers.
+MODE_READBACKS: dict[str, dict[str, str]] = {
+    "generic-load": _scpi("CURR", "VOLT", "POW"),
+    "bk-8500b": _scpi("CURR", "VOLT", "POW", "RES"),
+    "bk-8600": _scpi("CURR", "VOLT", "POW", "RES"),
+    "chroma-63200": RANGED,
+    "gw-instek-pel-3000": LETTERS,
+    "itech-it8500-plus": _scpi("CURR", "VOLT", "POW", "RES"),
+    "itech-it8800": _scpi("CURR", "VOLT", "POW", "RES"),
+    "keithley-2380": _scpi("CURR", "VOLT", "POW", "RES"),
+    "keysight-el30000": _scpi("CURR", "VOLT", "POW", "RES"),
+    "kikusui-plz-5w": LETTERS,
+    "rigol-dl3000": _scpi("CC", "CV", "CP", "CR"),
+    "siglent-sdl1000x": _scpi("CURRENT", "VOLTAGE", "POWER", "RESISTANCE"),
+    "test-load": _scpi("CURR", "VOLT", "POW", "RES"),
+    "new-load": _scpi("CURR", "VOLT", "POW", "RES"),
+}
+
+
+def test_every_load_has_its_mode_readbacks_written_out() -> None:
+    assert sorted(MODE_READBACKS) == sorted(p.id for p in MODE_WORDS)
+
+
+@pytest.mark.parametrize("profile", MODE_WORDS, ids=[p.id for p in MODE_WORDS])
+def test_every_function_word_a_load_takes_reads_back_as_its_mode(profile: Profile) -> None:
+    bench = Bench(profile)
+    setter, reader = profile.setters["function"], profile.reader("mode")
+    assert reader is not None and reader.query is not None
+    for word, expected in MODE_READBACKS[profile.id].items():
+        # Another function first, so a word the fake refuses cannot pass on what was there.
+        function = reader.map[expected.casefold()]
+        other = next(w for f, w in setter.map.items() if f != function)
+        bench.send(engine.render(setter.command, ch=1, function=other), 1)
+        bench.send(engine.render(setter.command, ch=1, function=word), 1)
+        bench.drained(f"function {word}")
+        reply = bench.send(engine.render(reader.query, ch=1), 1)
+        assert reply == expected, (profile.id, word, reply)
+
+
 @pytest.mark.parametrize("framing", ["block", "bmp", "png"])
 def test_a_screenshot_comes_back_in_the_profiles_framing(framing: str) -> None:
     profile = next(p for p in INLINE if p.id == "new-psu")

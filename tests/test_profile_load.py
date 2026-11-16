@@ -1202,3 +1202,54 @@ def test_a_profile_that_offers_a_screenshot_never_says_it_does_not(profile: Prof
     sentences = re.split(r"(?<=\.)\s+", profile.notes or "")
     denials = [s for s in sentences if re.search(r"(?i)screenshots?\b.*\bnot offered", s)]
     assert denials == [], profile.id
+
+
+@pytest.mark.parametrize("form", ["+.8E", ".2E", ".10g", "metric"])
+def test_how_an_instrument_writes_numbers_is_kept_for_the_profile_and_a_reader(form: str) -> None:
+    raw = minimal()
+    raw["link"] = {"numbers": form}
+    raw["signals"]["voltage"]["numbers"] = form
+    profile = profile_from(raw)
+    assert profile.link.numbers == form
+    assert profile.signals[0].numbers == form
+
+
+@pytest.mark.parametrize("form", ["%.8E", "+.8", "d", "8E", ""])
+def test_a_number_form_python_cannot_write_is_named(form: str) -> None:
+    raw = minimal()
+    raw["link"] = {"numbers": form}
+    raw["signals"]["voltage"]["numbers"] = form
+    found = problems_of(raw)
+    assert any(p.startswith("link.numbers:") for p in found), found
+    assert any(p.startswith("signals.voltage.numbers:") for p in found), found
+
+
+def test_a_number_form_is_only_for_a_reader_that_reads_numbers() -> None:
+    raw = minimal()
+    raw["state"] = {"output": {"query": "OUTP?", "parse": "bool", "numbers": "+.8E"}}
+    assert any(p.startswith("state.output.numbers:") for p in problems_of(raw))
+
+
+def test_a_model_entry_still_asks_the_unit_what_the_base_range_asks(
+    profiles: list[Profile],
+) -> None:
+    """A model's own figures go beside the unit's limit queries, never in their place."""
+    lost = [
+        (p.id, o.model.pattern, key, query)
+        for p in profiles
+        for o in p.range_overrides
+        for key, range_ in o.ranges.items()
+        if key in p.ranges
+        for query in ("min_query", "max_query")
+        if getattr(p.ranges[key], query) and getattr(range_, query) != getattr(p.ranges[key], query)
+    ]
+    assert not lost
+
+
+def test_a_fixed_min_goes_beside_a_min_query() -> None:
+    raw = minimal()
+    raw["ranges"] = {"voltage": {"min": 0.5, "min_query": "VOLT? MIN", "max": 30}}
+    range_ = profile_from(raw).ranges["voltage"]
+    assert (range_.min, range_.min_query) == (0.5, "VOLT? MIN")
+    raw["ranges"] = {"voltage": {"min_query": "VOLT? MIN", "max": 30}}
+    assert profile_from(raw).ranges["voltage"].min is None

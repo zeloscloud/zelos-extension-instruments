@@ -114,151 +114,211 @@ ocp = { min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", 
 model = '2260B-30-36$'
 voltage = { min = 0, max = 31.5, digits = 3 }
 current = { min = 0, max = 37.8, digits = 3 }
+ovp = { min = 0, max = 33, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 3.6, max = 39.6, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-80-13$'
 voltage = { min = 0, max = 84, digits = 3 }
 current = { min = 0, max = 14.175, digits = 3 }
+ovp = { min = 0, max = 88, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 1.35, max = 14.85, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-250-4$'
 voltage = { min = 0, max = 262.5, digits = 3 }
 current = { min = 0, max = 4.725, digits = 3 }
+ovp = { min = 0, max = 275, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.45, max = 4.95, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-800-1$'
 voltage = { min = 0, max = 840, digits = 3 }
 current = { min = 0, max = 1.512, digits = 3 }
+ovp = { min = 0, max = 880, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.144, max = 1.584, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-30-72$'
 voltage = { min = 0, max = 31.5, digits = 3 }
 current = { min = 0, max = 75.6, digits = 3 }
+ovp = { min = 0, max = 33, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 7.2, max = 79.2, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-80-27$'
 voltage = { min = 0, max = 84, digits = 3 }
 current = { min = 0, max = 28.35, digits = 3 }
+ovp = { min = 0, max = 88, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 2.7, max = 29.7, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-250-9$'
 voltage = { min = 0, max = 262.5, digits = 3 }
 current = { min = 0, max = 9.45, digits = 3 }
+ovp = { min = 0, max = 275, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.9, max = 9.9, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-800-2$'
 voltage = { min = 0, max = 840, digits = 3 }
 current = { min = 0, max = 3.024, digits = 3 }
+ovp = { min = 0, max = 880, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.288, max = 3.168, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-30-108$'
 voltage = { min = 0, max = 31.5, digits = 3 }
 current = { min = 0, max = 113.4, digits = 3 }
+ovp = { min = 0, max = 33, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 10.8, max = 118.8, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-80-40$'
 voltage = { min = 0, max = 84, digits = 3 }
 current = { min = 0, max = 42.525, digits = 3 }
+ovp = { min = 0, max = 88, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 4.05, max = 44.55, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-250-13$'
 voltage = { min = 0, max = 262.5, digits = 3 }
 current = { min = 0, max = 14.175, digits = 3 }
+ovp = { min = 0, max = 275, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 1.35, max = 14.85, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = '2260B-800-4$'
 voltage = { min = 0, max = 840, digits = 3 }
 current = { min = 0, max = 4.536, digits = 3 }
+ovp = { min = 0, max = 880, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.432, max = 4.752, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?30[- ]?36$'
 voltage = { min = 0, max = 31.5, digits = 3 }
 current = { min = 0, max = 37.8, digits = 3 }
+ovp = { min = 0, max = 33, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 3.6, max = 39.6, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?40[- ]?27$'
 voltage = { min = 0, max = 42, digits = 3 }
 current = { min = 0, max = 28.35, digits = 3 }
+ovp = { min = 0, max = 44, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 2.7, max = 29.7, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?80[- ]?13\.5$'
 voltage = { min = 0, max = 84, digits = 3 }
 current = { min = 0, max = 14.175, digits = 3 }
+ovp = { min = 0, max = 88, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 1.35, max = 14.85, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?160[- ]?7\.2$'
 voltage = { min = 0, max = 168, digits = 3 }
 current = { min = 0, max = 7.56, digits = 3 }
+ovp = { min = 0, max = 176, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.72, max = 7.92, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?250[- ]?4\.5$'
 voltage = { min = 0, max = 262.5, digits = 3 }
 current = { min = 0, max = 4.725, digits = 3 }
+ovp = { min = 0, max = 275, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.45, max = 4.95, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?800[- ]?1\.44$'
 voltage = { min = 0, max = 840, digits = 3 }
 current = { min = 0, max = 1.512, digits = 3 }
+ovp = { min = 0, max = 880, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.144, max = 1.584, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?30[- ]?72$'
 voltage = { min = 0, max = 31.5, digits = 3 }
 current = { min = 0, max = 75.6, digits = 3 }
+ovp = { min = 0, max = 33, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 7.2, max = 79.2, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?40[- ]?54$'
 voltage = { min = 0, max = 42, digits = 3 }
 current = { min = 0, max = 56.7, digits = 3 }
+ovp = { min = 0, max = 44, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 5.4, max = 59.4, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?80[- ]?27$'
 voltage = { min = 0, max = 84, digits = 3 }
 current = { min = 0, max = 28.35, digits = 3 }
+ovp = { min = 0, max = 88, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 2.7, max = 29.7, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?160[- ]?14\.4$'
 voltage = { min = 0, max = 168, digits = 3 }
 current = { min = 0, max = 15.12, digits = 3 }
+ovp = { min = 0, max = 176, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 1.44, max = 15.84, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?250[- ]?9$'
 voltage = { min = 0, max = 262.5, digits = 3 }
 current = { min = 0, max = 9.45, digits = 3 }
+ovp = { min = 0, max = 275, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.9, max = 9.9, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?800[- ]?2\.88$'
 voltage = { min = 0, max = 840, digits = 3 }
 current = { min = 0, max = 3.024, digits = 3 }
+ovp = { min = 0, max = 880, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.288, max = 3.168, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?30[- ]?108$'
 voltage = { min = 0, max = 31.5, digits = 3 }
 current = { min = 0, max = 113.4, digits = 3 }
+ovp = { min = 0, max = 33, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 10.8, max = 118.8, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?40[- ]?81$'
 voltage = { min = 0, max = 42, digits = 3 }
 current = { min = 0, max = 85.05, digits = 3 }
+ovp = { min = 0, max = 44, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 8.1, max = 89.1, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?80[- ]?40\.5$'
 voltage = { min = 0, max = 84, digits = 3 }
 current = { min = 0, max = 42.525, digits = 3 }
+ovp = { min = 0, max = 88, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 4.05, max = 44.55, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?160[- ]?21\.6$'
 voltage = { min = 0, max = 168, digits = 3 }
 current = { min = 0, max = 22.68, digits = 3 }
+ovp = { min = 0, max = 176, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 2.16, max = 23.76, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?250[- ]?13\.5$'
 voltage = { min = 0, max = 262.5, digits = 3 }
 current = { min = 0, max = 14.175, digits = 3 }
+ovp = { min = 0, max = 275, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 1.35, max = 14.85, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [[ranges.models]]
 model = 'PSW[- ]?800[- ]?4\.32$'
 voltage = { min = 0, max = 840, digits = 3 }
 current = { min = 0, max = 4.536, digits = 3 }
+ovp = { min = 0, max = 880, min_query = ":SOUR:VOLT:PROT? MIN", max_query = ":SOUR:VOLT:PROT? MAX", digits = 3 }
+ocp = { min = 0.432, max = 4.752, min_query = ":SOUR:CURR:PROT? MIN", max_query = ":SOUR:CURR:PROT? MAX", digits = 3 }
 
 [system]
 display_clear = ":DISP:TEXT:CLE"

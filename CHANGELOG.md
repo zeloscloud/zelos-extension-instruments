@@ -5,6 +5,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Over-voltage protection ranges from the manuals for the Keysight N8900, Agilent N5700, Keysight E36200 and Keysight E36731A, and over-voltage and over-current protection ranges for the Keithley 2260B and GW Instek PSW. The unit's own limit query still sets the limit; the manual's figure holds when the query answers no number.
+- Profile format: `numbers`, in `[link]` or on a `float` or `floats` reader, says how the instrument writes numbers, and the fake instrument writes them that way. A range may give a fixed `min` or `max` beside its query. The format is in `docs/profiles.md`.
+
 ### Changed
 
 - The shipped profiles and the config schema live in the Python package, under `zelos_extension_instruments/profiles/` and `zelos_extension_instruments/config.schema.json`.
@@ -12,6 +17,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Installed from a wheel, the extension carries its config schema and profiles, so it runs outside its source tree.
+- The demo supply's over-voltage and over-current protection levels read at the top of their range instead of 0 V, and its connect no longer logs a bad reply for those limits.
+- The fake instrument answers a protection limit the profile leaves to the unit with the manual's figure, else with the unit's output range, and a limit it has no bound for with SCPI's `9.9E+37`, where it sent `inf`. It starts each protection level at the end of its range furthest from zero.
+- The fake Chroma 63200A load takes every mode and range, such as `CCL`, `CCM` and `CCH`, and answers `MODE?` with the one it was set to, instead of the low range.
+- Fake loads take both SCPI forms of the function words `CURRent`, `VOLTage`, `POWer` and `RESistance`, and answer the mode query with the reply word their profile gives.
+- The fake Siglent SDS scope writes its settings as the SDS824X HD does, such as `5.00E-01`, and its memory depth with a metric prefix, as the scope writes `10M`.
+- The fake Keysight Truevolt meters write readings and settings, and the fake 34401A its readings, with a sign, nine digits and an exponent, such as `+1.00000000E+01`, as their programming guides give.
 
 ## [0.3.0] - 2026-11-01
 

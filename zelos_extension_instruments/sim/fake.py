@@ -20,6 +20,7 @@ from ..profile import (
     FUNCTION_LABELS,
     LABEL_SETTERS,
     PROTECTION_LABELS,
+    SETTER_RANGE,
     SWITCH_SETTERS,
     VALUE_SETTERS,
     Flag,
@@ -67,6 +68,9 @@ _EMPTY_SLOT = (-256, "File name not found")
 _QUEUE_DEPTH = 20
 # SCPI's overflow reading, which the engine reads as not-a-number.
 _OVERFLOW = 9.9e37
+# SCPI's long forms of a load's function words.
+_LONG_FORMS = {"CURR": "CURRENT", "VOLT": "VOLTAGE", "POW": "POWER", "RES": "RESISTANCE"}
+_SHORT_FORMS = {long: short for short, long in _LONG_FORMS.items()}
 # The upper bound a range reports when the profile leaves it to a query.
 _RATINGS = {
     "voltage": 30.0,
@@ -123,6 +127,8 @@ class _Channel:
     source_volts: float = 12.0
     # A meter's range, autorange and integration time, by function.
     meter: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # The word that last set the function.
+    word: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,9 +179,10 @@ class FakeInstrument:
         self._readings = dict(_READINGS)
         self._errors: deque[tuple[int, str]] = deque()
         self._no_error = _empty_queue_reply(profile)
+        self._modes = self._mode_words()
         self._self_test_reply = _self_test_reply(profile)
         self._selected = 1
-        self._state = [self._new_channel() for _ in range(self.channels)]
+        self._state = [self._new_channel(ch) for ch in range(1, self.channels + 1)]
         # Without a master switch, a channel that is on delivers power.
         self._master = self._master_setter() is None
         self._saved: dict[int, str] = {}
@@ -267,8 +274,9 @@ class FakeInstrument:
 
         return FakeDaq(self.profile, idn=self.idn)
 
-    def _new_channel(self, old: _Channel | None = None) -> _Channel:
-        """A channel at its defaults; the load and source around it stay as `old` has them."""
+    def _new_channel(self, ch: int, old: _Channel | None = None) -> _Channel:
+        """A channel at its defaults, with each protection level at the bound furthest from
+        zero; the load and source around it stay as `old` has them."""
         extras: dict[str, Any] = {
             "ovp_on": False,
             "ocp_on": False,
@@ -277,6 +285,9 @@ class FakeInstrument:
             **{n: default_label(self.profile, n, label) for n, label in _LABELS.items()},
         }
         state = _Channel(self._default_function(), extras)
+        for name in ("ovp", "ocp"):
+            low, high = self.bounds(name, ch)
+            state.setpoints[name] = high if abs(high) >= abs(low) else low
         if old is not None:
             state.load_ohms, state.source_volts = old.load_ohms, old.source_volts
         return state
@@ -387,7 +398,23 @@ class FakeInstrument:
             if "{function}" not in setter.command:
                 return [], []
             return [], [*(setter.map or dmm.words).values()]
+        if setter.name == "function":
+            return [*setter.map.values(), *self._modes], []
         return [*setter.map.values()], []
+
+    def _mode_words(self) -> dict[str, str]:
+        """Every function word a load takes, casefolded, with its function: each setter word in
+        its SCPI short and long forms and, for a function whose setter word the mode map lists,
+        every word the map lists for it, as CCL beside CCH."""
+        setter, reader = self.profile.setters.get("function"), self.profile.reader("mode")
+        if setter is None or reader is None or reader.parse != "map":
+            return {}
+        taken = {w.casefold(): f for f, word in setter.map.items() for w in _forms(word)}
+        listed = {f for w, f in taken.items() if reader.map.get(w) == f}
+        for key, function in reader.map.items():
+            if function in listed:
+                taken.update(dict.fromkeys((w.casefold() for w in _forms(key)), function))
+        return taken
 
     def _queries(self, profile: Profile) -> dict[str, list[Entry]]:
         queries: dict[str, list[Entry]] = {}
@@ -445,14 +472,19 @@ class FakeInstrument:
         if ch is None:
             return None
         low, high = self.bounds(key, ch)
-        return _number(low if bound == "min" else high)
+        return self._number(low if bound == "min" else high, self._form(None))
 
     def bounds(self, key: str | None, ch: int) -> tuple[float, float]:
+        """A range's bounds. A protection level without a figure of its own takes the output
+        range's."""
         range_ = self.profile.range_for(key, self.model, ch) if key is not None else None
-        low = range_.min if range_ is not None and range_.min is not None else 0.0
+        own = range_.min if range_ is not None else None
         if range_ is not None and range_.max is not None:
-            return low, range_.max
-        return low, _RATINGS.get(key or "", math.inf)
+            return (0.0 if own is None else own), range_.max
+        if key in SETTER_RANGE:
+            low, high = self.bounds(SETTER_RANGE[key], ch)
+            return (low if own is None else own), high
+        return (0.0 if own is None else own), _RATINGS.get(key or "", math.inf)
 
     def _set(self, setter: Setter, match: re.Match[str], off: bool = False) -> None:
         if setter.per_channel:
@@ -504,7 +536,9 @@ class FakeInstrument:
             elif name in LABEL_SETTERS:
                 state.extras[name] = _label_for(setter, groups["value"])
             elif name == "function":
-                state.function = _label_for(setter, groups["function"])
+                word = groups["function"]
+                state.function = self._modes.get(word.casefold()) or _label_for(setter, word)
+                state.word = word.upper()
             elif name == "clear":
                 state.trip = "none"
 
@@ -572,7 +606,7 @@ class FakeInstrument:
         return state.output and self._master
 
     def _reset(self, match: re.Match[str]) -> None:
-        self._state = [self._new_channel(old) for old in self._state]
+        self._state = [self._new_channel(ch, old) for ch, old in enumerate(self._state, 1)]
         self._master = self._master_setter() is None
         if self.fgen is not None:
             self.fgen.reset()
@@ -697,9 +731,10 @@ class FakeInstrument:
         return [p for ch in range(1, self.channels + 1) for p in self._reader_parts(reader, ch)]
 
     def _reader_parts(self, reader: Reader, ch: int) -> list[Part]:
+        form = self._form(reader)
         if reader.parse == "floats":
             return [
-                (i, _number(float(self._value(f, ch)) / reader.scale), False)
+                (i, self._number(float(self._value(f, ch)) / reader.scale, form), False)
                 for i, f in enumerate(reader.fields)
             ]
         name = reader.fields[0]
@@ -715,10 +750,20 @@ class FakeInstrument:
             return [(index, format(number, "X") if reader.hex else str(number), False)]
         if reader.parse == "map":
             label = _label(reader.map, name, value)
-            return [(index, reader.words.get(label) or label.upper(), False)]
+            return [(index, self._word(reader, name, label, self._state[ch - 1]), False)]
         if reader.parse == "str":
             return [(index, str(value), False)]
-        return [(index, _number(float(value) / reader.scale), False)]
+        return [(index, self._number(float(value) / reader.scale, form), False)]
+
+    def _word(self, reader: Reader, name: str, label: str, state: _Channel) -> str:
+        """The instrument's word for a label. A mode reads back as the word that set it where
+        the map lists it, which may name more than the function, such as its range; a SCPI
+        long or short form of the reply word reads back as the reply word."""
+        first = reader.words.get(label) or label.upper()
+        sent = state.word if name == "mode" else None
+        if sent is None or sent in _forms(first) or reader.map.get(sent.casefold()) != label:
+            return first
+        return sent
 
     def _flag_parts(self, flag: Flag, ch: int) -> list[Part]:
         tripped = self._state[ch - 1].trip == flag.value
@@ -747,8 +792,10 @@ class FakeInstrument:
                 return [(0, "1" if value else "0", False)]
             if isinstance(value, str):
                 return [(0, setter.map.get(value, value), False)]
-            return [(0, _number(value), False)]
-        return [(0, _readback(setter, self._value(self.profile.verify_field(setter), ch)), False)]
+            reader = self.profile.reader(self.profile.verify_field(setter))
+            return [(0, self._number(value, self._form(reader)), False)]
+        value = self._value(self.profile.verify_field(setter), ch)
+        return [(0, self._readback(setter, value), False)]
 
     def _verify_reply(self, setter: Setter, match: re.Match[str]) -> str | None:
         """The readback of a setter whose query names a meter function or a modulation type."""
@@ -760,7 +807,33 @@ class FakeInstrument:
         modulation = self.fgen.label_of(groups.get("modulation")) if self.fgen else None
         field_name = self.profile.verify_field(setter)
         value = self._value(field_name, ch, function=function, modulation=modulation)
-        return _readback(setter, value)
+        return self._readback(setter, value)
+
+    def _readback(self, setter: Setter, value: float | bool | str) -> str:
+        """A setter's readback in the form its query answers: a number in the instrument's unit, a
+        label as its word, a switch as 1 or 0."""
+        if setter.name in VALUE_SETTERS:
+            reader = self.profile.reader(self.profile.verify_field(setter))
+            return self._number(float(value) / setter.scale, self._form(reader))
+        if isinstance(value, str):
+            return setter.map.get(value, "")
+        return "1" if value else "0"
+
+    def _form(self, reader: Reader | None) -> str | None:
+        """How the unit writes a reply's numbers: the reader's own form, else the profile's."""
+        return (reader.numbers if reader is not None else None) or self.profile.link.numbers
+
+    def _number(self, value: float | bool | str, form: str | None) -> str:
+        """A number in `form`, else with ten digits. Infinity and overflow are SCPI's 9.9E+37,
+        in the unit's own exponent form where it has one."""
+        number = float(value)
+        if math.isinf(number) or abs(number) == _OVERFLOW:
+            if form in (None, "metric"):
+                return "-9.9E+37" if number < 0 else "9.9E+37"
+            number = math.copysign(_OVERFLOW, number)
+        if form == "metric":
+            return _metric(number)
+        return format(number, form or ".10g")
 
     def _value(
         self, name: str, ch: int, *, function: str | None = None, modulation: str | None = None
@@ -931,16 +1004,6 @@ def _label_for(setter: Setter, word: str) -> str:
     return next(k for k, v in setter.map.items() if v.casefold() == word.casefold())
 
 
-def _readback(setter: Setter, value: float | bool | str) -> str:
-    """A setter's readback in the form its query answers: a number in the instrument's unit, a
-    label as its word, a switch as 1 or 0."""
-    if setter.name in VALUE_SETTERS:
-        return _number(float(value) / setter.scale)
-    if isinstance(value, str):
-        return setter.map.get(value, "")
-    return "1" if value else "0"
-
-
 def _compose(parts: list[Part]) -> str:
     """A comma-separated reply: text first come first served, bits OR-ed per position."""
     tokens: dict[int, str] = {}
@@ -956,8 +1019,18 @@ def _compose(parts: list[Part]) -> str:
     return ",".join(tokens.get(i, "0") for i in range(max(tokens) + 1))
 
 
-def _number(value: float | bool | str) -> str:
-    return f"{float(value):.10g}"
+def _forms(word: str) -> set[str]:
+    """A word in each SCPI form it has, in capitals: CURR and CURRENT."""
+    upper = word.upper()
+    return {upper, *filter(None, (_LONG_FORMS.get(upper), _SHORT_FORMS.get(upper)))}
+
+
+def _metric(number: float) -> str:
+    """A number with a metric prefix, as 10M."""
+    for factor, prefix in ((1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if abs(number) >= factor:
+            return f"{number / factor:g}{prefix}"
+    return f"{number:g}"
 
 
 def _label(mapping: dict[str, str], name: str, value: float | bool | str) -> str:

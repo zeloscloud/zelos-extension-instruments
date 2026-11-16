@@ -42,12 +42,13 @@ unlock = "SYST:COMM:RLST LOC"
 [ranges]
 voltage = { min = 0, max = 30.9, digits = 3 }
 current = { min = 0, max = 20.6, digits = 3 }
-ovp = { min = 1, max_query = "VOLT:PROT? MAX,(@{ch})", digits = 3 }
+ovp = { min = 1, max = 33, max_query = "VOLT:PROT? MAX,(@{ch})", digits = 3 }
 
 [[ranges.models]]
 model = '^E3623[24]A$'
 voltage = { min = 0, max = 61.8, digits = 3 }
 current = { min = 0, max = 10.3, digits = 3 }
+ovp = { min = 1, max = 66, max_query = "VOLT:PROT? MAX,(@{ch})", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT? (@{ch})"

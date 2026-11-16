@@ -18,6 +18,7 @@ model = '^344(60|61|65|70)A$'
 lan_port = 5025
 timeout_s = 10
 local = "SYST:LOC"
+numbers = "+.8E"
 
 [errors]
 query = "SYST:ERR?"

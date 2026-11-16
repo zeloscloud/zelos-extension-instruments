@@ -2,7 +2,7 @@ schema = 1
 id = "agilent-n5700"
 name = "Agilent N5700 series"
 category = "psu"
-notes = "These are single-output 750 W and 1500 W supplies, so no channel is addressed. The profile sends SYST:COMM:RLST REM after connect and SYST:COMM:RLST LOC for Local: REM keeps the front-panel keys active, and only RWL locks them. The limits come from the unit through VOLT? MAX and CURR? MAX. Mode comes from STAT:OPER:COND? (bit 8 CV, bit 10 CC), and a reading of 0 is shown as off. Protection comes from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 4 OT, bit 9 external inhibit). The guide gives no power measurement, so power is left out, and overcurrent protection is an on/off state (CURR:PROT:STAT) with no level, so there is no OCP setpoint. The state is off after *RST, so the OCP flag stays quiet until it is switched on, and this profile reads and sets it. The OVP level is coupled to the voltage setting: it must be at least 1.05 times the set voltage, and its maximum, the guide's table value for the model, is read with VOLT:PROT:LEV? MAX. The over-voltage and over-current latches stay until Clear sends OUTP:PROT:CLE after the fault is removed. Measurement overflow returns 9.91E+37. *RST turns the output off and sets voltage and current to 0, and the manual says *TST? always returns 0, so the self-test proves nothing. Saved states take locations 0 to 15 and are lost when the unit is turned off; *RCL works only on a location that holds one. Lock sends SYST:COMM:RLST RWL, which disables the front-panel keys, and Unlock sends SYST:COMM:RLST REM, which keeps remote control with the keys active. The unit has no beeper or display commands, no remote-sense command (the J2 connector is wired) and no OVP delay."
+notes = "These are single-output 750 W and 1500 W supplies, so no channel is addressed. The profile sends SYST:COMM:RLST REM after connect and SYST:COMM:RLST LOC for Local: REM keeps the front-panel keys active, and only RWL locks them. The limits come from the unit through VOLT? MAX and CURR? MAX. Mode comes from STAT:OPER:COND? (bit 8 CV, bit 10 CC), and a reading of 0 is shown as off. Protection comes from STAT:QUES:COND? (bit 0 OV, bit 1 OC, bit 2 AC power fail, bit 4 OT, bit 9 external inhibit). The guide gives no power measurement, so power is left out, and overcurrent protection is an on/off state (CURR:PROT:STAT) with no level, so there is no OCP setpoint. The state is off after *RST, so the OCP flag stays quiet until it is switched on, and this profile reads and sets it. The OVP level is coupled to the voltage setting: it must be at least 1.05 times the set voltage, and its range is the guide's table for the model (a minimum of 0.5 V to 5 V and a maximum of 7.5 V to 660 V), and the maximum is also read with VOLT:PROT:LEV? MAX. The over-voltage and over-current latches stay until Clear sends OUTP:PROT:CLE after the fault is removed. Measurement overflow returns 9.91E+37. *RST turns the output off and sets voltage and current to 0, and the manual says *TST? always returns 0, so the self-test proves nothing. Saved states take locations 0 to 15 and are lost when the unit is turned off; *RCL works only on a location that holds one. Lock sends SYST:COMM:RLST RWL, which disables the front-panel keys, and Unlock sends SYST:COMM:RLST REM, which keeps remote control with the keys active. The unit has no beeper or display commands, no remote-sense command (the J2 connector is wired) and no OVP delay."
 
 [evidence]
 badge = "manual"
@@ -27,6 +27,54 @@ query = "SYST:ERR?"
 voltage = { max_query = "VOLT? MAX", digits = 3 }
 current = { max_query = "CURR? MAX", digits = 3 }
 ovp = { max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(41|61)A$'
+ovp = { min = 0.5, max = 7.5, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(42|62)A$'
+ovp = { min = 0.5, max = 10, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(43|63)A$'
+ovp = { min = 1, max = 15, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(44|64)A$'
+ovp = { min = 1, max = 24, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(45|65)A$'
+ovp = { min = 2, max = 36, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(46|66)A$'
+ovp = { min = 2, max = 44, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(47|67)A$'
+ovp = { min = 5, max = 66, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(48|68)A$'
+ovp = { min = 5, max = 88, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(49|69)A$'
+ovp = { min = 5, max = 110, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(50|70)A$'
+ovp = { min = 5, max = 165, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(51|71)A$'
+ovp = { min = 5, max = 330, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
+
+[[ranges.models]]
+model = '^N57(52|72)A$'
+ovp = { min = 5, max = 660, max_query = "VOLT:PROT:LEV? MAX", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT?"

@@ -275,6 +275,7 @@ Connection defaults for this family. The config can override each.
 | `ack` | none | The reply every command that is not a query gets, such as `OK`. The extension reads it after each command and treats anything else as an error. For instruments that answer every command. |
 | `remote_check` | none | A table of `query` and `expect`, asked right after `remote`. The open fails with `the instrument refused remote control` unless the reply equals `expect`: `remote_check = { query = "SYST:LOCK:OWN?", expect = "REMOTE" }`. |
 | `skip_blank` | `false` | An empty line that arrives where a reply is expected is dropped, for an instrument that sends one before some replies. |
+| `numbers` | none | How the instrument writes numbers in its replies, as its manual or a transcript shows: a Python format such as `"+.8E"` (`+1.00000000E+01`) or `".2E"` (`5.00E-01`), or `"metric"` for a number with a metric prefix, such as `10M`. The extension reads any form; the fake instrument writes this one, and ten significant digits without it. |
 
 ## `[errors]`
 
@@ -293,7 +294,7 @@ A setter with no range of its own falls back to a related one: `ovp` to `voltage
 
 `[[ranges.models]]` entries override by `model` regex and optional `channel`. The first matching entry wins for each key.
 
-A range may instead name queries: `voltage = { max_query = "VOLT? MAX", min_query = "VOLT? MIN", digits = 3 }`. They run once after connect, and `{ch}` is allowed in them. A fixed `min` may go with a `max_query`.
+A range may instead name queries: `voltage = { max_query = "VOLT? MAX", min_query = "VOLT? MIN", digits = 3 }`. They run once after connect, and `{ch}` is allowed in them. A fixed `min` or `max`, the figure the manual gives, may go beside its query: the query's answer wins, and the figure holds when the query gets no number. A fixed `min` may also go with a `max_query` alone.
 
 A range may instead list the only values the instrument takes: `nplc = { choices = [0.02, 0.2, 1, 10, 100], digits = 2 }`. A set value must equal one of them, and nothing else is checked. `choices` goes with `digits` only. A multimeter's `range` setter needs no range at all: the meter picks the range that covers the value, and the readback shows the range it chose.
 
@@ -315,6 +316,7 @@ A setter with no range known refuses to set until the config names a limit for i
 | `mask`, `shift` | For `parse = "bits"`: a whole number, or a list with one per channel when the instrument packs every channel into one status word (`mask = [0x10, 0x20]`). |
 | `format` | For `parse = "bits"` and `"int"`: `"int"` (default) or `"hex"`. |
 | `scale` | For `parse = "float"`, `"floats"` and `"keyed"`: multiplies the number, so a slew rate the instrument states in A/µs lands in A/s with `scale = 1e6`. |
+| `numbers` | For `parse = "float"` and `"floats"`: how the instrument writes this reply's numbers, where it differs from `[link]` `numbers`. |
 | `flags` | For `protection`: a list of `{ query, parse, value }`; the first that reads true sets the field, else `none`. |
 | `optional` | `true` lets a generic profile probe: a query the instrument rejects at start is dropped with one log line. |
 | `channel` | `false` for a query that is per instrument, not per channel (an over-temperature flag). Default `true`. A reader of an instrument-wide field (a scope's `timebase`) is per instrument whatever this says. |

@@ -22,6 +22,9 @@ def section_keys(cls: Any) -> tuple[str, ...]:
     return tuple(f.name for f in dataclasses.fields(cls))
 
 
+_NUMBER_FORM = re.compile(r"[+ ]?(\.\d+)?[eEfgG]")
+
+
 class Check:
     """Collects problems while a raw TOML table is turned into a Profile."""
 
@@ -48,6 +51,15 @@ class Check:
             self.fail(_at(where, key), "must be non-empty text.")
             return default
         return value
+
+    def numbers(self, raw: dict[str, Any], where: str) -> str | None:
+        """How the instrument writes numbers: a format such as "+.8E", or "metric" for a number
+        with a metric prefix, as 10M."""
+        value = self.string(raw, "numbers", None, where)
+        if value is None or value == "metric" or _NUMBER_FORM.fullmatch(value):
+            return value
+        self.fail(_at(where, "numbers"), 'must be a format such as "+.8E" or ".2E", or "metric".')
+        return None
 
     def required(self, raw: dict[str, Any], key: str, where: str) -> str:
         value = raw.get(key)

@@ -3,6 +3,7 @@
 import copy
 import dataclasses
 import math
+import re
 import struct
 import tomllib
 import zlib
@@ -720,6 +721,133 @@ def test_an_over_voltage_delay_is_kept_in_seconds_and_bounded():
     run(fake, "OVP:DEL 1,2.5")
     assert read(fake, "ovp_delay_set", 1) == 0.25
     assert codes(fake) == [-222]
+
+
+def test_a_protection_limit_no_document_gives_is_the_output_range_and_where_it_starts():
+    fake = FakeInstrument(load_file(SHIPPED_DIR / "generic" / "generic-psu.toml"))
+    rating = float(ask(fake, "VOLT? MAX"))
+    assert float(ask(fake, "VOLT:PROT? MAX")) == rating
+    assert read(fake, "ovp_set") == rating
+    run(fake, "VOLT:PROT 12")
+    assert read(fake, "ovp_set") == 12.0
+    run(fake, "*RST")
+    assert read(fake, "ovp_set") == rating
+
+
+# Each figure is the guide's: N8900 VOLT:PROT is 0 to 120 % of the rating, N5700 Appendix A
+# gives each model's OVP range, the 2260B takes OVP to 110 % and OCP from 10 to 110 % of the
+# rating, and the E36200 and E36731A take OVP to 110 % of the maximum setting voltage.
+DOCUMENTED_PROTECTION = [
+    ("psu/keysight-n8900", "N8920A", "ovp", 0.0, 96.0),
+    ("psu/keysight-n8900", "N8930A", "ovp", 0.0, 1200.0),
+    ("psu/keysight-n8900", "N8957A", "ovp", 0.0, 1800.0),
+    ("psu/agilent-n5700", "N5741A", "ovp", 0.5, 7.5),
+    ("psu/agilent-n5700", "N5765A", "ovp", 2.0, 36.0),
+    ("psu/agilent-n5700", "N5772A", "ovp", 5.0, 660.0),
+    ("psu/keithley-2260b", "2260B-30-36", "ovp", 0.0, 33.0),
+    ("psu/keithley-2260b", "2260B-30-36", "ocp", 3.6, 39.6),
+    ("psu/keithley-2260b", "2260B-80-13", "ocp", 1.35, 14.85),
+    ("psu/keithley-2260b", "PSW80-13.5", "ocp", 1.35, 14.85),
+    ("psu/keysight-e36200", "E36231A", "ovp", 1.0, 33.0),
+    ("psu/keysight-e36200", "E36232A", "ovp", 1.0, 66.0),
+    ("psu/keysight-e36731a", "E36731A", "ovp", None, 33.0),
+]
+
+
+@pytest.mark.parametrize(("path", "model", "key", "low", "high"), DOCUMENTED_PROTECTION)
+def test_a_documented_protection_range_bounds_the_fake_and_is_where_it_starts(
+    path: str, model: str, key: str, low: float | None, high: float
+) -> None:
+    profile = load_file(SHIPPED_DIR / f"{path}.toml")
+    range_ = profile.range_for(key, model, 1)
+    assert range_ is not None and range_.max == pytest.approx(high)
+    if low is not None:
+        assert range_.min == pytest.approx(low)
+    fake = FakeInstrument(profile, model)
+    assert range_.max_query is not None
+    assert float(ask(fake, engine.render(range_.max_query, ch=1))) == pytest.approx(high)
+    assert read(fake, f"{key}_set") == pytest.approx(high)
+
+
+def test_an_n8900_takes_an_over_voltage_level_above_its_output_rating() -> None:
+    fake = FakeInstrument(load_file(SHIPPED_DIR / "psu" / "keysight-n8900.toml"), "N8920A")
+    run(fake, "VOLT:PROT 33")
+    assert read(fake, "ovp_set") == 33.0
+    assert codes(fake) == []
+
+
+@pytest.mark.parametrize(
+    ("path", "model", "ch", "ovp"),
+    [("psu/rigol-dp800", "DP831", 3, -33.0), ("psu/keysight-e36300", "E36311A", 3, -27.5)],
+)
+def test_a_negative_channel_starts_its_protection_at_the_bound_furthest_from_zero(
+    path: str, model: str, ch: int, ovp: float
+) -> None:
+    fake = FakeInstrument(load_file(SHIPPED_DIR / f"{path}.toml"), model)
+    assert read(fake, "ovp_set", ch) == ovp
+
+
+def test_a_protection_level_without_a_range_takes_the_whole_output_range() -> None:
+    raw = copy.deepcopy(NEW_PSU)
+    raw["ranges"] = {"voltage": {"min": -30, "max": 0}, "current": {"max": 3}}
+    raw["state"]["ovp_set"] = {"query": "VOLT:PROT? {ch}", "parse": "float"}
+    raw["setters"]["ovp"] = {"command": "VOLT:PROT {ch},{value}"}
+    fake = FakeInstrument(build(raw))
+    assert fake.bounds("ovp", 1) == (-30.0, 0.0)
+    assert read(fake, "ovp_set") == -30.0
+
+
+def test_a_mode_word_that_extends_the_reply_word_reads_back_as_itself() -> None:
+    """CCH names the high range; it is no long form of CC."""
+    raw = copy.deepcopy(LOAD)
+    raw["setters"]["function"]["map"] = {"cc": "CC", "cv": "CV"}
+    raw["state"]["mode"]["map"] = {"CC": "cc", "CCH": "cc", "CV": "cv"}
+    fake = FakeInstrument(build(raw))
+    run(fake, "FUNC CV", "FUNC CCH")
+    assert ask(fake, "FUNC?") == "CCH"
+    run(fake, "FUNC CC")
+    assert ask(fake, "FUNC?") == "CC"
+
+
+def test_a_profile_copied_under_another_id_keeps_how_the_unit_writes_numbers() -> None:
+    raw = tomllib.loads((SHIPPED_DIR / "dmm" / "keysight-34460a.toml").read_text("utf-8"))
+    raw["id"] = "my-truevolt"
+    fake = FakeInstrument(from_dict(raw, "my-truevolt.toml"), "34461A")
+    assert DOCUMENTED.fullmatch(ask(fake, "READ?"))
+
+
+# The programming guides give a reading as SD.DDDDDDDDESDD: a sign, nine digits and a signed
+# two-digit exponent. The Truevolt guide gives numeric settings the same way, as +1.00000000E+00.
+DOCUMENTED = re.compile(r"[+-]\d\.\d{8}E[+-]\d{2}")
+
+
+@pytest.mark.parametrize("model", ["34460A", "34461A", "34465A", "34470A"])
+def test_a_truevolt_meter_writes_readings_and_settings_as_its_guide_gives(model: str) -> None:
+    fake = FakeInstrument(load_file(SHIPPED_DIR / "dmm" / "keysight-34460a.toml"), model)
+    for function in ("dc_voltage", "resistance", "dc_current"):
+        fake.set_reading(function, {"dc_voltage": -0.05011093287}.get(function, 1234.5))
+        word = fake.profile.setters["function"].map[function]
+        run(fake, f'FUNC "{word}"')
+        assert DOCUMENTED.fullmatch(ask(fake, "READ?")), function
+        root = fake.profile.setters["range"].map[function]
+        run(fake, f"{root}:RANG 10")
+        assert DOCUMENTED.fullmatch(ask(fake, f"{root}:RANG?")), function
+    run(fake, "VOLT:DC:NPLC 10")
+    assert ask(fake, "VOLT:DC:NPLC?") == "+1.00000000E+01"
+
+
+def test_a_34401a_writes_readings_as_its_guide_gives() -> None:
+    fake = FakeInstrument(load_file(SHIPPED_DIR / "dmm" / "agilent-34401a.toml"))
+    fake.set_reading("dc_voltage", -0.05011093287)
+    assert DOCUMENTED.fullmatch(ask(fake, "READ?"))
+
+
+def test_a_limit_without_a_bound_is_scpis_infinity() -> None:
+    fake = FakeInstrument(load_file(SHIPPED_DIR / "generic" / "generic-fgen.toml"))
+    assert ask(fake, "VOLT? MAX") == "9.9E+37"
+    truevolt = FakeInstrument(load_file(SHIPPED_DIR / "dmm" / "keysight-34460a.toml"))
+    truevolt.set_reading("dc_voltage", math.inf)
+    assert ask(truevolt, "READ?") == "+9.90000000E+37"
 
 
 def test_a_shorted_load_reads_zero_volts_until_the_short_ends():

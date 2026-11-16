@@ -113,6 +113,7 @@ def load_readers(
                 "scale",
                 "key",
                 "until",
+                "numbers",
             ),
             where,
         )
@@ -155,6 +156,8 @@ def load_readers(
                 c.fail(f"{where}.fields", 'only parse = "floats" fills several fields.')
             fields = tuple(fields_raw)
         keyed = options["parse"] == "keyed"
+        if "numbers" in entry and options["parse"] not in ("float", "floats"):
+            c.fail(f"{where}.numbers", 'is only for parse = "float" or "floats".')
         for name in fields:
             if name not in units:
                 c.fail(
@@ -198,6 +201,7 @@ def load_readers(
                 scale=options["scale"],
                 key=options["key"],
                 until=options["until"],
+                numbers=c.numbers(entry, where),
             )
         )
     return tuple(readers)
