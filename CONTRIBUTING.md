@@ -13,11 +13,11 @@
 
 | Part | Files | Manifest |
 | ---- | ----- | -------- |
-| Agent runtime | `main.py`, the Python package, `pyproject.toml`, `config.schema.json` | `[agent]`, `[config]` |
+| Agent runtime | `main.py`, the Python package, `pyproject.toml`, `zelos_extension_instruments/config.schema.json` | `[agent]`, `[config]` |
 
 | Path | Holds |
 | ---- | ----- |
-| `profiles/<category>/<id>.toml` | One profile per instrument family, in `psu`, `load`, `dmm`, `acsource`, `scope`, `fgen`, `daq` and `generic`. [docs/profiles.md](docs/profiles.md) is the format. |
+| `zelos_extension_instruments/profiles/<category>/<id>.toml` | One profile per instrument family, in `psu`, `load`, `dmm`, `acsource`, `scope`, `fgen`, `daq` and `generic`. [docs/profiles.md](docs/profiles.md) is the format. |
 | `zelos_extension_instruments/profile.py`, `profile_load.py`, `engine.py` | The profile model, the loader that checks a profile file, and the engine that runs any profile. `profile_system.py`, `profile_scope.py` and `profile_daq.py` hold the format's `[system]`, `[scope]` and `[daq]` parts. |
 | `zelos_extension_instruments/link/` | Raw TCP, serial and VISA links behind one interface. |
 | `zelos_extension_instruments/worker.py` | One thread per instrument: identify, poll, serve requests, reconnect. |
@@ -87,7 +87,7 @@ Then configure a LAN instrument at `127.0.0.1:5555` with the profile `rigol-dp80
 
 ## Add an instrument
 
-1. Copy the closest profile in `profiles/<category>/` and transcribe the commands from the instrument's programming manual. Never guess a command: leave out what the manual does not give, and say so in `notes`.
+1. Copy the closest profile in `zelos_extension_instruments/profiles/<category>/` and transcribe the commands from the instrument's programming manual. Never guess a command: leave out what the manual does not give, and say so in `notes`.
 2. `just profiles` until it passes.
 3. `just sim <id>` and configure the fake, or configure the real unit, and watch the signals arrive.
 4. `just record <id> <address>` on the real unit, and commit the transcript with the profile. Set the badge to `transcript`.

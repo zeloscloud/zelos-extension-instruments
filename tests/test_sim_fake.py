@@ -14,7 +14,7 @@ import pytest
 from tests.test_daq_ops import KEYSIGHT_STYLE
 from zelos_extension_instruments import engine
 from zelos_extension_instruments.profile import Profile, parse_idn
-from zelos_extension_instruments.profile_load import from_dict, load_file
+from zelos_extension_instruments.profile_load import SHIPPED_DIR, from_dict, load_file
 from zelos_extension_instruments.sim.fake import FakeInstrument, _pattern
 from zelos_extension_instruments.sim.fake_daq import FakeDaq
 
@@ -657,7 +657,7 @@ RANGED_DMM: dict[str, Any] = {
     },
     "system": SYSTEM,
 }
-SIGLENT_SDS = Path(__file__).parents[1] / "profiles" / "scope" / "siglent-sds.toml"
+SIGLENT_SDS = SHIPPED_DIR / "scope" / "siglent-sds.toml"
 
 
 def ask(fake: FakeInstrument, command: str) -> str:

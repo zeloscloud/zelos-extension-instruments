@@ -43,7 +43,7 @@ from .profile_scope import (
 from .profile_signals import load_readers, load_setters
 from .profile_system import load_system, system_commands
 
-SHIPPED_DIR = Path(__file__).resolve().parent.parent / "profiles"
+SHIPPED_DIR = Path(__file__).resolve().parent / "profiles"
 
 
 # Commands that change what an output does; none may appear in `init`.

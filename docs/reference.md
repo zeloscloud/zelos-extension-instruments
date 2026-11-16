@@ -123,7 +123,7 @@ The config check refuses a channel listed twice, a thermocouple on a channel tha
 
 ### Profiles
 
-A profile is one TOML file that says how to recognise an instrument family, what to read, what can be set and what the replies mean. The shipped ones are listed by **List Profiles** and in [`profiles/`](../profiles/). Each carries an evidence badge:
+A profile is one TOML file that says how to recognise an instrument family, what to read, what can be set and what the replies mean. The shipped ones are listed by **List Profiles** and in [`zelos_extension_instruments/profiles/`](../zelos_extension_instruments/profiles/). Each carries an evidence badge:
 
 | Badge | Means |
 |---|---|

@@ -9,7 +9,7 @@ from zelos_extension_instruments import config
 from zelos_extension_instruments.config import ConfigError, Limits, from_dict, load
 from zelos_extension_instruments.profile_daq import DAQ_SIGNAL_FIELDS
 
-SCHEMA = json.loads((Path(__file__).resolve().parents[1] / "config.schema.json").read_text("utf-8"))
+SCHEMA = json.loads(Path(config.__file__).with_name("config.schema.json").read_text("utf-8"))
 
 LAN: dict[str, Any] = {"connection": "lan", "host": "192.168.1.40", "name": "psu"}
 

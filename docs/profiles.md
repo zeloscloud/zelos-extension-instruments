@@ -1,6 +1,6 @@
 # Profiles
 
-A profile is one TOML file that tells the extension how to talk to one instrument family: how to recognise it, what to read, what can be set, and what the instrument's replies mean. The shipped profiles live in `profiles/<category>/`. Your own load the same way (see [Your own profiles](#your-own-profiles)).
+A profile is one TOML file that tells the extension how to talk to one instrument family: how to recognise it, what to read, what can be set, and what the instrument's replies mean. The shipped profiles live in `zelos_extension_instruments/profiles/<category>/`. Your own load the same way (see [Your own profiles](#your-own-profiles)).
 
 Every command string comes from the instrument's programming manual. A profile never contains code.
 

@@ -14,7 +14,7 @@ readme = "README.md"
 version = ">=26.0.10"
 
 [config]
-schema = "config.schema.json"
+schema = "zelos_extension_instruments/config.schema.json"
 
 [agent]
 runtime = "python"
@@ -26,4 +26,4 @@ python_version = "3.11"
 grace_seconds = 5
 
 [package]
-paths = ["LICENSE", "main.py", "zelos_extension_instruments", "profiles", "docs", "assets/readme"]
+paths = ["LICENSE", "main.py", "zelos_extension_instruments", "docs", "assets/readme"]

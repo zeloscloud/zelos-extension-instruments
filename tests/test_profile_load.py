@@ -27,7 +27,7 @@ from zelos_extension_instruments.profile_load import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DP800_PATH = REPO_ROOT / "profiles" / "psu" / "rigol-dp800.toml"
+DP800_PATH = SHIPPED_DIR / "psu" / "rigol-dp800.toml"
 
 
 def minimal_dmm() -> dict[str, Any]:
@@ -139,7 +139,7 @@ def test_shipped_ids_equal_file_stems(profiles: list[Profile]) -> None:
 
 def test_shipped_badges_are_earned(profiles: list[Profile]) -> None:
     """A profile is only promoted by a transcript or the bench, never by hand."""
-    transcripts = SHIPPED_DIR.parent / "tests" / "transcripts"
+    transcripts = REPO_ROOT / "tests" / "transcripts"
     recorded = (
         {d.name for d in transcripts.iterdir() if d.is_dir()} if transcripts.is_dir() else set()
     )
@@ -766,8 +766,8 @@ def test_main_reads_sys_argv_when_not_given(
     assert main() == 0
 
 
-def test_shipped_directory_is_the_repo_profiles_directory() -> None:
-    assert SHIPPED_DIR == REPO_ROOT / "profiles"
+def test_shipped_directory_is_the_packages_profiles_directory() -> None:
+    assert SHIPPED_DIR == REPO_ROOT / "zelos_extension_instruments" / "profiles"
     assert [p.id for p in shipped()] == [p.id for p in load_dir(SHIPPED_DIR)]
 
 

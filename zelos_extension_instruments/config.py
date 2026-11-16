@@ -14,7 +14,7 @@ from jsonschema.exceptions import ValidationError
 from .link import VisaBackend
 
 _SCHEMA = json.loads(
-    (Path(__file__).resolve().parent.parent / "config.schema.json").read_text(encoding="utf-8")
+    (Path(__file__).resolve().parent / "config.schema.json").read_text(encoding="utf-8")
 )
 # Draft 7, because it is the draft that enforces the per-connection `dependencies`.
 _VALIDATOR = Draft7Validator(_SCHEMA)
