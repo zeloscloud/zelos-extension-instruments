@@ -18,6 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Installed from a wheel, the extension carries its config schema and profiles, so it runs outside its source tree.
 - Where a profile's `numbers` says the instrument writes a fixed number of digits, a setting read back rounded to those digits verifies, where it failed as possibly clipped. A Siglent SDS scope, which writes three, reads a trigger level of 0.1234 back as `1.23E-01`. A profile without such a form verifies a setting as before.
+- A Siglent SDS scope over LAN takes each setting as sent. It misread a setting's number when the next command followed at once, so every Set failed its readback; the profile now pauses 50 ms after a setting.
 - The demo supply's over-voltage and over-current protection levels read at the top of their range instead of 0 V, and its connect no longer logs a bad reply for those limits.
 - The fake instrument answers a protection limit the profile leaves to the unit with the manual's figure, else with the unit's output range, and a limit it has no bound for with SCPI's `9.9E+37`, where it sent `inf`. It starts each protection level at the end of its range furthest from zero.
 - The fake Chroma 63200A load takes every mode and range, such as `CCL`, `CCM` and `CCH`, and answers `MODE?` with the one it was set to, instead of the low range.
