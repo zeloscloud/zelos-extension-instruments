@@ -20,6 +20,7 @@ from zelos_extension_instruments.engine import (
     compile_plan,
     flag_is_set,
     format_value,
+    number_step,
     parse_bool,
     parse_float,
     parse_int,
@@ -695,6 +696,53 @@ def test_verified_without_a_range_allows_a_part_in_a_thousand() -> None:
     assert verified(5.0, 5.004, None)
     assert not verified(5.0, 5.006, None)
     assert not verified(1e-6, 0.0, None)
+
+
+@pytest.mark.parametrize(
+    ("form", "value", "place"),
+    [
+        (".2E", 0.123, 1e-3),
+        (".2E", 0.1, 1e-3),
+        (".2E", -1.53, 1e-2),
+        ("+.8E", 10.0, 1e-7),
+        ("+.8E", 1.23456789, 1e-8),
+        (".3f", 30.0, 1e-3),
+    ],
+)
+def test_number_step_is_the_place_of_the_last_digit_the_form_writes(
+    form: str, value: float, place: float
+) -> None:
+    assert number_step(form, value) == pytest.approx(place)
+
+
+@pytest.mark.parametrize("form", [None, ".10g", "g", "metric"])
+def test_a_form_that_drops_trailing_zeros_gives_no_step(form: str | None) -> None:
+    assert number_step(form, 0.1) is None
+
+
+@pytest.mark.parametrize("form", [".2E", "+.8E", ".3f"])
+def test_zero_gives_no_step(form: str) -> None:
+    assert number_step(form, 0.0) is None
+
+
+def test_verified_takes_the_setpoint_rounded_to_the_step() -> None:
+    assert verified(0.1234, 0.123, None, step=1e-3)
+    assert verified(-1.534, -1.53, None, step=1e-2)
+    assert verified(0.001234, 0.00123, None, step=1e-5)
+    assert verified(0.1235, 0.124, None, step=1e-3)
+    assert verified(1.234567891, 1.23456789, None, step=1e-8)
+
+
+def test_verified_with_a_step_refuses_what_rounding_to_it_cannot_explain() -> None:
+    assert not verified(0.1234, 0.1, None, step=1e-3)
+    assert not verified(12.0, 10.0, None, step=1e-2)
+    assert not verified(1.23456789, 1.24, None, step=1e-8)
+    assert not verified(5.0, 4.9, range_(digits=3), step=0.01)
+    assert not verified(2e-6, 0.0, None, step=number_step(".2E", 2e-6))
+
+
+def test_verified_with_a_step_keeps_the_part_in_a_thousand() -> None:
+    assert verified(1.23456789, 1.23456889, None, step=1e-8)
 
 
 @pytest.mark.parametrize("readback", [math.nan, math.inf, -math.inf])

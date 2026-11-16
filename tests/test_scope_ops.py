@@ -21,7 +21,7 @@ from tests.conftest import (
     wait_until,
 )
 from tests.test_fake_scope import keysight_like, legacy_like, listed_like
-from zelos_extension_instruments import config, engine, scope_ops
+from zelos_extension_instruments import config, engine, scope_ops, serve
 from zelos_extension_instruments.clock import NS_PER_S, HostClock
 from zelos_extension_instruments.config import InstrumentConfig
 from zelos_extension_instruments.engine import RangeError
@@ -807,3 +807,28 @@ def test_a_preamble_that_cannot_scale_the_samples_fails_the_capture(
         scope_ops.capture(worker, 1, {"points": POINTS})
     assert ":WAVeform:DATA?" not in link.commands
     assert worker._query("*IDN?") == fake.idn
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "readback"),
+    [("trigger_level", 0.1234, 0.123), ("offset", -1.534, -1.53), ("delay", 0.001234, 0.00123)],
+)
+def test_a_setting_the_scope_reads_back_to_its_own_digits_is_verified(
+    scope: Profile, name: str, value: float, readback: float
+) -> None:
+    """The SDS824X HD answers a setting with three significant digits."""
+    worker, _, _ = connected(scope, FakeInstrument(scope).handle, profile=scope.id)
+    got = serve.set_value(worker, 1, name, value)
+    assert got == {"set": value, "readback": pytest.approx(readback)}
+
+
+def test_a_setting_the_scope_clipped_still_fails(scope: Profile) -> None:
+    fake = FakeInstrument(scope)
+
+    def clipping(command: str) -> str | bytes | None:
+        reply = fake.handle(command)
+        return "1.00E-01" if command == ":TRIGger:EDGE:LEVel?" else reply
+
+    worker, _, _ = connected(scope, clipping, profile=scope.id)
+    with pytest.raises(RangeError, match="reads back 0.1 after setting 0.1234"):
+        serve.set_value(worker, 1, "trigger_level", 0.1234)

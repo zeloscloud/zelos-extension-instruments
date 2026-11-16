@@ -171,7 +171,11 @@ def set_value(worker: InstrumentWorker, ch: int, name: str, value: float) -> dic
         # The meter picks the smallest range that covers the value asked for.
         agrees = readback >= value * (1 - 1e-9)
     else:
-        agrees = engine.verified(value, readback, range_)
+        reader = worker.profile.reader(worker.profile.verify_field(setter))
+        form = (reader.numbers if reader is not None else None) or worker.profile.link.numbers
+        step = engine.number_step(form, value / setter.scale)
+        scaled = None if step is None else step * setter.scale
+        agrees = engine.verified(value, readback, range_, scaled)
     if not agrees:
         raise RangeError(
             f"{name} reads back {readback:g} after setting {value:g}; "

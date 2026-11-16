@@ -13,6 +13,7 @@ from tests.conftest import (
     RecordingEmitter,
     ScriptedLink,
     ask,
+    connected,
     instrument_config,
     minimal,
     opener_for,
@@ -21,6 +22,8 @@ from tests.conftest import (
     start_open,
     wait_until,
 )
+from zelos_extension_instruments import serve
+from zelos_extension_instruments.engine import RangeError
 from zelos_extension_instruments.profile import Profile, by_id
 from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.sim.fake import FakeInstrument
@@ -825,3 +828,60 @@ def test_the_state_report_lists_the_system_functions_the_profile_gives() -> None
         "self_test",
         "setup",
     ]
+
+
+def _set_and_read_back(numbers: str | None, value: float, reply: str) -> dict[str, Any]:
+    """Set a voltage on a supply that writes numbers as `numbers` says, and reads `reply`."""
+    raw = minimal()
+    if numbers is not None:
+        raw["link"] = {"numbers": numbers}
+    raw["state"] = {"voltage_set": {"query": "VOLT?", "parse": "float"}}
+    raw["setters"] = {"voltage": {"command": "VOLT {value}"}}
+
+    def unit(command: str) -> str | None:
+        if command == "*IDN?":
+            return "ACME,P1,1,1"
+        return reply if command.endswith("?") else None
+
+    worker, _, _ = connected(profile_from(raw), unit, profile="acme-psu")
+    return serve.set_value(worker, 1, "voltage", value)
+
+
+@pytest.mark.parametrize(("value", "reply"), [(0.1234, "0.1"), (30.4, "30")])
+def test_a_readback_from_a_unit_of_unknown_digits_must_agree_to_a_part_in_a_thousand(
+    value: float, reply: str
+) -> None:
+    with pytest.raises(RangeError, match="may have clipped it"):
+        _set_and_read_back(None, value, reply)
+
+
+def test_a_three_digit_unit_reads_a_setting_back_rounded_to_its_digits() -> None:
+    assert _set_and_read_back(".2E", 0.1234, "1.23E-01")["readback"] == pytest.approx(0.123)
+    with pytest.raises(RangeError, match="may have clipped it"):
+        _set_and_read_back(".2E", 0.1234, "1.00E-01")
+
+
+@pytest.mark.parametrize(
+    ("value", "reply"), [(2e-6, "0.00E+00"), (0.003, "0.00E+00"), (0.996, "1.00E+00")]
+)
+def test_a_three_digit_unit_that_kept_another_value_fails_the_set(value: float, reply: str) -> None:
+    with pytest.raises(RangeError, match="may have clipped it"):
+        _set_and_read_back(".2E", value, reply)
+
+
+def test_a_set_to_zero_must_read_back_zero() -> None:
+    assert _set_and_read_back(".2E", 0.0, "0.00E+00")["readback"] == 0.0
+    with pytest.raises(RangeError, match="may have clipped it"):
+        _set_and_read_back(".2E", 0.0, "4.00E-03")
+
+
+def test_a_nine_digit_unit_reads_a_setting_back_rounded_to_its_nine_digits() -> None:
+    got = _set_and_read_back("+.8E", 1.234567891, "+1.23456789E+00")
+    assert got["readback"] == pytest.approx(1.23456789)
+    with pytest.raises(RangeError, match="may have clipped it"):
+        _set_and_read_back("+.8E", 1.23456789, "+1.24000000E+00")
+
+
+def test_a_fixed_digit_unit_keeps_the_part_in_a_thousand() -> None:
+    got = _set_and_read_back("+.8E", 1.23456789, "+1.23456889E+00")
+    assert got["readback"] == pytest.approx(1.23456889)
