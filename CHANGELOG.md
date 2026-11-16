@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- A Set the instrument does not hold as sent names the value it holds: "scale is 0.124 after setting 0.1234: the instrument rounded it to its own step, clipped it or refused it". It said the instrument may have clipped it or refused it, though an instrument also rounds a setting to its own step.
 - The shipped profiles and the config schema live in the Python package, under `zelos_extension_instruments/profiles/` and `zelos_extension_instruments/config.schema.json`.
 
 ### Fixed

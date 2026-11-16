@@ -830,5 +830,5 @@ def test_a_setting_the_scope_clipped_still_fails(scope: Profile) -> None:
         return "1.00E-01" if command == ":TRIGger:EDGE:LEVel?" else reply
 
     worker, _, _ = connected(scope, clipping, profile=scope.id)
-    with pytest.raises(RangeError, match="reads back 0.1 after setting 0.1234"):
+    with pytest.raises(RangeError, match="is 0.1 after setting 0.1234"):
         serve.set_value(worker, 1, "trigger_level", 0.1234)
