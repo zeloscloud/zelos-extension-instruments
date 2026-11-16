@@ -3,6 +3,16 @@
 All notable changes to this extension are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the extension uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The shipped profiles and the config schema live in the Python package, under `zelos_extension_instruments/profiles/` and `zelos_extension_instruments/config.schema.json`.
+
+### Fixed
+
+- Installed from a wheel, the extension carries its config schema and profiles, so it runs outside its source tree.
+
 ## [0.3.0] - 2026-11-01
 
 ### Changed

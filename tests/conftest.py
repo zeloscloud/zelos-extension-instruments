@@ -21,7 +21,7 @@ from zelos_extension_instruments.config import InstrumentConfig
 from zelos_extension_instruments.emitter import Emitter
 from zelos_extension_instruments.link import Address, Link, LinkError, LinkSettings, LinkTimeout
 from zelos_extension_instruments.profile import BOOL_FIELDS, ENUM_FIELDS, Profile
-from zelos_extension_instruments.profile_load import from_dict, load_file, shipped
+from zelos_extension_instruments.profile_load import SHIPPED_DIR, from_dict, load_file, shipped
 from zelos_extension_instruments.waveform import BlockError, block_payload
 from zelos_extension_instruments.worker import InstrumentWorker
 
@@ -29,7 +29,6 @@ from zelos_extension_instruments.worker import InstrumentWorker
 settings.register_profile("deterministic", deadline=None, derandomize=True)
 settings.load_profile("deterministic")
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 # Not reader.time_range(): it raises on a trace that holds no rows.
 ALL_TIME = ("1970-01-01T00:00:00Z", "2200-01-01T00:00:00Z")
 # No field can be named this: sanitising turns `@` into `_`.
@@ -103,7 +102,7 @@ def profiles() -> list[Profile]:
 
 @pytest.fixture(scope="session")
 def dp800() -> Profile:
-    return load_file(REPO_ROOT / "profiles" / "psu" / "rigol-dp800.toml")
+    return load_file(SHIPPED_DIR / "psu" / "rigol-dp800.toml")
 
 
 class ScriptedLink:

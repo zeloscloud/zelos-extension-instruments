@@ -8,10 +8,13 @@ from pathlib import Path
 
 from jsonschema import Draft7Validator
 
-from zelos_extension_instruments import ACTION_PREFIX
+import zelos_extension_instruments
+from zelos_extension_instruments import ACTION_PREFIX, config
+from zelos_extension_instruments.profile_load import SHIPPED_DIR
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = tomllib.loads((REPO_ROOT / "extension.toml").read_text(encoding="utf-8"))
+PYPROJECT = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
 def test_the_name_is_the_action_prefix() -> None:
@@ -27,6 +30,17 @@ def test_config_schema_is_valid_and_its_examples_validate() -> None:
     assert schema["examples"]
     for example in schema["examples"]:
         validator.validate(example)
+
+
+def test_the_wheel_holds_the_schema_and_the_profiles_the_package_reads() -> None:
+    """A pip install carries only the package directory."""
+    package = Path(zelos_extension_instruments.__file__).resolve().parent
+    assert PYPROJECT["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [package.name]
+    schema = (REPO_ROOT / MANIFEST["config"]["schema"]).resolve()
+    assert schema.is_relative_to(package)
+    assert json.loads(schema.read_text(encoding="utf-8")) == config._SCHEMA
+    assert SHIPPED_DIR.is_relative_to(package)
+    assert any(SHIPPED_DIR.rglob("*.toml"))
 
 
 def test_inventory_holds_the_three_hidden_read_only_standalone_actions(tmp_path: Path) -> None:
