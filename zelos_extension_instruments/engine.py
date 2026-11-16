@@ -462,10 +462,26 @@ def _scaled(range_: Range | None, setter: Setter) -> Range | None:
     )
 
 
-def verified(expected: float, readback: float, range_: Range | None) -> bool:
-    """Whether a readback agrees with the value sent, within one step of the range."""
+def number_step(form: str | None, value: float) -> float | None:
+    """The place of the last digit a number form that writes a fixed number of digits (e, E or
+    f) gives `value`; None for any other form, which may drop trailing zeros, and for zero,
+    which every such form writes exactly."""
+    if form is None or form[-1] not in "eEf" or not math.isfinite(value) or value == 0:
+        return None
+    mantissa, _, exponent = format(value, form).lower().partition("e")
+    return 10.0 ** (int(exponent or 0) - len(mantissa.partition(".")[2]))
+
+
+def verified(
+    expected: float, readback: float, range_: Range | None, step: float | None = None
+) -> bool:
+    """Whether a readback agrees with the value sent, within one step of the range. `step` is
+    the place of the last digit the instrument's number form writes for the value sent, so the
+    value rounded to it also agrees."""
     if not math.isfinite(readback):
         return False
+    if step is not None and abs(readback - expected) <= step / 2 * (1 + 1e-9):
+        return True
     if range_ is None:
         # Without digits, allow a part in a thousand of rounding; a tiny value never passes as 0.
         return abs(readback - expected) <= 1e-3 * max(abs(expected), abs(readback))
