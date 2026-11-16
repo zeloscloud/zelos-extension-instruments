@@ -189,3 +189,9 @@ def test_real_owon_status_replies_read_mode_and_protection(
     protection_reader = next(r for r in profile.state if r.name == "protection")
     flags = [flag.value for flag in protection_reader.flags if engine.flag_is_set(flag, reply, 1)]
     assert (flags[0] if flags else "none") == protection
+
+
+def test_a_siglent_scope_pauses_after_a_setting(profiles: list[Profile]) -> None:
+    """An SDS824X HD misreads a setting's number when the next command follows at once."""
+    profile = next(p for p in profiles if p.id == "siglent-sds")
+    assert profile.link.command_delay_ms >= 5
