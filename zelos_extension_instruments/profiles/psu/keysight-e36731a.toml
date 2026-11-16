@@ -38,7 +38,7 @@ unlock = "SYST:COMM:RLST LOC"
 [ranges]
 voltage = { min = 0, max = 30.9, digits = 3 }
 current = { min = 0, max = 20.6, digits = 3 }
-ovp = { min_query = "VOLT:PROT? MIN,(@{ch})", max_query = "VOLT:PROT? MAX,(@{ch})", digits = 3 }
+ovp = { max = 33, min_query = "VOLT:PROT? MIN,(@{ch})", max_query = "VOLT:PROT? MAX,(@{ch})", digits = 3 }
 
 [signals.voltage]
 query = "MEAS:VOLT? (@{ch})"

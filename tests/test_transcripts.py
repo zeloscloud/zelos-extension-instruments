@@ -5,6 +5,7 @@ recorded from a unit, and every recorded reply parses. The recorder writes the f
 here is derived from a profile.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -14,8 +15,10 @@ from zelos_extension_instruments import engine
 from zelos_extension_instruments.profile import by_id, parse_idn
 from zelos_extension_instruments.profile_load import shipped
 from zelos_extension_instruments.record import TRANSCRIPTS, load_transcript
+from zelos_extension_instruments.sim.fake import FakeInstrument
 
 FILES = sorted(TRANSCRIPTS.rglob("*.txt")) if TRANSCRIPTS.is_dir() else []
+NUMBER = re.compile(r"([+-]?)\d*\.?(\d*)(?:([eE])([+-]?)(\d+))?([kMG]?)")
 
 
 def _header(path: Path) -> dict[str, str]:
@@ -62,3 +65,35 @@ def test_transcript_badges_match_the_files() -> None:
             assert profile.id in recorded, f"{profile.id} claims a transcript it does not have"
         if profile.evidence.badge == "manual":
             assert profile.id not in recorded, f"{profile.id} has a transcript; set its badge"
+
+
+def _form(text: str) -> tuple[bool, int, str | None, bool, int, bool]:
+    """How a number is written: an explicit plus, the decimals, the exponent's letter, sign and
+    digits, and whether a metric prefix such as M in 10M follows."""
+    found = NUMBER.fullmatch(text.strip())
+    assert found is not None, f"{text!r} is no number this test knows"
+    plus, decimals, letter, sign, exponent, prefix = found.groups()
+    return plus == "+", len(decimals), letter, bool(sign), len(exponent or ""), bool(prefix)
+
+
+@pytest.mark.parametrize("path", FILES, ids=[f"{p.parent.name}/{p.stem}" for p in FILES])
+def test_the_fake_writes_numbers_as_the_recorded_unit_does(path: Path) -> None:
+    header = _header(path)
+    profile = by_id(shipped(), header["profile"])
+    assert profile is not None
+    idn = parse_idn(header["identity"])
+    channels = int(header.get("channels") or profile.channels_for(idn.model))
+    fake = FakeInstrument(profile, idn.model, channels=channels)
+    selector = engine.Selector(profile.link.select)
+    replies = {command: reply for command, reply in load_transcript(path) if reply is not None}
+    compared = 0
+    for step in engine.compile_plan(profile, channels):
+        if step.flag is not None or step.reader.parse not in ("float", "floats"):
+            continue
+        if (select := selector.command_for(step.channel)) is not None:
+            fake.handle_text(select)
+        got = fake.handle_text(step.query) or ""
+        for real, fake_part in zip(replies[step.query].split(","), got.split(","), strict=True):
+            assert _form(fake_part) == _form(real), (step.query, real, fake_part)
+            compared += 1
+    assert compared, f"{path} records no number the fake writes"

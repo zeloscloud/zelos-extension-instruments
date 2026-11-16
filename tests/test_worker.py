@@ -350,6 +350,54 @@ def test_an_error_a_range_query_raised_does_not_cost_an_optional_field() -> None
     assert worker._channel[1].ranges["voltage"].max == 20.0
 
 
+def test_scpis_infinity_as_a_limit_reads_as_no_bound() -> None:
+    def unit(command: str) -> str | None:
+        if command == "*IDN?":
+            return "ACME,PSU-1,1,1"
+        if command == "SYST:ERR?":
+            return '0,"No error"'
+        if command == "VOLT? MAX":
+            return "9.9E+37"
+        if command in ("MEAS:VOLT?", "MEAS:POW?", "VOLT?"):
+            return "3.300"
+        return None
+
+    worker, _, emitter = connected(from_dict(GENERIC, "probe.toml"), unit, profile="probe")
+    assert worker._channel[1].ranges["voltage"].max is None
+    assert not any("out of step" in m for m in emitter.messages())
+
+
+@pytest.mark.parametrize(("reply", "maximum"), [("6.12000E+01", 61.2), ("inf", 96.0)])
+def test_a_protection_limit_takes_the_units_answer_else_the_manuals_figure(
+    reply: str, maximum: float
+) -> None:
+    n8900 = by_id(shipped(), "keysight-n8900")
+    assert n8900 is not None
+    fake = FakeInstrument(n8900, "N8920A")
+
+    def unit(command: str) -> str | bytes | None:
+        return reply if command == "VOLT:PROT? MAX" else fake.handle(command)
+
+    worker, _, _ = connected(n8900, unit, profile=n8900.id)
+    assert worker._channel[1].ranges["ovp"].max == maximum
+
+
+@pytest.mark.parametrize(("reply", "minimum"), [("4.00000E+00", 4.0), ("9.9E+37", 3.6)])
+def test_a_protection_minimum_takes_the_units_answer_else_the_manuals_figure(
+    reply: str, minimum: float
+) -> None:
+    psu = by_id(shipped(), "keithley-2260b")
+    assert psu is not None
+    fake = FakeInstrument(psu, "2260B-30-36")
+
+    def unit(command: str) -> str | bytes | None:
+        return reply if command == ":SOUR:CURR:PROT? MIN" else fake.handle(command)
+
+    worker, link, _ = connected(psu, unit, profile=psu.id)
+    assert ":SOUR:CURR:PROT? MIN" in link.commands
+    assert worker._channel[1].ranges["ocp"].min == minimum
+
+
 def test_one_silent_reply_while_probing_does_not_cost_the_field() -> None:
     """An event cannot gain a field later, so a field dropped at connect is gone for good."""
     silent_once = ["MEAS:VOLT?"]

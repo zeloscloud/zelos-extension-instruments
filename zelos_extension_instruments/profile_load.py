@@ -358,6 +358,7 @@ def _link(c: Check, raw: dict[str, Any]) -> LinkDefaults:
         ack=c.string(raw, "ack", None, "link"),
         remote_check=remote_check,
         skip_blank=c.boolean(raw, "skip_blank", False, "link"),
+        numbers=c.numbers(raw, "link"),
     )
 
 
@@ -403,7 +404,7 @@ def _range(c: Check, raw: Any, where: str) -> Range:
     if high is None and max_query is None:
         c.fail(where, "needs max or max_query.")
     return Range(
-        min=None if min_query else low,
+        min=None if min_query and "min" not in raw else low,
         max=high,
         digits=c.integer(raw, "digits", 3, where),
         step=step,

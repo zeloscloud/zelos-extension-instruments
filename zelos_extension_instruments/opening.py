@@ -252,8 +252,9 @@ def _read_ranges(worker: InstrumentWorker) -> None:
                 worker._recover(f"range {key}: {e}")
                 continue
             if high is not None and math.isfinite(high):
+                fallback = 0.0 if r.min is None else r.min
                 state.ranges[key] = r.with_bounds(
-                    low if low is None or math.isfinite(low) else 0.0, high
+                    low if low is None or math.isfinite(low) else fallback, high
                 )
 
 

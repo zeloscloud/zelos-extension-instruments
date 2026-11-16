@@ -472,6 +472,8 @@ class LinkDefaults:
     remote_check: tuple[str, str] | None = None
     # An empty line where a reply is expected is dropped, not taken as the reply.
     skip_blank: bool = False
+    # How the instrument writes numbers, as the fake writes them; the engine reads any form.
+    numbers: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -544,6 +546,8 @@ class Reader:
     key: str | None = None
     # For parse = "keyed": the key is looked for only before the first token equal to this.
     until: str | None = None
+    # How the instrument writes this reply's numbers, where it differs from `link.numbers`.
+    numbers: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

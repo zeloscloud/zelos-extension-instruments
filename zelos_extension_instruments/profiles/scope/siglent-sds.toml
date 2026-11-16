@@ -41,6 +41,7 @@ channels = 2
 [link]
 lan_port = 5025
 timeout_s = 3
+numbers = ".2E"
 
 [errors]
 query = ":SYSTem:ERRor?"
@@ -101,6 +102,7 @@ parse = "float"
 [state.memory_depth]
 query = ":ACQuire:MDEPth?"
 parse = "float"
+numbers = "metric"
 
 [state.points]
 query = ":ACQuire:POINts?"
