@@ -100,7 +100,7 @@ def test_set_reports_a_readback_that_disagrees(running) -> None:
 
     link._handler = clipping
     result = ask(worker, "set", channel=1, voltage=9.0)
-    assert result["error"].startswith("voltage reads back 8 after setting 9")
+    assert result["error"].startswith("voltage is 8 after setting 9")
 
 
 def test_output_switches_and_verifies(running) -> None:
@@ -517,8 +517,8 @@ def test_a_meter_range_passes_when_the_meter_picks_a_range_that_covers_it() -> N
     assert served(worker, "set", channel=1, range=5.0) == {"range": {"set": 5.0, "readback": 10.0}}
     assert unit.writes == ["VOLT:RANG 5"]
     assert served(worker, "set", channel=1, range=2000.0) == {
-        "error": "range reads back 1000 after setting 2000; "
-        "the instrument may have clipped it or refused it"
+        "error": "range is 1000 after setting 2000: "
+        "the instrument rounded it to its own step, clipped it or refused it"
     }
 
 
@@ -851,13 +851,13 @@ def _set_and_read_back(numbers: str | None, value: float, reply: str) -> dict[st
 def test_a_readback_from_a_unit_of_unknown_digits_must_agree_to_a_part_in_a_thousand(
     value: float, reply: str
 ) -> None:
-    with pytest.raises(RangeError, match="may have clipped it"):
+    with pytest.raises(RangeError, match="clipped it or refused it"):
         _set_and_read_back(None, value, reply)
 
 
 def test_a_three_digit_unit_reads_a_setting_back_rounded_to_its_digits() -> None:
     assert _set_and_read_back(".2E", 0.1234, "1.23E-01")["readback"] == pytest.approx(0.123)
-    with pytest.raises(RangeError, match="may have clipped it"):
+    with pytest.raises(RangeError, match="clipped it or refused it"):
         _set_and_read_back(".2E", 0.1234, "1.00E-01")
 
 
@@ -865,20 +865,20 @@ def test_a_three_digit_unit_reads_a_setting_back_rounded_to_its_digits() -> None
     ("value", "reply"), [(2e-6, "0.00E+00"), (0.003, "0.00E+00"), (0.996, "1.00E+00")]
 )
 def test_a_three_digit_unit_that_kept_another_value_fails_the_set(value: float, reply: str) -> None:
-    with pytest.raises(RangeError, match="may have clipped it"):
+    with pytest.raises(RangeError, match="clipped it or refused it"):
         _set_and_read_back(".2E", value, reply)
 
 
 def test_a_set_to_zero_must_read_back_zero() -> None:
     assert _set_and_read_back(".2E", 0.0, "0.00E+00")["readback"] == 0.0
-    with pytest.raises(RangeError, match="may have clipped it"):
+    with pytest.raises(RangeError, match="clipped it or refused it"):
         _set_and_read_back(".2E", 0.0, "4.00E-03")
 
 
 def test_a_nine_digit_unit_reads_a_setting_back_rounded_to_its_nine_digits() -> None:
     got = _set_and_read_back("+.8E", 1.234567891, "+1.23456789E+00")
     assert got["readback"] == pytest.approx(1.23456789)
-    with pytest.raises(RangeError, match="may have clipped it"):
+    with pytest.raises(RangeError, match="clipped it or refused it"):
         _set_and_read_back("+.8E", 1.23456789, "+1.24000000E+00")
 
 

@@ -178,8 +178,8 @@ def set_value(worker: InstrumentWorker, ch: int, name: str, value: float) -> dic
         agrees = engine.verified(value, readback, range_, scaled)
     if not agrees:
         raise RangeError(
-            f"{name} reads back {readback:g} after setting {value:g}; "
-            "the instrument may have clipped it or refused it"
+            f"{name} is {readback:g} after setting {value:g}: "
+            "the instrument rounded it to its own step, clipped it or refused it"
         )
     mark_own(worker, ch, worker.profile.verify_field(setter), readback)
     return {"set": value, "readback": readback}
